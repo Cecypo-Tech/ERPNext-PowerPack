@@ -1,6 +1,4 @@
 (function() {
-    console.log('🟢 PowerPack by Cecypo.Tech: Loading...');
-
     let powerPackInitialized = false;
     let currentViewMode = localStorage.getItem('pos_powerpack_view_mode') || 'thumbnail';
     let originalRenderItemList = null;
@@ -67,7 +65,6 @@
         applyInitialView();
 
         powerPackInitialized = true;
-        console.log('✅ PowerPack features enabled');
     }
 
     function injectViewToggleButtons() {

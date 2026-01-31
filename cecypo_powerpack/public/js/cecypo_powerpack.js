@@ -8,7 +8,7 @@
 window.CecypoPowerPack = window.CecypoPowerPack || {};
 
 $(document).ready(function () {
-    console.log("Cecypo PowerPack loaded");
+    // PowerPack initialized
 });
 
 /**
@@ -81,7 +81,6 @@ CecypoPowerPack.Settings = {
      */
     clearCache: function() {
         this._cache = {};
-        console.log('PowerPack Settings cache cleared');
     }
 };
 
@@ -106,10 +105,7 @@ CecypoPowerPack.ItemListPowerup = {
      */
     addButton: function(frm, label, action, group) {
         this.isEnabled(function(enabled) {
-            if (!enabled) {
-                console.log('Item List Powerup is disabled - button not added');
-                return;
-            }
+            if (!enabled) return;
 
             if (group) {
                 frm.add_custom_button(__(label), action, __(group));

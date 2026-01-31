@@ -21,7 +21,6 @@ cecypo_powerpack.sales_powerup = {
 	},
 
 	check_and_setup: function(frm) {
-		console.log('Sales Powerup: check_and_setup called for', frm.doctype);
 		// Fetch settings first
 		frappe.call({
 			method: 'frappe.client.get',
@@ -33,8 +32,6 @@ cecypo_powerpack.sales_powerup = {
 				if (r.message) {
 					cecypo_powerpack.sales_powerup.settings = r.message;
 					cecypo_powerpack.sales_powerup.enabled = cecypo_powerpack.sales_powerup.is_enabled_for_doctype(frm.doctype);
-					console.log('Sales Powerup enabled for', frm.doctype, ':', cecypo_powerpack.sales_powerup.enabled);
-					console.log('Settings:', cecypo_powerpack.sales_powerup.settings);
 
 					if (cecypo_powerpack.sales_powerup.enabled) {
 						cecypo_powerpack.sales_powerup.setup_all_items(frm);
@@ -45,9 +42,7 @@ cecypo_powerpack.sales_powerup = {
 	},
 
 	setup_all_items: function(frm) {
-		console.log('Setting up all items. Item count:', frm.doc.items ? frm.doc.items.length : 0);
 		if (!frm.doc.items || !frm.doc.items.length) {
-			console.log('No items to process');
 			return;
 		}
 
@@ -55,14 +50,12 @@ cecypo_powerpack.sales_powerup = {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 
 		if (!powerpack_enabled) {
-			console.log('PowerPack is disabled');
 			return;
 		}
 
 		// Process each item in the grid
 		frm.doc.items.forEach(function(item) {
 			if (item.item_code) {
-				console.log('Processing item:', item.item_code);
 				cecypo_powerpack.sales_powerup.add_item_info(frm, item);
 			}
 		});
@@ -83,20 +76,16 @@ cecypo_powerpack.sales_powerup = {
 
 		// Only show info when both customer and warehouse are present
 		if (!customer || !warehouse) {
-			console.log('Skipping item info - missing customer or warehouse. Customer:', customer, 'Warehouse:', warehouse);
 			return;
 		}
 
-		console.log('Adding item info for:', item_code, 'Customer:', customer, 'Warehouse:', warehouse);
 
 		// Find the grid row for this item
 		const grid_row = frm.fields_dict.items.grid.grid_rows_by_docname[item_doc.name];
 		if (!grid_row || !grid_row.wrapper) {
-			console.log('Grid row not found for:', item_doc.name);
 			return;
 		}
 
-		console.log('Grid row found:', grid_row);
 
 		// Remove existing info container first
 		grid_row.wrapper.find('.sales-item-info').remove();
@@ -112,7 +101,6 @@ cecypo_powerpack.sales_powerup = {
 		if (form_grid.length > 0) {
 			form_grid.after(info_container);
 			inserted = true;
-			console.log('Inserted after form-in-grid');
 		}
 
 		// Strategy 2: After grid-row
@@ -121,7 +109,6 @@ cecypo_powerpack.sales_powerup = {
 			if (row_elem.length > 0) {
 				row_elem.after(info_container);
 				inserted = true;
-				console.log('Inserted after grid-row');
 			}
 		}
 
@@ -129,11 +116,9 @@ cecypo_powerpack.sales_powerup = {
 		if (!inserted) {
 			grid_row.wrapper.append(info_container);
 			inserted = true;
-			console.log('Appended to wrapper');
 		}
 
 		if (!inserted) {
-			console.log('Could not insert info container');
 			return;
 		}
 
@@ -149,7 +134,6 @@ cecypo_powerpack.sales_powerup = {
 				warehouse: warehouse
 			},
 			callback: function(r) {
-				console.log('API response for', item_code, ':', r.message);
 				if (r.message) {
 					cecypo_powerpack.sales_powerup.render_item_info(info_container, r.message, item_rate, item_doc);
 
@@ -245,13 +229,6 @@ cecypo_powerpack.sales_powerup = {
 		const show_last_sale = settings.show_last_sale !== 0; // Default true
 		const show_last_sale_customer = settings.show_last_sale_to_customer !== 0; // Default true
 
-		console.log('=== Sales Powerup Debug ===');
-		console.log('Settings:', settings);
-		console.log('Visible Role:', visible_role);
-		console.log('Has Permission:', has_permission);
-		console.log('Show flags:', { show_stock, show_valuation, show_profit, show_last_purchase, show_last_sale, show_last_sale_customer });
-		console.log('Item data:', data);
-		console.log('Item rate:', item_rate);
 
 		// Helper function to format currency without symbol
 		const format_amount = (value) => {
@@ -509,12 +486,10 @@ cecypo_powerpack.sales_powerup = {
 		if (label_container.length > 0) {
 			// Insert at the end of the label container
 			label_container.append(metrics_html);
-			console.log('Profit metrics inserted in clearfix');
 		} else {
 			// Approach 2: Insert before the grid
 			const grid_wrapper = frm.fields_dict.items.grid.wrapper;
 			grid_wrapper.before(metrics_html);
-			console.log('Profit metrics inserted before grid');
 		}
 	}
 };
