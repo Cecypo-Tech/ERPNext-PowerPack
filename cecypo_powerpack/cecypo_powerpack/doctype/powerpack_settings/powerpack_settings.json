@@ -27,7 +27,12 @@
   "show_last_sale_to_customer",
   "item_list_powerup_section",
   "enable_item_list_powerup",
-  "item_list_powerup_description"
+  "item_list_powerup_description",
+  "validation_section",
+  "enable_duplicate_tax_id_check",
+  "tax_id_validation_description",
+  "prevent_etr_invoice_cancellation",
+  "etr_validation_description"
  ],
  "fields": [
   {
@@ -160,6 +165,35 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Enable the Price List Bulk Editor client script for efficient bulk editing of item prices.</p>"
+  },
+  {
+   "fieldname": "validation_section",
+   "fieldtype": "Section Break",
+   "label": "Validation & Checks"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_duplicate_tax_id_check",
+   "fieldtype": "Check",
+   "label": "Enable Duplicate Tax ID Check"
+  },
+  {
+   "fieldname": "tax_id_validation_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">When enabled, the system will warn you before saving a Customer or Supplier if the Tax ID is already used by other records. This helps prevent duplicate entries.</p>"
+  },
+  {
+   "default": "0",
+   "fieldname": "prevent_etr_invoice_cancellation",
+   "fieldtype": "Check",
+   "label": "Prevent Cancellation if ETR Number Set"
+  },
+  {
+   "fieldname": "etr_validation_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">When enabled, Sales Invoices and POS Invoices with an ETR Invoice Number cannot be cancelled. This prevents accidental cancellation of tax-registered invoices.</p>"
   }
  ],
  "issingle": 1,

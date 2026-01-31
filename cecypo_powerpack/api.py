@@ -184,6 +184,129 @@ def get_item_info_for_quotation(item_code: str, customer: str = None, warehouse:
 
 
 @frappe.whitelist()
+def fetch_item_prices(item_codes_str: str, buying_price_list: str, selling_price_list: str) -> list:
+    """
+    Fetch item prices for bulk price editor.
+
+    Args:
+        item_codes_str: Pipe-delimited string of item codes (e.g., "ITEM001|||ITEM002|||ITEM003")
+        buying_price_list: Name of the buying price list
+        selling_price_list: Name of the selling price list
+
+    Returns:
+        list: List of dictionaries containing item code, name, cost price, and sell price
+    """
+    if not item_codes_str or not buying_price_list or not selling_price_list:
+        return []
+
+    # Split item codes
+    item_codes = item_codes_str.split('|||')
+
+    results = []
+    for item_code in item_codes:
+        if not item_code:
+            continue
+
+        # Get item details
+        item = frappe.get_cached_value('Item', item_code, ['item_code', 'item_name'], as_dict=True)
+        if not item:
+            continue
+
+        # Get buying price (cost)
+        cost_price = frappe.db.get_value(
+            'Item Price',
+            {
+                'item_code': item_code,
+                'price_list': buying_price_list
+            },
+            'price_list_rate'
+        ) or 0
+
+        # Get selling price
+        sell_price = frappe.db.get_value(
+            'Item Price',
+            {
+                'item_code': item_code,
+                'price_list': selling_price_list
+            },
+            'price_list_rate'
+        ) or 0
+
+        results.append({
+            'item_code': item.get('item_code'),
+            'item_name': item.get('item_name'),
+            'cost_price': cost_price,
+            'sell_price': sell_price
+        })
+
+    return results
+
+
+@frappe.whitelist()
+def save_item_prices(items_str: str, selling_price_list: str) -> dict:
+    """
+    Save bulk updated item prices.
+
+    Args:
+        items_str: Pipe-delimited string of "item_code::price" pairs (e.g., "ITEM001::100.50|||ITEM002::200.00")
+        selling_price_list: Name of the selling price list
+
+    Returns:
+        dict: Contains updated_count
+    """
+    if not items_str or not selling_price_list:
+        frappe.throw(_("Missing required parameters"))
+
+    # Split items
+    items_data = items_str.split('|||')
+    updated_count = 0
+
+    for item_data in items_data:
+        if not item_data or '::' not in item_data:
+            continue
+
+        try:
+            item_code, price = item_data.split('::', 1)
+            price = float(price)
+
+            # Check if Item Price exists
+            existing_price = frappe.db.exists(
+                'Item Price',
+                {
+                    'item_code': item_code,
+                    'price_list': selling_price_list
+                }
+            )
+
+            if existing_price:
+                # Update existing
+                doc = frappe.get_doc('Item Price', existing_price)
+                doc.price_list_rate = price
+                doc.save(ignore_permissions=False)
+            else:
+                # Create new
+                doc = frappe.get_doc({
+                    'doctype': 'Item Price',
+                    'item_code': item_code,
+                    'price_list': selling_price_list,
+                    'price_list_rate': price
+                })
+                doc.insert(ignore_permissions=False)
+
+            updated_count += 1
+
+        except Exception as e:
+            frappe.log_error(f"Error updating price for {item_code}: {str(e)}", "Bulk Price Update Error")
+            continue
+
+    frappe.db.commit()
+
+    return {
+        'updated_count': updated_count
+    }
+
+
+@frappe.whitelist()
 def check_duplicate_tax_id(doctype: str, tax_id: str, current_name: str = None) -> dict:
     """
     Check if a tax ID exists more than twice in Customer or Supplier records.

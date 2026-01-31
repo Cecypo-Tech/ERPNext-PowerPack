@@ -136,6 +136,14 @@ frappe.ui.form.on('PowerPack Settings', {
  */
 CecypoPowerPack.TaxIDChecker = {
     /**
+     * Check if feature is enabled
+     * @param {Function} callback - Callback receiving boolean
+     */
+    isEnabled: function(callback) {
+        CecypoPowerPack.Settings.isEnabled('enable_duplicate_tax_id_check', callback);
+    },
+
+    /**
      * Check for duplicate tax IDs and block save if found
      * @param {Object} frm - The form object
      * @param {String} doctype - 'Customer' or 'Supplier'
@@ -146,6 +154,17 @@ CecypoPowerPack.TaxIDChecker = {
 
         // If no tax_id or user already confirmed, allow save
         if (!tax_id || frm._tax_id_confirmed) {
+            return true;
+        }
+
+        // Check if feature is enabled (synchronous check from cache)
+        let feature_enabled = false;
+        CecypoPowerPack.Settings.get(function(settings) {
+            feature_enabled = settings.enable_duplicate_tax_id_check === 1;
+        });
+
+        // If feature disabled, allow save
+        if (!feature_enabled) {
             return true;
         }
 
@@ -301,5 +320,38 @@ frappe.ui.form.on('Supplier', {
     after_save: function(frm) {
         // Reset confirmation flag after successful save
         frm._tax_id_confirmed = false;
+    }
+});
+
+/**
+ * ETR Invoice Cancellation Prevention
+ * Shows informational dialog before server-side validation blocks cancellation
+ */
+CecypoPowerPack.ETRCancelBlock = {
+    showWarning: function(frm) {
+        CecypoPowerPack.Settings.get(function(settings) {
+            if (settings.prevent_etr_invoice_cancellation === 1 && frm.doc.etr_invoice_number) {
+                frappe.msgprint({
+                    title: __('ETR Invoice Cannot Be Cancelled'),
+                    indicator: 'red',
+                    message: __('This document contains an ETR Invoice Number: <strong>{0}</strong><br><br>ETR registered invoices cannot be cancelled for tax compliance reasons.<br><br>The cancellation will be blocked by the system.',
+                        [frm.doc.etr_invoice_number])
+                });
+            }
+        });
+    }
+};
+
+// Hook into Sales Invoice
+frappe.ui.form.on('Sales Invoice', {
+    before_cancel: function(frm) {
+        CecypoPowerPack.ETRCancelBlock.showWarning(frm);
+    }
+});
+
+// Hook into POS Invoice
+frappe.ui.form.on('POS Invoice', {
+    before_cancel: function(frm) {
+        CecypoPowerPack.ETRCancelBlock.showWarning(frm);
     }
 });

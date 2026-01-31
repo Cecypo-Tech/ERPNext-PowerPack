@@ -33,9 +33,7 @@ app_include_css = [
 app_include_js = [
     "/assets/cecypo_powerpack/js/cecypo_powerpack.js",
     "/assets/cecypo_powerpack/js/point_of_sale_powerpack.js",
-    "/assets/cecypo_powerpack/js/sales_powerup.js",
-    "/assets/cecypo_powerpack/js/sales_order_tweaks.js",
-    "/assets/cecypo_powerpack/js/sales_invoice_tweaks.js"
+    "/assets/cecypo_powerpack/js/sales_powerup.js"
 ]
 
 # include js, css files in header of web template
@@ -184,13 +182,14 @@ fixtures = [
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Sales Invoice": {
+		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation"
+	},
+	"POS Invoice": {
+		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation"
+	}
+}
 
 # Scheduled Tasks
 # ---------------

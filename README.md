@@ -7,7 +7,7 @@
 ###### Bulk Price Update
 ![](https://i.imgur.com/VYu5iaq.png)
 ###### Duplicate customer or supplier soft warning
-~[]https://i.imgur.com/btf7hCB.png
+![]https://i.imgur.com/btf7hCB.png
 
 ### Installation
 
