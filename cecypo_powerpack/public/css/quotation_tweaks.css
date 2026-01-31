@@ -16,6 +16,8 @@
     font-size: 11px;
     color: var(--text-muted);
     line-height: 1.4;
+    position: relative;
+    align-items: center;
 }
 
 .quotation-item-details .info-item {
@@ -43,10 +45,28 @@
     .quotation-item-details {
         flex-direction: column;
         gap: 5px;
+        padding-right: 90px; /* Make room for profit indicator */
     }
 
     .quotation-item-details .info-item:not(:last-child)::after {
         display: none;
+    }
+
+    .item-profit-indicator {
+        font-size: 9px;
+        padding: 2px 6px;
+        gap: 4px;
+    }
+
+    .item-profit-indicator .profit-dot {
+        width: 6px;
+        height: 6px;
+    }
+}
+
+@media (min-width: 769px) {
+    .quotation-item-details {
+        padding-right: 110px; /* Make room for profit indicator on desktop */
     }
 }
 
@@ -58,6 +78,10 @@
 /* Grid row adjustments to accommodate the info section */
 .grid-row:has(.quotation-item-info) {
     border-bottom: none;
+}
+
+.grid-row {
+    padding: 0 !important;
 }
 
 .quotation-item-info + .grid-row {
@@ -87,7 +111,7 @@ html[data-theme="dark"] .profit-metrics-section {
     border-left: 4px solid rgba(40, 167, 69, 0.5) !important;
     border-radius: 0 4px 4px 0;
     float: right;
-    margin-top:-10px;
+    margin-top: -15px;
 }
 
 .profit-metrics-section.profit-negative-bg {
@@ -95,7 +119,7 @@ html[data-theme="dark"] .profit-metrics-section {
     border-left: 4px solid rgba(220, 53, 69, 0.5) !important;
     border-radius: 0 4px 4px 0;
     float: right;
-    margin-top:-10px;
+    margin-top: -15px;
 }
 
 html[data-theme="dark"] .profit-metrics-section.profit-positive-bg {
@@ -185,4 +209,122 @@ html[data-theme="dark"] .frappe-control.profit-negative-bg {
     .profit-metrics-inline .metric-mini {
         margin-right: 8px;
     }
+}
+
+/* Item-level profit indicator */
+.item-profit-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: help;
+    transition: all 0.2s ease;
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.item-profit-indicator:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.item-profit-indicator .profit-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Color classes for profit levels */
+.item-profit-indicator.profit-loss {
+    background: rgba(220, 53, 69, 0.15);
+    color: #dc3545;
+    border: 1px solid rgba(220, 53, 69, 0.3);
+}
+
+.item-profit-indicator.profit-loss .profit-dot {
+    background: #dc3545;
+    box-shadow: 0 0 6px rgba(220, 53, 69, 0.6);
+}
+
+.item-profit-indicator.profit-low {
+    background: rgba(253, 126, 20, 0.15);
+    color: #fd7e14;
+    border: 1px solid rgba(253, 126, 20, 0.3);
+}
+
+.item-profit-indicator.profit-low .profit-dot {
+    background: #fd7e14;
+    box-shadow: 0 0 6px rgba(253, 126, 20, 0.6);
+}
+
+.item-profit-indicator.profit-medium {
+    background: rgba(255, 193, 7, 0.15);
+    color: #e6a800;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.item-profit-indicator.profit-medium .profit-dot {
+    background: #ffc107;
+    box-shadow: 0 0 6px rgba(255, 193, 7, 0.6);
+}
+
+.item-profit-indicator.profit-good {
+    background: rgba(40, 167, 69, 0.15);
+    color: #28a745;
+    border: 1px solid rgba(40, 167, 69, 0.3);
+}
+
+.item-profit-indicator.profit-good .profit-dot {
+    background: #28a745;
+    box-shadow: 0 0 6px rgba(40, 167, 69, 0.6);
+}
+
+.item-profit-indicator.profit-excellent {
+    background: rgba(21, 87, 36, 0.15);
+    color: #155724;
+    border: 1px solid rgba(21, 87, 36, 0.3);
+}
+
+.item-profit-indicator.profit-excellent .profit-dot {
+    background: #155724;
+    box-shadow: 0 0 6px rgba(21, 87, 36, 0.8);
+}
+
+/* Dark theme adjustments for profit indicators */
+html[data-theme="dark"] .item-profit-indicator.profit-loss {
+    background: rgba(220, 53, 69, 0.25);
+    color: #ff6b7a;
+    border-color: rgba(220, 53, 69, 0.4);
+}
+
+html[data-theme="dark"] .item-profit-indicator.profit-low {
+    background: rgba(253, 126, 20, 0.25);
+    color: #ff9d5c;
+    border-color: rgba(253, 126, 20, 0.4);
+}
+
+html[data-theme="dark"] .item-profit-indicator.profit-medium {
+    background: rgba(255, 193, 7, 0.25);
+    color: #ffd454;
+    border-color: rgba(255, 193, 7, 0.4);
+}
+
+html[data-theme="dark"] .item-profit-indicator.profit-good {
+    background: rgba(40, 167, 69, 0.25);
+    color: #5bc97a;
+    border-color: rgba(40, 167, 69, 0.4);
+}
+
+html[data-theme="dark"] .item-profit-indicator.profit-excellent {
+    background: rgba(21, 87, 36, 0.25);
+    color: #4db56d;
+    border-color: rgba(21, 87, 36, 0.4);
 }

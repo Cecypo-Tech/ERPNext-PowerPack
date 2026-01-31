@@ -7,6 +7,11 @@
 
 /* Add your custom styles here */
 
+/* Global body styles */
+body {
+    line-height: 1em !important;
+}
+
 .cecypo-card {
     background: white;
     border-radius: 12px;

@@ -8,9 +8,23 @@
   "pos_powerup_section",
   "enable_pos_powerup",
   "pos_powerup_description",
-  "quotation_tweaks_section",
-  "enable_quotation_tweaks",
-  "quotation_tweaks_description"
+  "sales_powerup_section",
+  "enable_quotation_powerup",
+  "enable_sales_order_powerup",
+  "column_break_sales_1",
+  "enable_sales_invoice_powerup",
+  "enable_pos_invoice_powerup",
+  "sales_powerup_description",
+  "sales_powerup_details_section",
+  "sales_visible_to_role",
+  "column_break_1",
+  "show_stock_info",
+  "show_valuation_rate",
+  "show_profit_indicator",
+  "column_break_2",
+  "show_last_purchase",
+  "show_last_sale",
+  "show_last_sale_to_customer"
  ],
  "fields": [
   {
@@ -46,6 +60,64 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Display additional item information below each quotation item including current stock, valuation rate, last purchase price, and sales history.</p>"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "enable_quotation_tweaks",
+   "fieldname": "quotation_tweaks_details_section",
+   "fieldtype": "Section Break",
+   "label": "Quotation Tweaks - Detailed Settings"
+  },
+  {
+   "fieldname": "quotation_visible_to_role",
+   "fieldtype": "Link",
+   "label": "Visible to Role",
+   "options": "Role",
+   "description": "Select which role can see the detailed item information (valuation rate, profit indicator, etc.)"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_stock_info",
+   "fieldtype": "Check",
+   "label": "Show Stock Information"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_valuation_rate",
+   "fieldtype": "Check",
+   "label": "Show Valuation Rate"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_profit_indicator",
+   "fieldtype": "Check",
+   "label": "Show Profit Indicator"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_last_purchase",
+   "fieldtype": "Check",
+   "label": "Show Last Purchase"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_last_sale",
+   "fieldtype": "Check",
+   "label": "Show Last Sale"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_last_sale_to_customer",
+   "fieldtype": "Check",
+   "label": "Show Last Sale to Customer"
   }
  ],
  "issingle": 1,

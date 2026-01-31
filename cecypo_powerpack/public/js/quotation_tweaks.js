@@ -5,20 +5,27 @@ frappe.provide('cecypo_powerpack.quotation_tweaks');
 
 cecypo_powerpack.quotation_tweaks = {
 	enabled: false,
+	settings: {},
 
 	check_and_setup: function(frm) {
 		console.log('Quotation Tweaks: check_and_setup called');
-		// Check if quotation tweaks is enabled
+		// Fetch settings first
 		frappe.call({
-			method: 'cecypo_powerpack.utils.is_feature_enabled',
+			method: 'frappe.client.get',
 			args: {
-				feature_name: 'enable_quotation_tweaks'
+				doctype: 'PowerPack Settings',
+				name: 'PowerPack Settings'
 			},
 			callback: function(r) {
-				cecypo_powerpack.quotation_tweaks.enabled = r.message || false;
-				console.log('Quotation Tweaks enabled:', cecypo_powerpack.quotation_tweaks.enabled);
-				if (cecypo_powerpack.quotation_tweaks.enabled) {
-					cecypo_powerpack.quotation_tweaks.setup_all_items(frm);
+				if (r.message) {
+					cecypo_powerpack.quotation_tweaks.settings = r.message;
+					cecypo_powerpack.quotation_tweaks.enabled = r.message.enable_quotation_tweaks || false;
+					console.log('Quotation Tweaks enabled:', cecypo_powerpack.quotation_tweaks.enabled);
+					console.log('Settings:', cecypo_powerpack.quotation_tweaks.settings);
+
+					if (cecypo_powerpack.quotation_tweaks.enabled) {
+						cecypo_powerpack.quotation_tweaks.setup_all_items(frm);
+					}
 				}
 			}
 		});
@@ -47,8 +54,9 @@ cecypo_powerpack.quotation_tweaks = {
 			}
 		});
 
-		// Add profit metrics for System Managers
-		if (frappe.user.has_role('System Manager')) {
+		// Add profit metrics if user has the required role
+		const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+		if (frappe.user.has_role(visible_role)) {
 			cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 		}
 	},
@@ -57,6 +65,7 @@ cecypo_powerpack.quotation_tweaks = {
 		const item_code = item_doc.item_code;
 		const customer = frm.doc.party_name || frm.doc.customer;
 		const warehouse = item_doc.warehouse || frm.doc.set_warehouse;
+		const item_rate = item_doc.rate || 0;
 
 		console.log('Adding item info for:', item_code, 'Row name:', item_doc.name);
 
@@ -122,10 +131,11 @@ cecypo_powerpack.quotation_tweaks = {
 			callback: function(r) {
 				console.log('API response for', item_code, ':', r.message);
 				if (r.message) {
-					cecypo_powerpack.quotation_tweaks.render_item_info(info_container, r.message);
+					cecypo_powerpack.quotation_tweaks.render_item_info(info_container, r.message, item_rate, item_doc);
 
 					// Store valuation rate in the item doc for profit calculation
-					if (r.message.valuation_rate && frappe.user.has_role('System Manager')) {
+					const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+					if (r.message.valuation_rate && frappe.user.has_role(visible_role)) {
 						frappe.model.set_value(item_doc.doctype, item_doc.name, 'valuation_rate', r.message.valuation_rate);
 
 						// Update profit metrics after setting valuation rate
@@ -199,11 +209,29 @@ cecypo_powerpack.quotation_tweaks = {
 		}
 	},
 
-	render_item_info: function(container, data) {
+	render_item_info: function(container, data, item_rate, item_doc) {
 		let html_parts = [];
 
-		// Check if user is System Manager
-		const is_system_manager = frappe.user.has_role('System Manager');
+		// Check if user has the required role
+		const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+		const has_permission = frappe.user.has_role(visible_role);
+
+		// Get visibility settings
+		const settings = cecypo_powerpack.quotation_tweaks.settings;
+		const show_stock = settings.show_stock_info !== 0; // Default true
+		const show_valuation = settings.show_valuation_rate !== 0; // Default true
+		const show_profit = settings.show_profit_indicator !== 0; // Default true
+		const show_last_purchase = settings.show_last_purchase !== 0; // Default true
+		const show_last_sale = settings.show_last_sale !== 0; // Default true
+		const show_last_sale_customer = settings.show_last_sale_to_customer !== 0; // Default true
+
+		console.log('=== Quotation Tweaks Debug ===');
+		console.log('Settings:', settings);
+		console.log('Visible Role:', visible_role);
+		console.log('Has Permission:', has_permission);
+		console.log('Show flags:', { show_stock, show_valuation, show_profit, show_last_purchase, show_last_sale, show_last_sale_customer });
+		console.log('Item data:', data);
+		console.log('Item rate:', item_rate);
 
 		// Helper function to format currency without symbol
 		const format_amount = (value) => {
@@ -215,8 +243,35 @@ cecypo_powerpack.quotation_tweaks = {
 			return moment(date).format('DD-MMM-YY');
 		};
 
+		// Helper function to get profit indicator based on margin
+		const get_profit_indicator = (margin) => {
+			let profit_class, profit_label;
+
+			if (margin < 0) {
+				profit_class = 'profit-loss';
+				profit_label = 'Loss';
+			} else if (margin < 10) {
+				profit_class = 'profit-low';
+				profit_label = 'Low';
+			} else if (margin < 20) {
+				profit_class = 'profit-medium';
+				profit_label = 'Med';
+			} else if (margin < 30) {
+				profit_class = 'profit-good';
+				profit_label = 'Good';
+			} else {
+				profit_class = 'profit-excellent';
+				profit_label = 'Excel';
+			}
+
+			return `<span class="item-profit-indicator ${profit_class}" title="Profit Margin: ${margin.toFixed(1)}%">
+						<span class="profit-dot"></span>
+						${margin.toFixed(1)}%
+					</span>`;
+		};
+
 		// Stock information (detailed breakdown)
-		if (data.actual_qty !== null && data.actual_qty !== undefined) {
+		if (show_stock && data.actual_qty !== null && data.actual_qty !== undefined) {
 			let stock_parts = [];
 
 			// Physical stock
@@ -232,16 +287,16 @@ cecypo_powerpack.quotation_tweaks = {
 				stock_parts.push(`Avl: ${frappe.format(data.available_qty, {fieldtype: 'Float', precision: 0})}`);
 			}
 
-			html_parts.push(`<span class="info-item"><strong>Stock:</strong> ${stock_parts.join(' | ')}</span>`);
+			html_parts.push(`<span class="info-item"><strong>Stock:</strong> ${stock_parts.join('&nbsp;&bull;&nbsp;')}</span>`);
 		}
 
-		// Valuation rate (System Manager only)
-		if (is_system_manager && data.valuation_rate !== null && data.valuation_rate !== undefined) {
+		// Valuation rate (with permission check)
+		if (has_permission && show_valuation && data.valuation_rate !== null && data.valuation_rate !== undefined) {
 			html_parts.push(`<span class="info-item"><strong>Value:</strong> ${format_amount(data.valuation_rate)}</span>`);
 		}
 
-		// Last purchase (System Manager only)
-		if (is_system_manager && data.last_purchase_rate !== null && data.last_purchase_rate !== undefined) {
+		// Last purchase (with permission check)
+		if (has_permission && show_last_purchase && data.last_purchase_rate !== null && data.last_purchase_rate !== undefined) {
 			let purchase_text = format_amount(data.last_purchase_rate);
 			if (data.last_purchase_date) {
 				purchase_text += ` (${format_short_date(data.last_purchase_date)})`;
@@ -250,7 +305,7 @@ cecypo_powerpack.quotation_tweaks = {
 		}
 
 		// Last sale to anyone
-		if (data.last_sale_rate !== null && data.last_sale_rate !== undefined) {
+		if (show_last_sale && data.last_sale_rate !== null && data.last_sale_rate !== undefined) {
 			let last_sale_text = format_amount(data.last_sale_rate);
 			if (data.last_sale_date) {
 				last_sale_text += ` (${format_short_date(data.last_sale_date)})`;
@@ -259,7 +314,7 @@ cecypo_powerpack.quotation_tweaks = {
 		}
 
 		// Last sale to this customer
-		if (data.last_sale_to_customer_rate !== null && data.last_sale_to_customer_rate !== undefined) {
+		if (show_last_sale_customer && data.last_sale_to_customer_rate !== null && data.last_sale_to_customer_rate !== undefined) {
 			let customer_sale_text = format_amount(data.last_sale_to_customer_rate);
 			if (data.last_sale_to_customer_date) {
 				customer_sale_text += ` (${format_short_date(data.last_sale_to_customer_date)})`;
@@ -267,13 +322,76 @@ cecypo_powerpack.quotation_tweaks = {
 			html_parts.push(`<span class="info-item"><strong>Last Sold to Customer:</strong> ${customer_sale_text}</span>`);
 		}
 
+		// Calculate profit indicator separately (positioned on far right via CSS)
+		let profit_indicator_html = '';
+		if (has_permission && show_profit && data.valuation_rate !== null && data.valuation_rate !== undefined) {
+			const valuation = data.valuation_rate || 0;
+			const rate = item_rate || 0;
+			const profit_amount = rate - valuation;
+			const profit_margin = valuation > 0 ? (profit_amount / rate * 100) : 0;
+			profit_indicator_html = get_profit_indicator(profit_margin);
+		}
+
 		// Render the info if we have any data
-		if (html_parts.length > 0) {
-			const html = `<div class="quotation-item-details">${html_parts.join('')}</div>`;
+		if (html_parts.length > 0 || profit_indicator_html) {
+			const html = `<div class="quotation-item-details" data-item-name="${item_doc.name}">${html_parts.join('')}${profit_indicator_html}</div>`;
 			container.html(html);
 		} else {
 			container.html('');
 		}
+	},
+
+	update_profit_indicator: function(frm, item_doc) {
+		// Update profit indicator dynamically when rate changes
+		const settings = cecypo_powerpack.quotation_tweaks.settings;
+		const visible_role = settings.quotation_visible_to_role || 'System Manager';
+		const has_permission = frappe.user.has_role(visible_role);
+		const show_profit = settings.show_profit_indicator !== 0;
+
+		if (!has_permission || !show_profit || !item_doc.valuation_rate) {
+			return;
+		}
+
+		// Find the profit indicator element for this item
+		const info_container = $(`.quotation-item-details[data-item-name="${item_doc.name}"]`);
+		if (info_container.length === 0) {
+			return;
+		}
+
+		// Calculate new profit margin
+		const valuation = item_doc.valuation_rate || 0;
+		const rate = item_doc.rate || 0;
+		const profit_amount = rate - valuation;
+		const profit_margin = valuation > 0 ? (profit_amount / rate * 100) : 0;
+
+		// Determine profit class
+		let profit_class, profit_label;
+		if (profit_margin < 0) {
+			profit_class = 'profit-loss';
+			profit_label = 'Loss';
+		} else if (profit_margin < 10) {
+			profit_class = 'profit-low';
+			profit_label = 'Low';
+		} else if (profit_margin < 20) {
+			profit_class = 'profit-medium';
+			profit_label = 'Med';
+		} else if (profit_margin < 30) {
+			profit_class = 'profit-good';
+			profit_label = 'Good';
+		} else {
+			profit_class = 'profit-excellent';
+			profit_label = 'Excel';
+		}
+
+		// Update the indicator
+		const indicator_html = `<span class="item-profit-indicator ${profit_class}" title="Profit Margin: ${profit_margin.toFixed(1)}%">
+									<span class="profit-dot"></span>
+									${profit_margin.toFixed(1)}%
+								</span>`;
+
+		// Remove old indicator and add new one
+		info_container.find('.item-profit-indicator').remove();
+		info_container.append(indicator_html);
 	},
 
 	add_profit_metrics: function(frm) {
@@ -404,7 +522,9 @@ frappe.ui.form.on('Quotation', {
 	// Update profit metrics when taxes change
 	total_taxes_and_charges: function(frm) {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role('System Manager')) {
+		const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+
+		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 			}, 300);
@@ -413,7 +533,9 @@ frappe.ui.form.on('Quotation', {
 
 	grand_total: function(frm) {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role('System Manager')) {
+		const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+
+		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 			}, 300);
@@ -427,10 +549,11 @@ frappe.ui.form.on('Quotation Item', {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled) {
 			const item = locals[cdt][cdn];
+			const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				cecypo_powerpack.quotation_tweaks.add_item_info(frm, item);
 				// Update profit metrics
-				if (frappe.user.has_role('System Manager')) {
+				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 				}
 			}, 500);
@@ -441,12 +564,13 @@ frappe.ui.form.on('Quotation Item', {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled) {
 			const item = locals[cdt][cdn];
+			const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				if (item.item_code) {
 					cecypo_powerpack.quotation_tweaks.add_item_info(frm, item);
 				}
 				// Update profit metrics
-				if (frappe.user.has_role('System Manager')) {
+				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 				}
 			}, 500);
@@ -456,9 +580,10 @@ frappe.ui.form.on('Quotation Item', {
 	items_remove: function(frm, cdt, cdn) {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled) {
+			const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				// Update profit metrics after removal
-				if (frappe.user.has_role('System Manager')) {
+				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 				}
 			}, 500);
@@ -469,12 +594,13 @@ frappe.ui.form.on('Quotation Item', {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled) {
 			const item = locals[cdt][cdn];
+			const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				if (item.item_code) {
 					cecypo_powerpack.quotation_tweaks.add_item_info(frm, item);
 				}
 				// Update profit metrics
-				if (frappe.user.has_role('System Manager')) {
+				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 				}
 			}, 500);
@@ -483,7 +609,9 @@ frappe.ui.form.on('Quotation Item', {
 
 	qty: function(frm, cdt, cdn) {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role('System Manager')) {
+		const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+
+		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
 			}, 300);
@@ -492,10 +620,20 @@ frappe.ui.form.on('Quotation Item', {
 
 	rate: function(frm, cdt, cdn) {
 		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled && frappe.user.has_role('System Manager')) {
-			setTimeout(function() {
-				cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
-			}, 300);
+		const visible_role = cecypo_powerpack.quotation_tweaks.settings.quotation_visible_to_role || 'System Manager';
+
+		if (cecypo_powerpack.quotation_tweaks.enabled && powerpack_enabled) {
+			const item = locals[cdt][cdn];
+
+			// Update profit indicator for this specific item
+			cecypo_powerpack.quotation_tweaks.update_profit_indicator(frm, item);
+
+			// Update overall profit metrics if user has permission
+			if (frappe.user.has_role(visible_role)) {
+				setTimeout(function() {
+					cecypo_powerpack.quotation_tweaks.add_profit_metrics(frm);
+				}, 300);
+			}
 		}
 	}
 });
