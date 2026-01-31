@@ -1,6 +1,13 @@
 ### Cecypo PowerPack
 
-Custom Frappe app for Cecypo PowerPack features
+:fa-star-half-o: Gives ERPNext Powerups! :facepunch:
+
+### Features
+
+###### Bulk Price Update
+![](https://i.imgur.com/VYu5iaq.png)
+###### Duplicate customer or supplier soft warning
+~[]https://i.imgur.com/btf7hCB.png
 
 ### Installation
 
@@ -11,22 +18,6 @@ cd $PATH_TO_YOUR_BENCH
 bench get-app $URL_OF_THIS_REPO --branch develop
 bench install-app cecypo_powerpack
 ```
-
-### Contributing
-
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
-
-```bash
-cd apps/cecypo_powerpack
-pre-commit install
-```
-
-Pre-commit is configured to use the following tools for checking and formatting your code:
-
-- ruff
-- eslint
-- prettier
-- pyupgrade
 
 ### License
 

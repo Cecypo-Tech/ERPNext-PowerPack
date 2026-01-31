@@ -181,3 +181,58 @@ def get_item_info_for_quotation(item_code: str, customer: str = None, warehouse:
         result["last_sale_date"] = last_sale[0].get("posting_date")
 
     return result
+
+
+@frappe.whitelist()
+def check_duplicate_tax_id(doctype: str, tax_id: str, current_name: str = None) -> dict:
+    """
+    Check if a tax ID exists more than twice in Customer or Supplier records.
+
+    Args:
+        doctype: Either 'Customer' or 'Supplier'
+        tax_id: The tax ID to check
+        current_name: Current document name (to exclude from duplicates)
+
+    Returns:
+        dict: Contains 'has_duplicates' (bool) and 'duplicates' (list)
+    """
+    if not tax_id or doctype not in ['Customer', 'Supplier']:
+        return {"has_duplicates": False, "duplicates": []}
+
+    # Build filters
+    filters = [
+        [doctype, 'tax_id', '=', tax_id]
+    ]
+
+    # Exclude current document if editing
+    if current_name:
+        filters.append([doctype, 'name', '!=', current_name])
+
+    # Get all records with the same tax_id
+    duplicates = frappe.get_all(
+        doctype,
+        filters=filters,
+        fields=['name', 'customer_name' if doctype == 'Customer' else 'supplier_name', 'creation'],
+        order_by='creation desc'
+    )
+
+    # Format the results
+    formatted_duplicates = []
+    for dup in duplicates:
+        formatted_duplicates.append({
+            'name': dup.get('name'),
+            'display_name': dup.get('customer_name') if doctype == 'Customer' else dup.get('supplier_name'),
+            'creation': dup.get('creation')
+        })
+
+    # Check if tax_id exists more than twice (including current document)
+    # If current_name is provided, duplicates count + 1 (current) > 2
+    # If new document, duplicates count >= 2
+    total_count = len(duplicates) + (1 if current_name else 1)
+    has_duplicates = total_count > 1
+
+    return {
+        "has_duplicates": has_duplicates,
+        "duplicates": formatted_duplicates,
+        "total_count": total_count
+    }

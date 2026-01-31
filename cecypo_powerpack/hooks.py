@@ -28,12 +28,12 @@ app_license = "mit"
 app_include_css = [
     "/assets/cecypo_powerpack/css/cecypo_powerpack.css",
     "/assets/cecypo_powerpack/css/point_of_sale_powerpack.css",
-    "/assets/cecypo_powerpack/css/quotation_tweaks.css"
+    "/assets/cecypo_powerpack/css/sales_powerup.css"
 ]
 app_include_js = [
     "/assets/cecypo_powerpack/js/cecypo_powerpack.js",
     "/assets/cecypo_powerpack/js/point_of_sale_powerpack.js",
-    "/assets/cecypo_powerpack/js/quotation_tweaks.js",
+    "/assets/cecypo_powerpack/js/sales_powerup.js",
     "/assets/cecypo_powerpack/js/sales_order_tweaks.js",
     "/assets/cecypo_powerpack/js/sales_invoice_tweaks.js"
 ]
@@ -116,6 +116,18 @@ fixtures = [
         "dt": "Print Format",
         "filters": [
             ["name", "in", ["Powerpack POS Template"]]
+        ]
+    },
+    {
+        "dt": "Server Script",
+        "filters": [
+            ["module", "in", ["Cecypo PowerPack"]]
+        ]
+    },
+    {
+        "dt": "Client Script",
+        "filters": [
+            ["module", "in", ["Cecypo PowerPack"]]
         ]
     }
 ]

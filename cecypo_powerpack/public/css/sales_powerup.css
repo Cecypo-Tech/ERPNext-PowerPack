@@ -1,6 +1,6 @@
-/* Quotation Tweaks - Item Information Display */
+/* Sales Tweaks - Item Information Display */
 
-.quotation-item-info {
+.sales-item-info {
     background-color: var(--control-bg);
     border-top: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
@@ -8,7 +8,7 @@
     padding: 0;
 }
 
-.quotation-item-details {
+.sales-item-details {
     display: flex;
     flex-wrap: wrap;
     gap: 15px;
@@ -20,20 +20,20 @@
     align-items: center;
 }
 
-.quotation-item-details .info-item {
+.sales-item-details .info-item {
     display: inline-flex;
     align-items: center;
     white-space: nowrap;
 }
 
-.quotation-item-details .info-item strong {
+.sales-item-details .info-item strong {
     color: var(--text-color);
     font-weight: 600;
     margin-right: 4px;
     opacity: 0.8;
 }
 
-.quotation-item-details .info-item:not(:last-child)::after {
+.sales-item-details .info-item:not(:last-child)::after {
     content: '|';
     margin-left: 8px;
     color: var(--border-color);
@@ -42,13 +42,13 @@
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
-    .quotation-item-details {
+    .sales-item-details {
         flex-direction: column;
         gap: 5px;
         padding-right: 90px; /* Make room for profit indicator */
     }
 
-    .quotation-item-details .info-item:not(:last-child)::after {
+    .sales-item-details .info-item:not(:last-child)::after {
         display: none;
     }
 
@@ -65,18 +65,18 @@
 }
 
 @media (min-width: 769px) {
-    .quotation-item-details {
+    .sales-item-details {
         padding-right: 110px; /* Make room for profit indicator on desktop */
     }
 }
 
 /* Loading state */
-.quotation-item-info .text-muted {
+.sales-item-info .text-muted {
     font-style: italic;
 }
 
 /* Grid row adjustments to accommodate the info section */
-.grid-row:has(.quotation-item-info) {
+.grid-row:has(.sales-item-info) {
     border-bottom: none;
 }
 
@@ -84,7 +84,7 @@
     padding: 0 !important;
 }
 
-.quotation-item-info + .grid-row {
+.sales-item-info + .grid-row {
     border-top: none;
 }
 

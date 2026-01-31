@@ -1,0 +1,40 @@
+[
+ {
+  "allow_guest": 0,
+  "api_method": "fetch_item_prices",
+  "cron_format": null,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Server Script",
+  "doctype_event": "Before Insert",
+  "enable_rate_limit": 0,
+  "event_frequency": "All",
+  "modified": "2026-01-31 15:08:07.065017",
+  "module": "Cecypo PowerPack",
+  "name": "fetch_item_prices",
+  "rate_limit_count": 5,
+  "rate_limit_seconds": 86400,
+  "reference_doctype": null,
+  "script": "# Server Script: fetch_item_prices\n# Script Type: API\n# API Method: fetch_item_prices\n# Allow Guest: No\n\n# Get parameters from form_dict\nitem_codes_str = frappe.form_dict.get('item_codes_str', '')\nbuying_price_list = frappe.form_dict.get('buying_price_list')\nselling_price_list = frappe.form_dict.get('selling_price_list')\n\n# Parse item codes from pipe-separated string\nitem_codes = [code.strip() for code in item_codes_str.split('|||') if code.strip()]\n\nresult = []\n\nif not item_codes or not buying_price_list or not selling_price_list:\n    frappe.response['message'] = result\nelse:\n    # Fetch item details\n    items = frappe.get_all(\n        'Item',\n        filters={'name': ['in', item_codes]},\n        fields=['name as item_code', 'item_name', 'stock_uom']\n    )\n    \n    item_map = {}\n    for item in items:\n        item_map[item['item_code']] = item\n    \n    # Fetch buying prices\n    buying_prices = frappe.get_all(\n        'Item Price',\n        filters={\n            'item_code': ['in', item_codes],\n            'price_list': buying_price_list,\n            'buying': 1\n        },\n        fields=['item_code', 'price_list_rate']\n    )\n    \n    buying_map = {}\n    for p in buying_prices:\n        buying_map[p['item_code']] = p['price_list_rate']\n    \n    # Fetch selling prices\n    selling_prices = frappe.get_all(\n        'Item Price',\n        filters={\n            'item_code': ['in', item_codes],\n            'price_list': selling_price_list,\n            'selling': 1\n        },\n        fields=['item_code', 'price_list_rate']\n    )\n    \n    selling_map = {}\n    for p in selling_prices:\n        selling_map[p['item_code']] = p['price_list_rate']\n    \n    # Build result maintaining original order\n    for code in item_codes:\n        if code in item_map:\n            item = item_map[code]\n            result.append({\n                'item_code': code,\n                'item_name': item.get('item_name', ''),\n                'uom': item.get('stock_uom', ''),\n                'cost_price': buying_map.get(code, 0),\n                'sell_price': selling_map.get(code, 0)\n            })\n    \n    frappe.response['message'] = result",
+  "script_type": "API"
+ },
+ {
+  "allow_guest": 0,
+  "api_method": "save_item_prices",
+  "cron_format": null,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Server Script",
+  "doctype_event": "Before Insert",
+  "enable_rate_limit": 0,
+  "event_frequency": "All",
+  "modified": "2026-01-31 15:08:14.825083",
+  "module": "Cecypo PowerPack",
+  "name": "save_item_prices",
+  "rate_limit_count": 5,
+  "rate_limit_seconds": 86400,
+  "reference_doctype": null,
+  "script": "# Server Script: save_item_prices\n# Script Type: API\n# API Method: save_item_prices\n# Allow Guest: No\n\n# Get parameters from form_dict\nitems_str = frappe.form_dict.get('items_str', '')\nselling_price_list = frappe.form_dict.get('selling_price_list')\n\n# Parse items from string format: \"ITEM1::100|||ITEM2::200\"\nitems = []\nfor item_data in items_str.split('|||'):\n    if '::' in item_data:\n        parts = item_data.split('::')\n        if len(parts) == 2:\n            items.append({\n                'item_code': parts[0].strip(),\n                'sell_price': float(parts[1].strip()) if parts[1].strip() else 0\n            })\n\nupdated_count = 0\n\nif not items or not selling_price_list:\n    frappe.throw('Missing required parameters')\n\n# Verify price list exists using get_all\nprice_list_check = frappe.get_all(\n    'Price List',\n    filters={'name': selling_price_list},\n    fields=['name', 'selling', 'enabled', 'currency'],\n    limit=1\n)\n\nif not price_list_check:\n    frappe.throw('Price List not found: ' + selling_price_list)\n\nprice_list = price_list_check[0]\n\nif not price_list.get('selling'):\n    frappe.throw('Not a selling price list: ' + selling_price_list)\n\nif not price_list.get('enabled'):\n    frappe.throw('Price list is disabled: ' + selling_price_list)\n\n# Get currency from price list or default\nprice_list_currency = price_list.get('currency')\nif not price_list_currency:\n    price_list_currency = 'KES'\n\nfor item in items:\n    item_code = item.get('item_code')\n    sell_price = item.get('sell_price', 0)\n    \n    if not item_code:\n        continue\n    \n    # Check if Item Price exists\n    existing = frappe.get_all(\n        'Item Price',\n        filters={\n            'item_code': item_code,\n            'price_list': selling_price_list,\n            'selling': 1\n        },\n        fields=['name'],\n        limit=1\n    )\n    \n    if existing:\n        # Update existing price\n        frappe.db.set_value('Item Price', existing[0]['name'], 'price_list_rate', sell_price)\n    else:\n        # Get item UOM using get_all\n        item_info = frappe.get_all(\n            'Item',\n            filters={'name': item_code},\n            fields=['stock_uom'],\n            limit=1\n        )\n        uom = item_info[0]['stock_uom'] if item_info else 'Nos'\n        \n        # Create new Item Price\n        doc = frappe.get_doc({\n            'doctype': 'Item Price',\n            'item_code': item_code,\n            'price_list': selling_price_list,\n            'price_list_rate': sell_price,\n            'currency': price_list_currency,\n            'uom': uom,\n            'selling': 1,\n            'buying': 0\n        })\n        doc.insert(ignore_permissions=True)\n    \n    updated_count = updated_count + 1\n\nfrappe.db.commit()\n\nfrappe.response['message'] = {\n    'updated_count': updated_count,\n    'message': 'Successfully updated ' + str(updated_count) + ' items'\n}",
+  "script_type": "API"
+ }
+]

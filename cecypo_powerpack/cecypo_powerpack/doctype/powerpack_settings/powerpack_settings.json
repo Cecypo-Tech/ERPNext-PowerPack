@@ -24,7 +24,10 @@
   "column_break_2",
   "show_last_purchase",
   "show_last_sale",
-  "show_last_sale_to_customer"
+  "show_last_sale_to_customer",
+  "item_list_powerup_section",
+  "enable_item_list_powerup",
+  "item_list_powerup_description"
  ],
  "fields": [
   {
@@ -45,31 +48,53 @@
    "options": "<p class=\"text-muted\">Enable enhanced Point of Sale features including custom layouts and advanced configurations.</p>"
   },
   {
-   "fieldname": "quotation_tweaks_section",
+   "fieldname": "sales_powerup_section",
    "fieldtype": "Section Break",
-   "label": "Quotation Tweaks"
+   "label": "Sales Powerup"
   },
   {
    "default": "0",
-   "fieldname": "enable_quotation_tweaks",
+   "fieldname": "enable_quotation_powerup",
    "fieldtype": "Check",
-   "label": "Enable Quotation Tweaks"
+   "label": "Enable for Quotation"
   },
   {
-   "fieldname": "quotation_tweaks_description",
+   "default": "0",
+   "fieldname": "enable_sales_order_powerup",
+   "fieldtype": "Check",
+   "label": "Enable for Sales Order"
+  },
+  {
+   "fieldname": "column_break_sales_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_sales_invoice_powerup",
+   "fieldtype": "Check",
+   "label": "Enable for Sales Invoice"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_pos_invoice_powerup",
+   "fieldtype": "Check",
+   "label": "Enable for POS Invoice"
+  },
+  {
+   "fieldname": "sales_powerup_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">Display additional item information below each quotation item including current stock, valuation rate, last purchase price, and sales history.</p>"
+   "options": "<p class=\"text-muted\">Display additional item information below each sales item including current stock, valuation rate, last purchase price, and sales history.</p>"
   },
   {
    "collapsible": 1,
-   "depends_on": "enable_quotation_tweaks",
-   "fieldname": "quotation_tweaks_details_section",
+   "depends_on": "eval:doc.enable_quotation_powerup || doc.enable_sales_order_powerup || doc.enable_sales_invoice_powerup || doc.enable_pos_invoice_powerup",
+   "fieldname": "sales_powerup_details_section",
    "fieldtype": "Section Break",
-   "label": "Quotation Tweaks - Detailed Settings"
+   "label": "Sales Powerup - Detailed Settings"
   },
   {
-   "fieldname": "quotation_visible_to_role",
+   "fieldname": "sales_visible_to_role",
    "fieldtype": "Link",
    "label": "Visible to Role",
    "options": "Role",
@@ -118,6 +143,23 @@
    "fieldname": "show_last_sale_to_customer",
    "fieldtype": "Check",
    "label": "Show Last Sale to Customer"
+  },
+  {
+   "fieldname": "item_list_powerup_section",
+   "fieldtype": "Section Break",
+   "label": "Item List Powerup"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_item_list_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Item List Powerup"
+  },
+  {
+   "fieldname": "item_list_powerup_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Enable the Price List Bulk Editor client script for efficient bulk editing of item prices.</p>"
   }
  ],
  "issingle": 1,
@@ -130,6 +172,7 @@
  "permissions": [
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "print": 1,
    "read": 1,
