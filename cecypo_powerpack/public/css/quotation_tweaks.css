@@ -1,0 +1,188 @@
+/* Quotation Tweaks - Item Information Display */
+
+.quotation-item-info {
+    background-color: var(--control-bg);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    margin: 0;
+    padding: 0;
+}
+
+.quotation-item-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.quotation-item-details .info-item {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.quotation-item-details .info-item strong {
+    color: var(--text-color);
+    font-weight: 600;
+    margin-right: 4px;
+    opacity: 0.8;
+}
+
+.quotation-item-details .info-item:not(:last-child)::after {
+    content: '|';
+    margin-left: 8px;
+    color: var(--border-color);
+    opacity: 0.5;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .quotation-item-details {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .quotation-item-details .info-item:not(:last-child)::after {
+        display: none;
+    }
+}
+
+/* Loading state */
+.quotation-item-info .text-muted {
+    font-style: italic;
+}
+
+/* Grid row adjustments to accommodate the info section */
+.grid-row:has(.quotation-item-info) {
+    border-bottom: none;
+}
+
+.quotation-item-info + .grid-row {
+    border-top: none;
+}
+
+/* Profit Metrics Section alongside Items label */
+.profit-metrics-section {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 2px 8px;
+    margin: 8px 0;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.03);
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+}
+
+html[data-theme="dark"] .profit-metrics-section {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Profit-based background for metrics section */
+.profit-metrics-section.profit-positive-bg {
+    background: linear-gradient(to right, rgba(40, 167, 69, 0.12), rgba(40, 167, 69, 0.02)) !important;
+    border-left: 4px solid rgba(40, 167, 69, 0.5) !important;
+    border-radius: 0 4px 4px 0;
+    float: right;
+    margin-top:-10px;
+}
+
+.profit-metrics-section.profit-negative-bg {
+    background: linear-gradient(to right, rgba(220, 53, 69, 0.12), rgba(220, 53, 69, 0.02)) !important;
+    border-left: 4px solid rgba(220, 53, 69, 0.5) !important;
+    border-radius: 0 4px 4px 0;
+    float: right;
+    margin-top:-10px;
+}
+
+html[data-theme="dark"] .profit-metrics-section.profit-positive-bg {
+    background: linear-gradient(to right, rgba(40, 167, 69, 0.18), rgba(40, 167, 69, 0.05)) !important;
+}
+
+html[data-theme="dark"] .profit-metrics-section.profit-negative-bg {
+    background: linear-gradient(to right, rgba(220, 53, 69, 0.18), rgba(220, 53, 69, 0.05)) !important;
+}
+
+.profit-metrics-section .metric-mini {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-color);
+    font-weight: 500;
+    opacity: 0.85;
+    white-space: nowrap;
+}
+
+.profit-metrics-section .metric-mini::before {
+    content: '•';
+    margin-right: 6px;
+    opacity: 0.4;
+}
+
+.profit-metrics-section .metric-mini:first-child::before {
+    content: '';
+    margin-right: 0;
+}
+
+.profit-metrics-section .metric-highlight {
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.08);
+    opacity: 1;
+}
+
+html[data-theme="dark"] .profit-metrics-section .metric-highlight {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.profit-metrics-section .metric-mini.tax-info {
+    opacity: 0.6;
+    font-size: 10px;
+}
+
+/* Section heading background color based on profit */
+.section-head.profit-positive-bg,
+.frappe-control.profit-positive-bg {
+    background: linear-gradient(to right, rgba(40, 167, 69, 0.12), rgba(40, 167, 69, 0.02), transparent) !important;
+    border-left: 4px solid rgba(40, 167, 69, 0.5) !important;
+    padding-left: 12px !important;
+    margin-left: -4px !important;
+}
+
+.section-head.profit-negative-bg,
+.frappe-control.profit-negative-bg {
+    background: linear-gradient(to right, rgba(220, 53, 69, 0.12), rgba(220, 53, 69, 0.02), transparent) !important;
+    border-left: 4px solid rgba(220, 53, 69, 0.5) !important;
+    padding-left: 12px !important;
+    margin-left: -4px !important;
+}
+
+/* Dark theme adjustments */
+html[data-theme="dark"] .section-head.profit-positive-bg,
+html[data-theme="dark"] .frappe-control.profit-positive-bg {
+    background: linear-gradient(to right, rgba(40, 167, 69, 0.18), rgba(40, 167, 69, 0.05), transparent) !important;
+    border-left: 40px solid rgba(40, 167, 69, 0.6) !important;
+}
+
+html[data-theme="dark"] .section-head.profit-negative-bg,
+html[data-theme="dark"] .frappe-control.profit-negative-bg {
+    background: linear-gradient(to right, rgba(220, 53, 69, 0.18), rgba(220, 53, 69, 0.05), transparent) !important;
+    border-left: 4px solid rgba(220, 53, 69, 0.6) !important;
+}
+
+/* Responsive adjustments for profit metrics */
+@media (max-width: 768px) {
+    .profit-metrics-inline {
+        display: block;
+        margin-left: 0;
+        margin-top: 4px;
+        font-size: 9px;
+    }
+
+    .profit-metrics-inline .metric-mini {
+        margin-right: 8px;
+    }
+}

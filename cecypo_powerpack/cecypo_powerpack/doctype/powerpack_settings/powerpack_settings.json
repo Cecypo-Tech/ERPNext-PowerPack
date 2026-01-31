@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "creation": "2024-01-29 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pos_powerup_section",
+  "enable_pos_powerup",
+  "pos_powerup_description",
+  "quotation_tweaks_section",
+  "enable_quotation_tweaks",
+  "quotation_tweaks_description"
+ ],
+ "fields": [
+  {
+   "fieldname": "pos_powerup_section",
+   "fieldtype": "Section Break",
+   "label": "Point of Sale Powerup"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_pos_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Point of Sale Powerup"
+  },
+  {
+   "fieldname": "pos_powerup_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Enable enhanced Point of Sale features including custom layouts and advanced configurations.</p>"
+  },
+  {
+   "fieldname": "quotation_tweaks_section",
+   "fieldtype": "Section Break",
+   "label": "Quotation Tweaks"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_quotation_tweaks",
+   "fieldtype": "Check",
+   "label": "Enable Quotation Tweaks"
+  },
+  {
+   "fieldname": "quotation_tweaks_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Display additional item information below each quotation item including current stock, valuation rate, last purchase price, and sales history.</p>"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-01-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cecypo PowerPack",
+ "name": "PowerPack Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

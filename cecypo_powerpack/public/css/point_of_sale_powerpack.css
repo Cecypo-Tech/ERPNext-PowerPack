@@ -1,0 +1,452 @@
+/* =========================================
+   View Toggle Buttons
+   ========================================= */
+.powerpack-view-toggle {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    align-self: center;
+}
+
+.view-toggle-btn {
+    padding: 6px 12px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    transition: all 0.2s;
+}
+
+.view-toggle-btn:hover,
+.view-toggle-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+/* Settings Button Styling */
+.powerpack-settings-btn {
+    padding: 6px 12px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    transition: all 0.2s;
+    margin-left: 4px;
+}
+
+.powerpack-settings-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+/* Bulk Mode Toggle Button */
+.powerpack-bulk-toggle-btn {
+    padding: 6px 12px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    transition: all 0.2s;
+    margin-left: 4px;
+}
+
+.powerpack-bulk-toggle-btn:hover {
+    background: var(--bg-light-gray);
+}
+
+.powerpack-bulk-toggle-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+/* Keyboard Hint Styling */
+.powerpack-keyboard-hint {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    margin-left: 8px;
+    font-size: 14px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.powerpack-keyboard-hint:hover {
+    opacity: 1;
+}
+
+/* =========================================
+   Compact View Layout
+   ========================================= */
+.items-container.powerpack-compact-view {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+}
+
+.powerpack-compact-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.powerpack-compact-item:hover {
+    background: var(--bg-light-gray);
+}
+
+/* =========================================
+   Compact View - Image (2rem x 2rem)
+   ========================================= */
+.compact-item-image {
+    width: 2rem;
+    height: 2rem;
+    min-width: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: zoom-in;
+    background: var(--bg-color);
+}
+
+.compact-item-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.compact-item-abbr {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+/* =========================================
+   Compact View - Details Column
+   ========================================= */
+.compact-item-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.compact-item-name {
+    font-weight: 500;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.compact-item-code {
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+/* =========================================
+   Keyboard Navigation
+   ========================================= */
+
+/* Selected Item Highlighting */
+.powerpack-compact-item.powerpack-item-selected {
+    background: var(--highlight-color, #e8f4fd) !important;
+    border-left: 3px solid var(--primary-color);
+    padding-left: 9px; /* 12px - 3px border */
+    box-shadow: 0 0 0 1px var(--primary-color);
+    transition: all 0.2s ease;
+}
+
+/* Flash Animation on Add */
+.powerpack-compact-item.powerpack-item-added {
+    animation: flashGreen 0.3s ease;
+}
+
+@keyframes flashGreen {
+    0%, 100% { background: var(--bg-light-gray); }
+    50% { background: var(--success-bg, #d4edda); }
+}
+
+/* =========================================
+   Column Hiding Rules
+   ========================================= */
+
+.powerpack-compact-view.hide-column-image .compact-item-image {
+    display: none !important;
+}
+
+.powerpack-compact-view.hide-column-code .compact-item-code {
+    display: none !important;
+}
+
+.powerpack-compact-view.hide-column-stock .compact-item-stock {
+    display: none !important;
+}
+
+.powerpack-compact-view.hide-column-price .compact-item-price {
+    display: none !important;
+}
+
+/* Adjust spacing when code is hidden */
+.powerpack-compact-view.hide-column-code .compact-item-name {
+    margin-bottom: 0;
+}
+
+/* =========================================
+   Compact View - Stock & Price
+   ========================================= */
+.compact-item-stock {
+    min-width: 60px;
+    text-align: center;
+}
+
+.compact-item-price {
+    min-width: 100px;
+    text-align: right;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+/* Info Icon */
+.compact-item-info {
+    min-width: 30px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.compact-item-info:hover {
+    opacity: 1;
+}
+
+.compact-item-info i {
+    font-size: 16px;
+}
+
+/* =========================================
+   Thumbnail View - Ensure Default
+   ========================================= */
+.items-container.powerpack-thumbnail-view {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 12px;
+}
+
+/* =========================================
+   Item Details Preview Panel
+   ========================================= */
+
+/* Details Panel Overlay */
+.powerpack-details-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.panel-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0);
+    transition: background 0.3s;
+}
+
+.powerpack-details-panel.active .panel-overlay {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* Panel Content */
+.panel-content {
+    position: relative;
+    width: 400px;
+    max-width: 90vw;
+    background: white;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    overflow-y: auto;
+    z-index: 1;
+}
+
+.powerpack-details-panel.active .panel-content {
+    transform: translateX(0);
+}
+
+/* Panel Header */
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-light-gray);
+}
+
+.panel-header h4 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.panel-close {
+    padding: 4px 8px;
+}
+
+/* Panel Body */
+.panel-body {
+    padding: 20px;
+}
+
+.detail-section {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.detail-section:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    display: block;
+}
+
+.detail-value {
+    font-size: 14px;
+    color: var(--text-color);
+    margin-bottom: 5px;
+}
+
+/* Stock by Warehouse */
+.stock-warehouse-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.warehouse-name {
+    flex: 1;
+    font-size: 13px;
+}
+
+.warehouse-qty {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+/* =========================================
+   Barcode Visual Feedback
+   ========================================= */
+
+/* Barcode Scan Flash */
+.powerpack-barcode-scanned {
+    animation: barcodeFlash 1s ease;
+}
+
+@keyframes barcodeFlash {
+    0%, 100% {
+        background: var(--bg-color);
+        box-shadow: none;
+    }
+    50% {
+        background: var(--success-bg, #d4edda);
+        box-shadow: 0 0 0 3px var(--success-color, #28a745);
+    }
+}
+
+/* =========================================
+   Bulk Add Mode
+   ========================================= */
+
+.bulk-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+}
+
+.bulk-item-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* Bulk Action Bar */
+.powerpack-bulk-action-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 2px solid var(--primary-color);
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+}
+
+.bulk-counter {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.bulk-count {
+    color: var(--primary-color);
+    font-size: 20px;
+}
+
+.bulk-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.bulk-add-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* =========================================
+   Responsive Design
+   ========================================= */
+@media (max-width: 768px) {
+    .compact-item-name {
+        font-size: 12px;
+    }
+
+    .compact-item-price {
+        min-width: 80px;
+        font-size: 12px;
+    }
+
+    .panel-content {
+        width: 100%;
+        max-width: 100vw;
+    }
+
+    .powerpack-bulk-action-bar {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+
+    .bulk-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
