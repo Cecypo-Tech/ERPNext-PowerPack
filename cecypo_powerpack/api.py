@@ -359,3 +359,399 @@ def check_duplicate_tax_id(doctype: str, tax_id: str, current_name: str = None) 
         "duplicates": formatted_duplicates,
         "total_count": total_count
     }
+
+
+@frappe.whitelist()
+def get_bulk_item_details(items, price_list: str, warehouse: str = None, customer: str = None,
+                          tax_category: str = None, taxes_and_charges: str = None,
+                          optimized: bool = True, doctype: str = 'Sales Order') -> dict:
+    """
+    Get bulk item details for bulk selection in sales documents.
+
+    Args:
+        items: List of item codes (or pipe-delimited string)
+        price_list: Selling price list name
+        warehouse: Warehouse name (optional for Quotation)
+        customer: Customer name (optional)
+        tax_category: Tax category (optional, will be fetched from customer if not provided)
+        taxes_and_charges: Tax template name (for included_in_print_rate calculation)
+        optimized: Use optimized batch queries (default: True)
+        doctype: DocType name (Sales Order, Sales Invoice, Quotation)
+
+    Returns:
+        dict: Contains 'items' (list), 'total_items' (int), 'tax_category' (str), 'tax_rate' (float)
+    """
+    from cecypo_powerpack.utils import is_feature_enabled
+
+    # Check if feature is enabled based on doctype
+    feature_map = {
+        'Sales Order': 'enable_sales_order_bulk_selection',
+        'Sales Invoice': 'enable_sales_invoice_bulk_selection',
+        'Quotation': 'enable_quotation_bulk_selection'
+    }
+
+    feature_name = feature_map.get(doctype, 'enable_sales_order_bulk_selection')
+    if not is_feature_enabled(feature_name):
+        frappe.throw(_("Bulk Selection feature is not enabled for {0} in PowerPack Settings").format(doctype))
+
+    # Parse items input
+    if isinstance(items, str):
+        items = items.strip()
+        if items.startswith('[') and items.endswith(']'):
+            items = items[1:-1]
+        if not items:
+            items = []
+        else:
+            items = [item.strip().strip('"').strip("'").strip()
+                    for item in items.split(',') if item.strip()]
+    elif not isinstance(items, list):
+        items = []
+
+    if not items:
+        frappe.throw(_("No items provided"))
+
+    if not price_list:
+        frappe.throw(_("Price List is required"))
+
+    # Warehouse is optional for Quotation
+    if warehouse and not frappe.db.exists('Warehouse', warehouse):
+        frappe.throw(_("Warehouse {0} does not exist").format(warehouse))
+
+    if not frappe.db.exists('Price List', price_list):
+        frappe.throw(_("Price List {0} does not exist").format(price_list))
+
+    # Get tax category from customer if not provided
+    if not tax_category and customer:
+        tax_category = frappe.db.get_value('Customer', customer, 'tax_category')
+
+    # Calculate tax rate for included_in_print_rate taxes
+    tax_rate = 0.0
+    if taxes_and_charges:
+        tax_rate = _get_included_tax_rate(taxes_and_charges)
+
+    # Convert string 'true'/'false' to boolean
+    if isinstance(optimized, str):
+        optimized = optimized.lower() == 'true'
+
+    try:
+        if optimized:
+            # Optimized batch fetch
+            result = _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_rate)
+        else:
+            # Standard iteration
+            result = _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rate)
+
+        result['tax_category'] = tax_category or ''
+        result['tax_rate'] = tax_rate
+        return result
+
+    except Exception as e:
+        frappe.log_error(
+            message=str(e),
+            title="Bulk Item Details Critical Error"
+        )
+        frappe.throw(_("Error loading item details: {0}").format(str(e)))
+
+
+def _get_included_tax_rate(taxes_and_charges):
+    """
+    Calculate total tax rate for taxes with included_in_print_rate=1
+
+    Args:
+        taxes_and_charges: Tax template name (Sales Taxes and Charges Template)
+
+    Returns:
+        float: Total tax percentage
+    """
+    if not taxes_and_charges:
+        return 0.0
+
+    try:
+        # Get the tax template
+        tax_template = frappe.get_cached_doc('Sales Taxes and Charges Template', taxes_and_charges)
+
+        total_tax_rate = 0.0
+        for tax in tax_template.taxes:
+            # Only include taxes with included_in_print_rate=1
+            if tax.included_in_print_rate:
+                total_tax_rate += (tax.rate or 0)
+
+        return total_tax_rate
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Error calculating tax rate for {taxes_and_charges}: {str(e)}",
+            title="Tax Rate Calculation Error"
+        )
+        return 0.0
+
+
+def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_rate=0.0):
+    """Optimized batch fetch for bulk items"""
+    # Batch fetch all items at once
+    item_docs = frappe.db.get_all(
+        'Item',
+        filters={
+            'name': ['in', items],
+            'disabled': 0,
+            'is_sales_item': 1
+        },
+        fields=['name', 'item_name', 'description', 'stock_uom', 'image', 'valuation_rate']
+    )
+
+    if not item_docs:
+        return {'items': [], 'total_items': 0}
+
+    item_codes = [item['name'] for item in item_docs]
+
+    # Batch fetch prices
+    prices = {}
+    price_data = frappe.db.get_all(
+        'Item Price',
+        filters={
+            'item_code': ['in', item_codes],
+            'price_list': price_list,
+            'selling': 1
+        },
+        fields=['item_code', 'price_list_rate']
+    )
+    for p in price_data:
+        prices[p['item_code']] = p['price_list_rate']
+
+    # Batch fetch stock and valuation from Bin
+    stock = {}
+    bin_valuation = {}
+    if warehouse:
+        bin_data = frappe.db.get_all(
+            'Bin',
+            filters={
+                'item_code': ['in', item_codes],
+                'warehouse': warehouse
+            },
+            fields=['item_code', 'actual_qty', 'valuation_rate']
+        )
+        for b in bin_data:
+            stock[b['item_code']] = b['actual_qty']
+            if b.get('valuation_rate'):
+                bin_valuation[b['item_code']] = b['valuation_rate']
+
+    # Batch fetch item tax templates
+    item_taxes_map = {}
+    tax_data = frappe.db.get_all(
+        'Item Tax',
+        filters={
+            'parent': ['in', item_codes],
+            'parenttype': 'Item'
+        },
+        fields=['parent', 'item_tax_template', 'tax_category'],
+        order_by='idx'
+    )
+    for t in tax_data:
+        if t['parent'] not in item_taxes_map:
+            item_taxes_map[t['parent']] = []
+        item_taxes_map[t['parent']].append({
+            'item_tax_template': t['item_tax_template'],
+            'tax_category': t['tax_category']
+        })
+
+    # Combine all data
+    result = []
+    for item in item_docs:
+        item_code = item['name']
+        item_tax_template = _get_item_tax_template_for_category(
+            item_code,
+            tax_category,
+            item_taxes_map
+        )
+
+        # Use bin valuation if available, otherwise item valuation
+        valuation = bin_valuation.get(item_code) or item.get('valuation_rate', 0) or 0
+
+        # Apply tax adjustment to valuation rate if taxes are included in print rate
+        if tax_rate > 0 and valuation > 0:
+            valuation = valuation * (1 + tax_rate / 100)
+
+        result.append({
+            'item_code': item_code,
+            'item_name': item.get('item_name') or item_code,
+            'description': item.get('description') or item.get('item_name') or item_code,
+            'stock_uom': item.get('stock_uom') or 'Nos',
+            'image': _get_item_image_url(item.get('image')),
+            'valuation_rate': float(valuation),
+            'price_list_rate': float(prices.get(item_code, 0)),
+            'actual_qty': float(stock.get(item_code, 0)),
+            'item_tax_template': item_tax_template or ''
+        })
+
+    result.sort(key=lambda x: x['item_code'])
+
+    return {
+        'items': result,
+        'total_items': len(result)
+    }
+
+
+def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rate=0.0):
+    """Standard iteration for bulk items"""
+    result = []
+
+    for item_code in items:
+        if not item_code:
+            continue
+
+        if not frappe.db.exists('Item', item_code):
+            continue
+
+        try:
+            item_doc = frappe.get_cached_doc('Item', item_code)
+
+            if item_doc.disabled or not item_doc.is_sales_item:
+                continue
+
+            # Get valuation - prefer bin valuation for the warehouse
+            valuation_rate = _get_valuation_rate(item_code, warehouse)
+            price_list_rate = _get_item_price(item_code, price_list)
+            actual_qty = _get_stock_qty(item_code, warehouse) if warehouse else 0
+
+            # Apply tax adjustment to valuation rate if taxes are included in print rate
+            if tax_rate > 0 and valuation_rate > 0:
+                valuation_rate = valuation_rate * (1 + tax_rate / 100)
+
+            # Get item tax template
+            item_tax_template = None
+            if item_doc.taxes:
+                if tax_category:
+                    for tax in item_doc.taxes:
+                        if tax.tax_category == tax_category:
+                            item_tax_template = tax.item_tax_template
+                            break
+
+                if not item_tax_template:
+                    for tax in item_doc.taxes:
+                        if not tax.tax_category:
+                            item_tax_template = tax.item_tax_template
+                            break
+
+                if not item_tax_template and item_doc.taxes:
+                    item_tax_template = item_doc.taxes[0].item_tax_template
+
+            result.append({
+                'item_code': item_code,
+                'item_name': item_doc.item_name or item_code,
+                'description': item_doc.description or item_doc.item_name or item_code,
+                'stock_uom': item_doc.stock_uom or 'Nos',
+                'image': _get_item_image_url(item_doc.image),
+                'valuation_rate': float(valuation_rate),
+                'price_list_rate': float(price_list_rate),
+                'actual_qty': float(actual_qty),
+                'item_tax_template': item_tax_template or ''
+            })
+
+        except Exception as e:
+            frappe.log_error(
+                message=f"Error fetching details for {item_code}: {str(e)}",
+                title="Bulk Item Details Error"
+            )
+            continue
+
+    result.sort(key=lambda x: x.get('item_code', ''))
+
+    return {
+        'items': result,
+        'total_items': len(result)
+    }
+
+
+def _get_item_image_url(image):
+    """Helper to get valid image URL"""
+    if not image:
+        return None
+
+    if image.startswith(('http://', 'https://', '/files/')):
+        return image
+
+    return None
+
+
+def _get_valuation_rate(item_code, warehouse=None):
+    """Get valuation rate - try warehouse-specific first, then item default"""
+    # Try warehouse-specific valuation first
+    if warehouse:
+        rate = frappe.db.get_value(
+            'Bin',
+            {
+                'item_code': item_code,
+                'warehouse': warehouse
+            },
+            'valuation_rate'
+        )
+        if rate:
+            return rate
+
+    # Fall back to item's valuation rate
+    try:
+        rate = frappe.db.get_value('Item', item_code, 'valuation_rate')
+        return rate if rate else 0
+    except:
+        return 0
+
+
+def _get_item_price(item_code, price_list):
+    """Get item price with error handling"""
+    try:
+        price = frappe.db.get_value(
+            'Item Price',
+            {
+                'item_code': item_code,
+                'price_list': price_list,
+                'selling': 1
+            },
+            'price_list_rate'
+        )
+        return price if price else 0
+    except:
+        return 0
+
+
+def _get_stock_qty(item_code, warehouse):
+    """Get stock quantity with error handling"""
+    if not warehouse:
+        return 0
+
+    try:
+        qty = frappe.db.get_value(
+            'Bin',
+            {
+                'item_code': item_code,
+                'warehouse': warehouse
+            },
+            'actual_qty'
+        )
+        return qty if qty else 0
+    except:
+        return 0
+
+
+def _get_item_tax_template_for_category(item_code, tax_category, item_taxes_map):
+    """
+    Get the appropriate Item Tax Template based on tax category.
+    Returns template matching tax_category, or default (no category) if not found.
+    """
+    templates = item_taxes_map.get(item_code, [])
+
+    if not templates:
+        return None
+
+    # First, try to find exact match for tax category
+    if tax_category:
+        for t in templates:
+            if t.get('tax_category') == tax_category:
+                return t.get('item_tax_template')
+
+    # Fall back to template with no tax category (default)
+    for t in templates:
+        if not t.get('tax_category'):
+            return t.get('item_tax_template')
+
+    # If nothing matches, return first available
+    return templates[0].get('item_tax_template') if templates else None

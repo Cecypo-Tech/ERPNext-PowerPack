@@ -33,7 +33,8 @@ app_include_css = [
 app_include_js = [
     "/assets/cecypo_powerpack/js/cecypo_powerpack.js",
     "/assets/cecypo_powerpack/js/point_of_sale_powerpack.js",
-    "/assets/cecypo_powerpack/js/sales_powerup.js"
+    "/assets/cecypo_powerpack/js/sales_powerup.js",
+    "/assets/cecypo_powerpack/js/bulk_selection.js"
 ]
 
 # include js, css files in header of web template
