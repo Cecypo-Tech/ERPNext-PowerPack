@@ -825,7 +825,6 @@
     function enhanceSearchLogic() {
         // Check if the item selector exists
         if (!cur_pos.item_selector || !cur_pos.item_selector.$component) {
-            console.warn('PowerPack: POS item selector not found, search enhancement skipped');
             return;
         }
 
@@ -834,8 +833,6 @@
             try {
                 // Create a new prominent search box at the top
                 createPowerPackSearchBox();
-
-                console.log('PowerPack: Enhanced POS search enabled (wildcard % and multi-word token matching)');
             } catch (error) {
                 console.error('PowerPack: Error setting up enhanced search', error);
             }
@@ -851,7 +848,6 @@
         // Find the items container
         const $itemsContainer = cur_pos.item_selector.$component;
         if (!$itemsContainer.length) {
-            console.warn('PowerPack: Items container not found');
             return;
         }
 
@@ -990,7 +986,6 @@
                 cur_pos.item_selector.get_items(0).then((r) => {
                     if (r && r.message && r.message.items) {
                         allItemsCache = r.message.items;
-                        console.log('PowerPack: Cached', allItemsCache.length, 'items for enhanced search');
                     }
                 });
             }
@@ -1010,15 +1005,11 @@
             // Apply enhanced search
             if (allItemsCache.length > 0) {
                 const filtered = getSortedFilteredData(allItemsCache, searchTerm);
-                console.log('PowerPack: Search "' + searchTerm + '" found', filtered.length, 'items');
                 cur_pos.item_selector.render_item_list(filtered);
             } else {
-                console.warn('PowerPack: Item cache not ready, fetching...');
                 fetchAndCacheAllItems();
             }
         }
-
-        console.log('PowerPack: Enhanced search box created');
     }
 
     function wildcard_to_regex(pattern) {
