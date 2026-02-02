@@ -823,33 +823,202 @@
     }
 
     function enhanceSearchLogic() {
-        // Store original get_items method
-        originalGetItems = cur_pos.item_selector.get_items.bind(cur_pos.item_selector);
+        // Check if the item selector exists
+        if (!cur_pos.item_selector || !cur_pos.item_selector.$component) {
+            console.warn('PowerPack: POS item selector not found, search enhancement skipped');
+            return;
+        }
 
-        // Override get_items to implement enhanced search
-        cur_pos.item_selector.get_items = function(opts = {}) {
-            const search_term = (opts.search_term || '').trim();
+        // Wait a moment for POS to fully initialize
+        setTimeout(() => {
+            try {
+                // Create a new prominent search box at the top
+                createPowerPackSearchBox();
 
-            // If no search term, use original method
-            if (!search_term) {
-                return originalGetItems(opts);
+                console.log('PowerPack: Enhanced POS search enabled (wildcard % and multi-word token matching)');
+            } catch (error) {
+                console.error('PowerPack: Error setting up enhanced search', error);
+            }
+        }, 1000);
+    }
+
+    function createPowerPackSearchBox() {
+        // Check if already created
+        if ($('.powerpack-search-box').length > 0) {
+            return;
+        }
+
+        // Find the items container
+        const $itemsContainer = cur_pos.item_selector.$component;
+        if (!$itemsContainer.length) {
+            console.warn('PowerPack: Items container not found');
+            return;
+        }
+
+        // Create enhanced search box HTML
+        const searchBoxHtml = `
+            <div class="powerpack-search-box">
+                <div class="powerpack-search-input-wrapper">
+                    <input type="text"
+                           class="powerpack-search-input form-control"
+                           placeholder="Enhanced Search (use % for wildcard, e.g., sam%tv or type multiple words)"
+                           autocomplete="off">
+                    <button class="powerpack-search-clear-btn" style="display: none;">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <style>
+                .powerpack-search-box {
+                    padding: 10px;
+                    background: var(--fg-color);
+                    border-bottom: 2px solid var(--primary);
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+
+                .powerpack-search-input-wrapper {
+                    position: relative;
+                }
+
+                .powerpack-search-input {
+                    width: 100%;
+                    padding: 8px 35px 8px 12px;
+                    font-size: 14px;
+                    border: 2px solid var(--border-color);
+                    border-radius: 6px;
+                    transition: all 0.2s;
+                }
+
+                .powerpack-search-input:focus {
+                    border-color: var(--primary);
+                    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+                    outline: none;
+                }
+
+                .powerpack-search-clear-btn {
+                    position: absolute;
+                    right: 8px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: none;
+                    border: none;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    transition: all 0.2s;
+                }
+
+                .powerpack-search-clear-btn:hover {
+                    background: var(--gray-100);
+                    color: var(--text-color);
+                }
+
+                .powerpack-search-hint {
+                    font-size: 11px;
+                    color: var(--text-muted);
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .powerpack-search-hint code {
+                    background: var(--gray-100);
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    font-size: 10px;
+                    color: var(--primary);
+                }
+            </style>
+        `;
+
+        // Insert at the top of items container
+        $itemsContainer.prepend(searchBoxHtml);
+
+        const $searchInput = $('.powerpack-search-input');
+        const $clearBtn = $('.powerpack-search-clear-btn');
+
+        // Cache all items when POS loads
+        let allItemsCache = [];
+
+        // Get initial items
+        setTimeout(() => {
+            fetchAndCacheAllItems();
+        }, 500);
+
+        // Search input handler
+        let searchTimeout;
+        $searchInput.on('input', function() {
+            const searchTerm = $(this).val().trim();
+
+            // Toggle clear button
+            $clearBtn.toggle(searchTerm.length > 0);
+
+            // Debounce search
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                performEnhancedSearch(searchTerm);
+            }, 300);
+        });
+
+        // Clear button handler
+        $clearBtn.on('click', function() {
+            $searchInput.val('').trigger('input').focus();
+        });
+
+        // ESC key to clear
+        $searchInput.on('keydown', function(e) {
+            if (e.key === 'Escape') {
+                $searchInput.val('').trigger('input');
+            }
+        });
+
+        // Focus search on Ctrl+K
+        $(document).on('keydown.powerpack-search', function(e) {
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                $searchInput.focus();
+            }
+        });
+
+        function fetchAndCacheAllItems() {
+            // Call POS get_items to fetch and cache all items
+            if (cur_pos.item_selector.get_items) {
+                cur_pos.item_selector.get_items(0).then((r) => {
+                    if (r && r.message && r.message.items) {
+                        allItemsCache = r.message.items;
+                        console.log('PowerPack: Cached', allItemsCache.length, 'items for enhanced search');
+                    }
+                });
+            }
+        }
+
+        function performEnhancedSearch(searchTerm) {
+            if (!searchTerm) {
+                // No search - show all items
+                if (allItemsCache.length > 0) {
+                    cur_pos.item_selector.render_item_list(allItemsCache);
+                } else {
+                    fetchAndCacheAllItems();
+                }
+                return;
             }
 
-            // Apply enhanced search with scoring
-            return originalGetItems({ search_term: '' }).then(({ message }) => {
-                const allItems = message.items || [];
-                const filteredItems = getSortedFilteredData(allItems, search_term);
+            // Apply enhanced search
+            if (allItemsCache.length > 0) {
+                const filtered = getSortedFilteredData(allItemsCache, searchTerm);
+                console.log('PowerPack: Search "' + searchTerm + '" found', filtered.length, 'items');
+                cur_pos.item_selector.render_item_list(filtered);
+            } else {
+                console.warn('PowerPack: Item cache not ready, fetching...');
+                fetchAndCacheAllItems();
+            }
+        }
 
-                return {
-                    message: {
-                        items: filteredItems,
-                        serial_no: message.serial_no,
-                        batch_no: message.batch_no,
-                        barcode: message.barcode
-                    }
-                };
-            });
-        };
+        console.log('PowerPack: Enhanced search box created');
     }
 
     function wildcard_to_regex(pattern) {
@@ -863,7 +1032,14 @@
     }
 
     function getSortedFilteredData(items, search_term) {
-        if (!search_term) return items;
+        // Validate inputs
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return items || [];
+        }
+
+        if (!search_term || typeof search_term !== 'string') {
+            return items;
+        }
 
         const search_lower = search_term.toLowerCase();
 

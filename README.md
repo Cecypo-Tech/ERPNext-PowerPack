@@ -4,17 +4,17 @@ Gives ERPNext Power ups! :facepunch: :lightning:
 
 ### Features
 
-###### Centralized Settings to enable/disable features
+##### Centralized Settings to enable/disable features
 ![](https://i.imgur.com/Y9JD8fX.png)
-###### Bulk Price Update
+##### Bulk Price Update
 ![](https://i.imgur.com/VYu5iaq.png)
-###### Compact POS
-![](https://imgur.com/ndXPJ0B)
-###### Duplicate customer or supplier soft warning
+##### Compact POS + enhanced search
+![](https://i.imgur.com/MlWbhuh.gif)
+##### Duplicate customer or supplier soft warning
 ![](https://i.imgur.com/btf7hCB.png)
-###### Power Sales
+##### Power Sales
 ![](https://i.imgur.com/Hmxel3H.png)
-###### Bulk Selection for QT/SO/SI
+##### Bulk Selection for QT/SO/SI + enhanced search
 ![](https://i.imgur.com/odv7pO5.gif)
 
 ### Installation
