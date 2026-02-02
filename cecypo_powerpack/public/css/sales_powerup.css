@@ -99,6 +99,9 @@
     background: rgba(0, 0, 0, 0.03);
     border-radius: 4px;
     border: 1px solid var(--border-color);
+    float: right;
+    margin-top: -15px;
+    margin-right: 10px;
 }
 
 html[data-theme="dark"] .profit-metrics-section {

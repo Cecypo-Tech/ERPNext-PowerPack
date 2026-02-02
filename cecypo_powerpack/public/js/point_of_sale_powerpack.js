@@ -68,29 +68,45 @@
     }
 
     function injectViewToggleButtons() {
-        const $filterSection = cur_pos.item_selector.$component.find('.filter-section');
+        // Find the page actions container in POS
+        const $pageActions = cur_pos.page.wrapper.find('.page-actions');
 
-        $filterSection.find('.label').after(`
-            <div class="powerpack-view-toggle">
-                <button class="btn btn-sm view-toggle-btn ${currentViewMode === 'thumbnail' ? 'active' : ''}"
+        // If page actions doesn't exist, fall back to adding to page head
+        const $targetContainer = $pageActions.length > 0
+            ? $pageActions
+            : cur_pos.page.wrapper.find('.page-head .container > .row');
+
+        // Create custom actions group in page header
+        const buttonsHtml = `
+            <div class="powerpack-custom-actions" style="display: inline-flex; gap: 4px; margin-left: 8px; align-items: center;">
+                <button class="btn btn-sm btn-default view-toggle-btn ${currentViewMode === 'thumbnail' ? 'active' : ''}"
                         data-view="thumbnail" title="${__('Thumbnail View')}">
                     <i class="fa fa-th-large"></i>
                 </button>
-                <button class="btn btn-sm view-toggle-btn ${currentViewMode === 'compact' ? 'active' : ''}"
+                <button class="btn btn-sm btn-default view-toggle-btn ${currentViewMode === 'compact' ? 'active' : ''}"
                         data-view="compact" title="${__('Compact Table View')}">
                     <i class="fa fa-list"></i>
                 </button>
-                <button class="btn btn-sm powerpack-settings-btn" title="${__('Column Settings')}">
+                <button class="btn btn-sm btn-default powerpack-settings-btn" title="${__('Column Settings')}">
                     <i class="fa fa-cog"></i>
                 </button>
-                <button class="btn btn-sm powerpack-bulk-toggle-btn" title="${__('Bulk Add Mode')}">
+                <button class="btn btn-sm btn-default powerpack-bulk-toggle-btn" title="${__('Bulk Add Mode')}">
                     <i class="fa fa-check-square-o"></i> ${__('Bulk')}
                 </button>
-                <div class="powerpack-keyboard-hint" title="${__('Keyboard: ↑↓ Navigate | Enter Add | Esc Clear')}">
+                <div class="powerpack-keyboard-hint" title="${__('Keyboard: ↑↓ Navigate | Enter Add | Esc Clear')}"
+                     style="display: inline-flex; align-items: center; padding: 0 8px;">
                     <i class="fa fa-keyboard-o text-muted"></i>
                 </div>
             </div>
-        `);
+        `;
+
+        // Append to the target container
+        if ($targetContainer.length > 0) {
+            $targetContainer.append(buttonsHtml);
+        } else {
+            // Fallback: add to standard actions area
+            cur_pos.page.wrapper.find('.standard-actions').prepend(buttonsHtml);
+        }
 
         $('.view-toggle-btn').on('click', function() {
             switchView($(this).data('view'));

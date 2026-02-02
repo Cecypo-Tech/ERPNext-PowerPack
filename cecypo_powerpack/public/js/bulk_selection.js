@@ -14,24 +14,36 @@
 const BULK_SELECTION_CONFIG = {
     'Quotation': {
         setting_field: 'enable_quotation_bulk_selection',
-        requires_warehouse: false,
-        has_taxes: true
+        requires_warehouse: false,  // Warehouse is optional for Quotation
+        has_taxes: true,
+        customer_field: 'party_name',  // Quotation uses party_name
+        warehouse_field: 'custom_warehouse'  // Quotation uses custom field
     },
     'Sales Order': {
         setting_field: 'enable_sales_order_bulk_selection',
-        requires_warehouse: true,
-        has_taxes: true
+        requires_warehouse: true,  // Warehouse is mandatory
+        has_taxes: true,
+        customer_field: 'customer',
+        warehouse_field: 'set_warehouse'
     },
     'Sales Invoice': {
         setting_field: 'enable_sales_invoice_bulk_selection',
-        requires_warehouse: true,
-        has_taxes: true
+        requires_warehouse: true,  // Warehouse is mandatory
+        has_taxes: true,
+        customer_field: 'customer',
+        warehouse_field: 'set_warehouse'
     }
 };
 
+// Helper function to get customer value based on doctype
+function get_customer(frm) {
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+    return frm.doc[config.customer_field];
+}
+
 // Initialize for each supported doctype
 Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
-    frappe.ui.form.on(doctype, {
+    let handlers = {
         onload: function(frm) {
             const config = BULK_SELECTION_CONFIG[frm.doctype];
             // Check if feature is enabled for this doctype
@@ -49,19 +61,7 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
             toggle_bulk_button(frm);
         },
 
-        customer: function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        },
-
         selling_price_list: function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        },
-
-        set_warehouse: function(frm) {
             if (!frm._bulk_selection_enabled) return;
             toggle_bulk_button(frm);
             frm._bulk_item_cache = null;
@@ -72,7 +72,24 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
             // Clear cache when tax template changes (affects cost calculation)
             frm._bulk_item_cache = null;
         }
-    });
+    };
+
+    // Add customer field handler based on doctype
+    const config = BULK_SELECTION_CONFIG[doctype];
+    handlers[config.customer_field] = function(frm) {
+        if (!frm._bulk_selection_enabled) return;
+        toggle_bulk_button(frm);
+        frm._bulk_item_cache = null;
+    };
+
+    // Add warehouse field handler based on doctype
+    handlers[config.warehouse_field] = function(frm) {
+        if (!frm._bulk_selection_enabled) return;
+        toggle_bulk_button(frm);
+        frm._bulk_item_cache = null;
+    };
+
+    frappe.ui.form.on(doctype, handlers);
 });
 
 // Check if current user can see cost prices
@@ -112,11 +129,36 @@ function add_bulk_selection_button(frm) {
 function toggle_bulk_button(frm) {
     let btn = frm._bulk_selection_btn;
     if (btn && btn.length) {
-        let disabled = !frm.doc.customer || !frm.doc.selling_price_list;
+        const config = BULK_SELECTION_CONFIG[frm.doctype];
+        let customer = get_customer(frm);
+        let warehouse = get_warehouse(frm);
+        let disabled = false;
+        let title = '';
+
+        if (config.requires_warehouse) {
+            // Sales Order & Sales Invoice: Requires both customer and warehouse
+            if (!customer && !warehouse) {
+                disabled = true;
+                title = __('Please select Customer and Warehouse first');
+            } else if (!customer) {
+                disabled = true;
+                title = __('Please select a Customer first');
+            } else if (!warehouse) {
+                disabled = true;
+                title = __('Please select a Warehouse first');
+            }
+        } else {
+            // Quotation: Only requires customer (warehouse is optional)
+            disabled = !customer;
+            if (disabled) {
+                title = __('Please select a Customer first');
+            }
+        }
+
         btn.prop('disabled', disabled).toggleClass('disabled', disabled);
 
         if (disabled) {
-            btn.attr('title', __('Please select Customer and Price List first'));
+            btn.attr('title', title);
         } else {
             btn.removeAttr('title');
         }
@@ -124,13 +166,13 @@ function toggle_bulk_button(frm) {
 }
 
 function get_cached_items(frm) {
-    const config = BULK_SELECTION_CONFIG[frm.doctype];
-    let warehouse = config.requires_warehouse ? (frm.doc.set_warehouse || frm._default_warehouse) : null;
+    let warehouse = get_warehouse(frm);
+    let customer = get_customer(frm);
 
     if (frm._bulk_item_cache &&
         frm._bulk_item_cache.price_list === frm.doc.selling_price_list &&
         frm._bulk_item_cache.warehouse === warehouse &&
-        frm._bulk_item_cache.customer === frm.doc.customer &&
+        frm._bulk_item_cache.customer === customer &&
         frm._bulk_item_cache.taxes_and_charges === frm.doc.taxes_and_charges) {
         return frm._bulk_item_cache.items;
     }
@@ -142,55 +184,35 @@ function set_cached_items(frm, items, warehouse) {
         items: items,
         price_list: frm.doc.selling_price_list,
         warehouse: warehouse,
-        customer: frm.doc.customer,
+        customer: get_customer(frm),
         taxes_and_charges: frm.doc.taxes_and_charges,
         timestamp: Date.now()
     };
 }
 
-async function get_default_warehouse(frm) {
-    if (frm.doc.set_warehouse) {
-        return frm.doc.set_warehouse;
-    }
-
-    if (frm._default_warehouse) {
-        return frm._default_warehouse;
-    }
-
-    try {
-        let result = await frappe.db.get_single_value('Stock Settings', 'default_warehouse');
-        if (result) {
-            frm._default_warehouse = result;
-            return frm._default_warehouse;
-        }
-    } catch (e) {
-        console.error('Error fetching default warehouse:', e);
-    }
-
-    return null;
+function get_warehouse(frm) {
+    // Get warehouse from the appropriate field based on doctype
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+    return frm.doc[config.warehouse_field] || null;
 }
 
-async function show_bulk_item_selector(frm) {
-    if (!frm.doc.customer) {
+function show_bulk_item_selector(frm) {
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+    let customer = get_customer(frm);
+
+    // Validate customer
+    if (!customer) {
         frappe.msgprint(__('Please select a Customer first'));
         return;
     }
 
-    if (!frm.doc.selling_price_list) {
-        frappe.msgprint(__('Please select a Price List first'));
+    // Get warehouse (optional for Quotation, mandatory for Sales Order/Invoice)
+    let warehouse = get_warehouse(frm);
+
+    // Validate warehouse for Sales Order/Invoice (where it's mandatory)
+    if (config.requires_warehouse && !warehouse) {
+        frappe.msgprint(__('Please select a Warehouse first'));
         return;
-    }
-
-    const config = BULK_SELECTION_CONFIG[frm.doctype];
-    let warehouse = null;
-
-    if (config.requires_warehouse) {
-        warehouse = await get_default_warehouse(frm);
-
-        if (!warehouse) {
-            frappe.msgprint(__('Please select a Warehouse or set a default warehouse in Stock Settings'));
-            return;
-        }
     }
 
     // Determine cost permission on client side
@@ -235,7 +257,7 @@ function fetch_bulk_item_details(frm, items, warehouse, can_see_cost) {
             items: items.map(i => i.name),
             price_list: frm.doc.selling_price_list,
             warehouse: warehouse,
-            customer: frm.doc.customer,
+            customer: get_customer(frm),
             taxes_and_charges: frm.doc.taxes_and_charges,
             doctype: frm.doctype,
             optimized: true
@@ -461,7 +483,8 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
             ? `<th class="sortable text-right" data-column="valuation_rate">Cost <span class="sort-icon"></span></th>`
             : '';
 
-        let stock_header = config.requires_warehouse
+        // Show stock column if warehouse is set (even for Quotation with custom_warehouse)
+        let stock_header = warehouse
             ? `<th class="sortable text-right" data-column="actual_qty">Available <span class="sort-icon"></span></th>`
             : '';
 
@@ -486,7 +509,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         `;
 
         if (page_data.length === 0) {
-            let colspan = can_see_cost ? (config.requires_warehouse ? 9 : 8) : (config.requires_warehouse ? 8 : 7);
+            let colspan = can_see_cost ? (warehouse ? 9 : 8) : (warehouse ? 8 : 7);
             html += `
                 <tr>
                     <td colspan="${colspan}" class="text-center" style="padding: 40px;">
@@ -503,7 +526,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 let qty = state.quantities[item.item_code] || 0;
                 let rate = item.price_list_rate || 0;
                 let line_total = qty * rate;
-                let is_unavailable = rate <= 0 || (config.requires_warehouse && (item.actual_qty || 0) <= 0);
+                let is_unavailable = rate <= 0 || (warehouse && (item.actual_qty || 0) <= 0);
                 let row_class = is_unavailable ? 'unavailable-row' : '';
                 if (qty > 0) row_class += ' has-qty';
 
@@ -511,7 +534,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                     ? `<td class="text-right cost-price-cell" data-item="${item.item_code}">${format_currency(item.valuation_rate || 0)}</td>`
                     : '';
 
-                let stock_cell = config.requires_warehouse
+                let stock_cell = warehouse
                     ? `<td class="text-right ${(item.actual_qty || 0) <= 0 ? 'text-danger' : ''}">${format_number(item.actual_qty || 0, null, 2)}</td>`
                     : '';
 
@@ -1107,10 +1130,11 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
         show_sales_tooltip($cell, null, true);
 
+        let customer = get_customer(frm);
         frappe.xcall('frappe.client.get_list', {
             doctype: 'Sales Invoice',
             filters: {
-                'customer': frm.doc.customer,
+                'customer': customer,
                 'docstatus': 1
             },
             fields: ['name', 'posting_date', 'grand_total', 'net_total'],
@@ -1175,8 +1199,10 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     function show_sales_tooltip($cell, history, loading = false) {
         $cell.find('.sales-history-tooltip').remove();
 
+        let customer = get_customer(frm);
+        let customer_display = frm.doc.customer_name || customer;
         let tooltip_html = `<div class="sales-history-tooltip">
-            <div class="tooltip-title">Last Sales to ${frm.doc.customer_name || frm.doc.customer}</div>`;
+            <div class="tooltip-title">Last Sales to ${customer_display}</div>`;
 
         if (loading) {
             tooltip_html += `<div class="no-history">Loading...</div>`;
@@ -1402,7 +1428,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         d.$wrapper.find('.sell-price-cell').off('mouseenter').on('mouseenter', function() {
             let $cell = $(this);
             let item_code = $cell.data('item');
-            if (frm.doc.customer && item_code) {
+            if (get_customer(frm) && item_code) {
                 fetch_sales_history(item_code, $cell);
             }
         });
@@ -1467,7 +1493,16 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     }
 
     render_toolbar();
-    d.$wrapper.find('#show-available').prop('checked', true);
+
+    // Only check "Available only" by default if warehouse is present
+    // For Quotation (no warehouse), all items have actual_qty=0 so this would hide everything
+    if (warehouse) {
+        d.$wrapper.find('#show-available').prop('checked', true);
+    } else {
+        // Hide the "Available only" checkbox for Quotation since it's not applicable
+        d.$wrapper.find('#show-available').closest('.checkbox-label').hide();
+    }
+
     render_table();
     bind_toolbar_events();
 
