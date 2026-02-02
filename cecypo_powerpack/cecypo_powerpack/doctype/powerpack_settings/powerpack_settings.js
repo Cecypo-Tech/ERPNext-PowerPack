@@ -1,4 +1,4 @@
-// Copyright (c) 2024, Cecypo.Tech and contributors
+// Copyright (c) 2026, Cecypo.Tech and contributors
 // For license information, please see license.txt
 
 frappe.ui.form.on('PowerPack Settings', {
@@ -17,11 +17,11 @@ frappe.ui.form.on('PowerPack Settings', {
 		}
 	},
 
-	enable_quotation_tweaks: function(frm) {
-		// Handle Quotation tweaks toggle
-		if (frm.doc.enable_quotation_tweaks) {
+	enable_quotation_powerup: function(frm) {
+		// Handle Quotation powerup toggle
+		if (frm.doc.enable_quotation_powerup) {
 			frappe.show_alert({
-				message: __('Quotation Tweaks has been enabled'),
+				message: __('Quotation Powerup has been enabled'),
 				indicator: 'green'
 			});
 		}

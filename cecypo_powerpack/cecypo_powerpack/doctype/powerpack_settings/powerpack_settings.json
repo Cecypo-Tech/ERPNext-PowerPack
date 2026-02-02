@@ -1,6 +1,6 @@
 {
  "actions": [],
- "creation": "2024-01-29 00:00:00.000000",
+ "creation": "2026-01-29 00:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -12,7 +12,6 @@
   "pos_default_view",
   "column_break_pos_1",
   "pos_enable_custom_search",
-  "pos_column_settings_section",
   "pos_show_cost_price",
   "sales_powerup_section",
   "enable_quotation_powerup",
@@ -91,18 +90,11 @@
    "description": "Enable advanced search with wildcard support (%) and multi-word token matching"
   },
   {
-   "collapsible": 1,
-   "depends_on": "eval:doc.enable_pos_powerup",
-   "fieldname": "pos_column_settings_section",
-   "fieldtype": "Section Break",
-   "label": "POS Compact View - Column Settings"
-  },
-  {
    "default": "0",
    "fieldname": "pos_show_cost_price",
    "fieldtype": "Check",
-   "label": "Show Cost Price",
-   "description": "Show cost price column (only visible to users with cost viewing permissions)"
+   "label": "Show Cost Price in Compact View",
+   "description": "Show cost price column in compact view (only visible to users with cost viewing permissions)"
   },
   {
    "fieldname": "sales_powerup_section",
@@ -113,13 +105,15 @@
    "default": "0",
    "fieldname": "enable_quotation_powerup",
    "fieldtype": "Check",
-   "label": "Enable for Quotation"
+   "label": "Enable for Quotation",
+   "description": "Enable sales powerup features for Quotation documents"
   },
   {
    "default": "0",
    "fieldname": "enable_sales_order_powerup",
    "fieldtype": "Check",
-   "label": "Enable for Sales Order"
+   "label": "Enable for Sales Order",
+   "description": "Enable sales powerup features for Sales Order documents"
   },
   {
    "fieldname": "column_break_sales_1",
@@ -129,13 +123,15 @@
    "default": "0",
    "fieldname": "enable_sales_invoice_powerup",
    "fieldtype": "Check",
-   "label": "Enable for Sales Invoice"
+   "label": "Enable for Sales Invoice",
+   "description": "Enable sales powerup features for Sales Invoice documents"
   },
   {
    "default": "0",
    "fieldname": "enable_pos_invoice_powerup",
    "fieldtype": "Check",
-   "label": "Enable for POS Invoice"
+   "label": "Enable for POS Invoice",
+   "description": "Enable sales powerup features for POS Invoice documents"
   },
   {
    "fieldname": "sales_powerup_description",
@@ -165,19 +161,22 @@
    "default": "1",
    "fieldname": "show_stock_info",
    "fieldtype": "Check",
-   "label": "Show Stock Information"
+   "label": "Show Stock Information",
+   "description": "Display current stock levels below item lines"
   },
   {
    "default": "1",
    "fieldname": "show_valuation_rate",
    "fieldtype": "Check",
-   "label": "Show Valuation Rate"
+   "label": "Show Valuation Rate",
+   "description": "Display item valuation/cost rate"
   },
   {
    "default": "1",
    "fieldname": "show_profit_indicator",
    "fieldtype": "Check",
-   "label": "Show Profit Indicator"
+   "label": "Show Profit Indicator",
+   "description": "Show profit margin percentage and amount"
   },
   {
    "fieldname": "column_break_2",
@@ -187,19 +186,22 @@
    "default": "1",
    "fieldname": "show_last_purchase",
    "fieldtype": "Check",
-   "label": "Show Last Purchase"
+   "label": "Show Last Purchase",
+   "description": "Display last purchase price and date"
   },
   {
    "default": "1",
    "fieldname": "show_last_sale",
    "fieldtype": "Check",
-   "label": "Show Last Sale"
+   "label": "Show Last Sale",
+   "description": "Display last sale price and date to any customer"
   },
   {
    "default": "1",
    "fieldname": "show_last_sale_to_customer",
    "fieldtype": "Check",
-   "label": "Show Last Sale to Customer"
+   "label": "Show Last Sale to Customer",
+   "description": "Display last sale price and date to this specific customer"
   },
   {
    "fieldname": "bulk_selection_section",
@@ -210,13 +212,15 @@
    "default": "0",
    "fieldname": "enable_quotation_bulk_selection",
    "fieldtype": "Check",
-   "label": "Enable for Quotation"
+   "label": "Enable for Quotation",
+   "description": "Enable bulk item selection for Quotation documents"
   },
   {
    "default": "0",
    "fieldname": "enable_sales_order_bulk_selection",
    "fieldtype": "Check",
-   "label": "Enable for Sales Order"
+   "label": "Enable for Sales Order",
+   "description": "Enable bulk item selection for Sales Order documents"
   },
   {
    "fieldname": "column_break_bulk_1",
@@ -226,7 +230,8 @@
    "default": "0",
    "fieldname": "enable_sales_invoice_bulk_selection",
    "fieldtype": "Check",
-   "label": "Enable for Sales Invoice"
+   "label": "Enable for Sales Invoice",
+   "description": "Enable bulk item selection for Sales Invoice documents"
   },
   {
    "fieldname": "bulk_selection_description",
@@ -283,7 +288,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2024-01-29 00:00:00.000000",
+ "modified": "2026-01-29 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "PowerPack Settings",

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, Cecypo.Tech and contributors
+# Copyright (c) 2026, Cecypo.Tech and contributors
 # For license information, please see license.txt
 
 """
@@ -72,7 +72,7 @@ def get_powerpack_settings() -> dict:
         frappe.log_error(f"Error getting PowerPack Settings: {str(e)}")
         return {
             "enable_pos_powerup": 0,
-            "enable_quotation_tweaks": 0
+            "enable_quotation_powerup": 0
         }
 
 

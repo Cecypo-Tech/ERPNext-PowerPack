@@ -1,13 +1,21 @@
 ### Cecypo PowerPack
 
-:fa-star-half-o: Gives ERPNext Powerups! :facepunch:
+Gives ERPNext Power ups! :facepunch: :lightning:
 
 ### Features
 
+###### Centralized Settings to enable/disable features
+![](https://i.imgur.com/Y9JD8fX.png)
 ###### Bulk Price Update
 ![](https://i.imgur.com/VYu5iaq.png)
+###### Compact POS
+![](https://imgur.com/ndXPJ0B)
 ###### Duplicate customer or supplier soft warning
-![]https://i.imgur.com/btf7hCB.png
+![](https://i.imgur.com/btf7hCB.png)
+###### Power Sales
+![](https://i.imgur.com/Hmxel3H.png)
+###### Bulk Selection for QT/SO/SI
+![](https://i.imgur.com/odv7pO5.gif)
 
 ### Installation
 

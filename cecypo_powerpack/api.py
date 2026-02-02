@@ -1,4 +1,4 @@
-# Copyright (c) 2024, Cecypo.Tech and contributors
+# Copyright (c) 2026, Cecypo.Tech and contributors
 # For license information, please see license.txt
 
 """
@@ -43,9 +43,9 @@ def debug_powerpack_settings() -> dict:
         return {
             "success": True,
             "settings": settings,
-            "enable_quotation_tweaks_value": settings.get('enable_quotation_tweaks'),
-            "enable_quotation_tweaks_type": str(type(settings.get('enable_quotation_tweaks'))),
-            "is_quotation_tweaks_enabled": is_feature_enabled('enable_quotation_tweaks'),
+            "enable_quotation_powerup_value": settings.get('enable_quotation_powerup'),
+            "enable_quotation_powerup_type": str(type(settings.get('enable_quotation_powerup'))),
+            "is_quotation_powerup_enabled": is_feature_enabled('enable_quotation_powerup'),
             "is_pos_powerup_enabled": is_feature_enabled('enable_pos_powerup')
         }
     except Exception as e:
@@ -692,7 +692,7 @@ def _get_valuation_rate(item_code, warehouse=None):
     try:
         rate = frappe.db.get_value('Item', item_code, 'valuation_rate')
         return rate if rate else 0
-    except:
+    except (frappe.DoesNotExistError, AttributeError, TypeError):
         return 0
 
 
@@ -709,7 +709,7 @@ def _get_item_price(item_code, price_list):
             'price_list_rate'
         )
         return price if price else 0
-    except:
+    except (frappe.DoesNotExistError, AttributeError, TypeError):
         return 0
 
 
@@ -728,7 +728,7 @@ def _get_stock_qty(item_code, warehouse):
             'actual_qty'
         )
         return qty if qty else 0
-    except:
+    except (frappe.DoesNotExistError, AttributeError, TypeError):
         return 0
 
 
