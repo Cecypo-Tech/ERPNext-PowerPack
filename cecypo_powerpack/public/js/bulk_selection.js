@@ -1476,9 +1476,20 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     d.show();
 }
 
+/**
+ * Add selected items to the document using proper ERPNext patterns
+ * This function follows ERPNext's standard workflow:
+ * 1. Create child row with frappe.model.add_child or frm.add_child
+ * 2. Set item_code using frappe.model.set_value (triggers get_item_details)
+ * 3. get_item_details fetches rate, UOM, taxes, etc. from server
+ * 4. Set qty using frappe.model.set_value (triggers qty event)
+ * 5. Set warehouse if applicable
+ * 6. Refresh field to update UI and recalculate totals
+ */
 function add_items_to_doc(frm, selected_items, warehouse) {
+    // Step 1: Remove empty rows
     let items_to_remove = [];
-    (frm.doc.items || []).forEach((row, idx) => {
+    (frm.doc.items || []).forEach((row) => {
         if (!row.item_code) {
             items_to_remove.push(row);
         }
@@ -1488,10 +1499,14 @@ function add_items_to_doc(frm, selected_items, warehouse) {
         frm.get_field('items').grid.grid_rows_by_docname[row.name].remove();
     });
 
+    // Step 2: Build map of existing items
     let existing_items = {};
     (frm.doc.items || []).forEach(row => {
         if (row.item_code) {
-            existing_items[row.item_code] = row;
+            if (!existing_items[row.item_code]) {
+                existing_items[row.item_code] = [];
+            }
+            existing_items[row.item_code].push(row);
         }
     });
 
@@ -1499,55 +1514,89 @@ function add_items_to_doc(frm, selected_items, warehouse) {
     let added_count = 0;
     const config = BULK_SELECTION_CONFIG[frm.doctype];
 
+    // Step 3: Process items sequentially to avoid race conditions
+    let chain = Promise.resolve();
+
     selected_items.forEach(item => {
-        if (existing_items[item.item_code]) {
-            let existing_row = existing_items[item.item_code];
-            existing_row.qty = item.qty;
-            existing_row.rate = item.price_list_rate || existing_row.rate || 0;
-            if (item.item_tax_template) {
-                existing_row.item_tax_template = item.item_tax_template;
+        chain = chain.then(() => {
+            if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
+                // Update existing item - just update the quantity
+                // frappe.model.set_value triggers qty event which recalculates amounts
+                let existing_row = existing_items[item.item_code][0];
+                updated_count++;
+
+                return frappe.model.set_value(
+                    existing_row.doctype,
+                    existing_row.name,
+                    'qty',
+                    item.qty
+                );
+            } else {
+                // Add new item using proper ERPNext workflow
+                added_count++;
+
+                // Create child row
+                let child = frm.add_child('items');
+
+                // Set item_code first - this triggers get_item_details() on server
+                // which fetches: rate, UOM, description, taxes, etc.
+                return frappe.model.set_value(
+                    child.doctype,
+                    child.name,
+                    'item_code',
+                    item.item_code
+                ).then(() => {
+                    // After item details are fetched, set quantity
+                    // This triggers qty event which calculates amount
+                    return frappe.model.set_value(
+                        child.doctype,
+                        child.name,
+                        'qty',
+                        item.qty
+                    );
+                }).then(() => {
+                    // Set warehouse if applicable (for Sales Order/Invoice)
+                    if (config.requires_warehouse && warehouse) {
+                        return frappe.model.set_value(
+                            child.doctype,
+                            child.name,
+                            'warehouse',
+                            warehouse
+                        );
+                    }
+                });
             }
-            if (frm.doc.delivery_date && frm.doctype !== 'Sales Invoice') {
-                existing_row.delivery_date = frm.doc.delivery_date;
-            }
-            updated_count++;
-        } else {
-            let row = frm.add_child('items');
-            row.item_code = item.item_code;
-            row.item_name = item.item_name;
-            row.description = item.description;
-            row.uom = item.stock_uom;
-            row.qty = item.qty;
-            row.rate = item.price_list_rate || 0;
-            if (item.item_tax_template) {
-                row.item_tax_template = item.item_tax_template;
-            }
-            if (config.requires_warehouse && warehouse) {
-                row.warehouse = warehouse;
-            }
-            if (frm.doc.delivery_date && frm.doctype !== 'Sales Invoice') {
-                row.delivery_date = frm.doc.delivery_date;
-            }
-            added_count++;
-        }
+        });
     });
 
-    frm.refresh_field('items');
+    // Step 4: After all items are processed, refresh and show message
+    chain.then(() => {
+        // Refresh the items grid to update UI
+        frm.refresh_field('items');
 
-    let messages = [];
-    if (added_count > 0) {
-        messages.push(__('Added {0} items', [added_count]));
-    }
-    if (updated_count > 0) {
-        messages.push(__('Updated {0} items', [updated_count]));
-    }
+        // Show success message
+        let messages = [];
+        if (added_count > 0) {
+            messages.push(__('Added {0} items', [added_count]));
+        }
+        if (updated_count > 0) {
+            messages.push(__('Updated {0} items', [updated_count]));
+        }
 
-    if (messages.length > 0) {
-        frappe.show_alert({
-            message: messages.join(', '),
-            indicator: 'green'
+        if (messages.length > 0) {
+            frappe.show_alert({
+                message: messages.join(', '),
+                indicator: 'green'
+            }, 5);
+        }
+    }).catch(err => {
+        console.error('Error adding items:', err);
+        frappe.msgprint({
+            title: __('Error'),
+            message: __('Error adding some items. Please check the console for details.'),
+            indicator: 'red'
         });
-    }
+    });
 }
 
 function format_currency(value) {
