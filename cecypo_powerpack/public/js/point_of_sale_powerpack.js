@@ -10,15 +10,14 @@
 
     // Configurable Columns State
     let columnConfig = {
-        image: true,
-        code: true,
-        stock: true,
-        price: true
-    }; // Will be loaded from POS Profile during initialization
+        cost: false
+    }; // Will be loaded from PowerPack Settings during initialization
 
-    // Bulk Mode State
-    let bulkModeActive = false;
-    let bulkSelections = {};  // { item_code: qty }
+    // Enhanced search enabled flag
+    let enhancedSearchEnabled = true;
+
+    // Cost permission check
+    let canSeeCost = false;
 
     // Polling watcher - checks every 500ms like Mpesa implementation
     function watchForPOSReady() {
@@ -36,17 +35,16 @@
         const posProfile = cur_pos.frm?.doc?.pos_profile;
         if (!posProfile) return false;
 
-        // Check if PowerPack enabled via API call
+        // Check if PowerPack enabled via PowerPack Settings
         frappe.call({
-            method: 'frappe.client.get_value',
+            method: 'frappe.client.get_single_value',
             args: {
-                doctype: 'POS Profile',
-                filters: { name: posProfile },
-                fieldname: 'enable_powerpack_by_cecypo'
+                doctype: 'PowerPack Settings',
+                field: 'enable_pos_powerup'
             },
             callback: (r) => {
-                if (r.message?.enable_powerpack_by_cecypo) {
-                    enablePowerPackFeatures();
+                if (r.message) {
+                    loadPowerPackSettings();
                 }
             }
         });
@@ -54,13 +52,63 @@
         return true;
     }
 
+    function loadPowerPackSettings() {
+        frappe.call({
+            method: 'frappe.client.get',
+            args: {
+                doctype: 'PowerPack Settings',
+                name: 'PowerPack Settings'
+            },
+            callback: (r) => {
+                if (r.message) {
+                    const settings = r.message;
+
+                    // Load default view mode
+                    if (settings.pos_default_view) {
+                        const savedView = localStorage.getItem('pos_powerpack_view_mode');
+                        if (!savedView) {
+                            currentViewMode = settings.pos_default_view.toLowerCase();
+                            localStorage.setItem('pos_powerpack_view_mode', currentViewMode);
+                        }
+                    }
+
+                    // Load column configuration
+                    columnConfig = {
+                        cost: settings.pos_show_cost_price || false
+                    };
+
+                    // Load enhanced search setting
+                    enhancedSearchEnabled = settings.pos_enable_custom_search || false;
+
+                    // Check cost permission
+                    canSeeCost = hasCostPermission();
+
+                    // Enable features
+                    enablePowerPackFeatures();
+                }
+            }
+        });
+    }
+
+    function hasCostPermission() {
+        const costRoles = [
+            "System Manager",
+            "Stock Manager",
+            "Accounts Manager",
+            "Sales Master Manager",
+            "Administrator"
+        ];
+        return costRoles.some(role => frappe.user_roles.includes(role));
+    }
+
     function enablePowerPackFeatures() {
         if (powerPackInitialized) return;
 
         injectViewToggleButtons();
         overrideRenderItemList();
-        enhanceSearchLogic();
-        loadColumnConfig();
+        if (enhancedSearchEnabled) {
+            enhanceSearchLogic();
+        }
         enableBarcodeVisualFeedback();
         applyInitialView();
 
@@ -68,17 +116,18 @@
     }
 
     function injectViewToggleButtons() {
-        // Find the page actions container in POS
-        const $pageActions = cur_pos.page.wrapper.find('.page-actions');
+        // Add buttons to the POS page's standard actions area (top right)
+        // This is the most reliable location that's always visible
+        const $standardActions = cur_pos.page.wrapper.find('.page-head .standard-actions');
 
-        // If page actions doesn't exist, fall back to adding to page head
-        const $targetContainer = $pageActions.length > 0
-            ? $pageActions
-            : cur_pos.page.wrapper.find('.page-head .container > .row');
+        if ($standardActions.length === 0) {
+            console.error('PowerPack: Could not find standard actions container');
+            return;
+        }
 
-        // Create custom actions group in page header
+        // Create custom actions group
         const buttonsHtml = `
-            <div class="powerpack-custom-actions" style="display: inline-flex; gap: 4px; margin-left: 8px; align-items: center;">
+            <div class="powerpack-custom-actions">
                 <button class="btn btn-sm btn-default view-toggle-btn ${currentViewMode === 'thumbnail' ? 'active' : ''}"
                         data-view="thumbnail" title="${__('Thumbnail View')}">
                     <i class="fa fa-th-large"></i>
@@ -87,37 +136,17 @@
                         data-view="compact" title="${__('Compact Table View')}">
                     <i class="fa fa-list"></i>
                 </button>
-                <button class="btn btn-sm btn-default powerpack-settings-btn" title="${__('Column Settings')}">
-                    <i class="fa fa-cog"></i>
-                </button>
-                <button class="btn btn-sm btn-default powerpack-bulk-toggle-btn" title="${__('Bulk Add Mode')}">
-                    <i class="fa fa-check-square-o"></i> ${__('Bulk')}
-                </button>
-                <div class="powerpack-keyboard-hint" title="${__('Keyboard: ↑↓ Navigate | Enter Add | Esc Clear')}"
-                     style="display: inline-flex; align-items: center; padding: 0 8px;">
+                <span class="powerpack-keyboard-hint" title="${__('Keyboard: ↑↓ Navigate | Enter Add | Esc Clear')}">
                     <i class="fa fa-keyboard-o text-muted"></i>
-                </div>
+                </span>
             </div>
         `;
 
-        // Append to the target container
-        if ($targetContainer.length > 0) {
-            $targetContainer.append(buttonsHtml);
-        } else {
-            // Fallback: add to standard actions area
-            cur_pos.page.wrapper.find('.standard-actions').prepend(buttonsHtml);
-        }
+        // Prepend to standard actions so buttons appear before other action buttons
+        $standardActions.prepend(buttonsHtml);
 
         $('.view-toggle-btn').on('click', function() {
             switchView($(this).data('view'));
-        });
-
-        $('.powerpack-settings-btn').on('click', function() {
-            showColumnSettingsDialog();
-        });
-
-        $('.powerpack-bulk-toggle-btn').on('click', function() {
-            toggleBulkMode();
         });
     }
 
@@ -182,6 +211,93 @@
         }
     }
 
+    function fetchValuationRates(items) {
+        if (!items || items.length === 0) return;
+
+        // Get warehouse from POS - check multiple possible locations
+        let warehouse = null;
+
+        if (cur_pos.frm?.doc?.warehouse) {
+            warehouse = cur_pos.frm.doc.warehouse;
+        } else if (cur_pos.frm?.doc?.set_warehouse) {
+            warehouse = cur_pos.frm.doc.set_warehouse;
+        } else if (cur_pos.pos_profile?.warehouse) {
+            warehouse = cur_pos.pos_profile.warehouse;
+        } else if (cur_pos.frm?.doc?.pos_profile) {
+            // Fetch warehouse from POS Profile
+            frappe.db.get_value('POS Profile', cur_pos.frm.doc.pos_profile, 'warehouse')
+                .then(r => {
+                    if (r.message?.warehouse) {
+                        fetchValuationRatesWithWarehouse(items, r.message.warehouse);
+                    } else {
+                        updateCostPriceDisplay({});
+                    }
+                });
+            return;
+        }
+
+        if (!warehouse) {
+            updateCostPriceDisplay({});
+            return;
+        }
+
+        fetchValuationRatesWithWarehouse(items, warehouse);
+    }
+
+    function fetchValuationRatesWithWarehouse(items, warehouse) {
+        // Get item codes
+        const item_codes = items.map(item => item.item_code).filter(Boolean);
+        if (item_codes.length === 0) {
+            updateCostPriceDisplay({});
+            return;
+        }
+
+        // Fetch valuation rates from Bin
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'Bin',
+                filters: [
+                    ['item_code', 'in', item_codes],
+                    ['warehouse', '=', warehouse]
+                ],
+                fields: ['item_code', 'valuation_rate'],
+                limit_page_length: 0
+            },
+            callback: (r) => {
+                const valuationMap = {};
+
+                if (r.message && r.message.length > 0) {
+                    r.message.forEach(entry => {
+                        if (entry.valuation_rate && entry.valuation_rate > 0) {
+                            valuationMap[entry.item_code] = entry.valuation_rate;
+                        }
+                    });
+                }
+
+                updateCostPriceDisplay(valuationMap);
+            },
+            error: (r) => {
+                updateCostPriceDisplay({});
+            }
+        });
+    }
+
+    function updateCostPriceDisplay(valuationMap) {
+        $('.compact-item-cost').each(function() {
+            const $costCol = $(this);
+            const itemCode = unescape($costCol.data('item-code'));
+
+            if (valuationMap[itemCode] && valuationMap[itemCode] > 0) {
+                const valuationRate = valuationMap[itemCode];
+                const precision = flt(valuationRate, 2) % 1 != 0 ? 2 : 0;
+                $costCol.html(format_number(valuationRate, null, precision));
+            } else {
+                $costCol.html('—');
+            }
+        });
+    }
+
     function renderItemsCompactView(items) {
         const $container = cur_pos.item_selector.$items_container;
         $container.html('');
@@ -196,6 +312,11 @@
         });
 
         bindCompactViewEvents();
+
+        // Fetch valuation rates if cost column is enabled
+        if (columnConfig.cost && canSeeCost) {
+            fetchValuationRates(items);
+        }
     }
 
     function getCompactItemHtml(item) {
@@ -212,6 +333,14 @@
         if (item.is_stock_item && Math.round(actual_qty) > 999) {
             qty_display = (Math.round(actual_qty) / 1000).toFixed(1) + 'K';
         }
+
+        // Cost price column (only if enabled and user has permission)
+        // Initial display - will be updated by fetchValuationRates
+        const cost_column = (columnConfig.cost && canSeeCost)
+            ? `<div class="compact-item-cost" data-item-code="${escape(item_code)}">
+                —
+               </div>`
+            : '';
 
         return `
             <div class="powerpack-compact-item"
@@ -239,8 +368,10 @@
                     ${qty_display ? `<span class="indicator-pill ${indicator_color}">${qty_display}</span>` : ''}
                 </div>
 
+                ${cost_column}
+
                 <div class="compact-item-price">
-                    ${format_currency(price_list_rate, item.currency, precision)} / ${uom}
+                    ${format_number(price_list_rate, null, precision)} / ${uom}
                 </div>
 
                 <div class="compact-item-info">
@@ -431,144 +562,12 @@
 
     function applyColumnConfig($container) {
         // Remove all hide classes first
-        $container.removeClass('hide-column-image hide-column-code hide-column-stock hide-column-price');
+        $container.removeClass('hide-column-cost');
 
         // Apply based on config
-        if (!columnConfig.image) $container.addClass('hide-column-image');
-        if (!columnConfig.code) $container.addClass('hide-column-code');
-        if (!columnConfig.stock) $container.addClass('hide-column-stock');
-        if (!columnConfig.price) $container.addClass('hide-column-price');
+        if (!columnConfig.cost || !canSeeCost) $container.addClass('hide-column-cost');
     }
 
-    function loadColumnConfig() {
-        // Load column config from POS Profile
-        const posProfile = cur_pos.frm?.doc?.pos_profile;
-        if (!posProfile) return;
-
-        frappe.call({
-            method: 'frappe.client.get_value',
-            args: {
-                doctype: 'POS Profile',
-                filters: { name: posProfile },
-                fieldname: 'powerpack_column_config'
-            },
-            callback: (r) => {
-                if (r.message?.powerpack_column_config) {
-                    try {
-                        columnConfig = JSON.parse(r.message.powerpack_column_config);
-                    } catch (e) {
-                        console.error('Failed to parse column config:', e);
-                        // Use defaults
-                    }
-                }
-
-                // Apply config to current view
-                if (currentViewMode === 'compact') {
-                    const $container = cur_pos.item_selector.$items_container;
-                    applyColumnConfig($container);
-                }
-            }
-        });
-    }
-
-    function saveColumnConfig() {
-        const posProfile = cur_pos.frm?.doc?.pos_profile;
-        if (!posProfile) return Promise.reject('No POS Profile');
-
-        return frappe.call({
-            method: 'frappe.client.set_value',
-            args: {
-                doctype: 'POS Profile',
-                name: posProfile,
-                fieldname: 'powerpack_column_config',
-                value: JSON.stringify(columnConfig)
-            }
-        });
-    }
-
-    function showColumnSettingsDialog() {
-        const dialog = new frappe.ui.Dialog({
-            title: __('Compact View Column Settings'),
-            fields: [
-                {
-                    fieldtype: 'HTML',
-                    fieldname: 'help',
-                    options: '<p class="text-muted small">' +
-                             __('Choose which columns to display in compact view') +
-                             '</p>'
-                },
-                {
-                    fieldtype: 'Check',
-                    fieldname: 'show_image',
-                    label: __('Show Image'),
-                    default: columnConfig.image ? 1 : 0
-                },
-                {
-                    fieldtype: 'Check',
-                    fieldname: 'show_code',
-                    label: __('Show Item Code'),
-                    default: columnConfig.code ? 1 : 0
-                },
-                {
-                    fieldtype: 'Check',
-                    fieldname: 'show_stock',
-                    label: __('Show Stock'),
-                    default: columnConfig.stock ? 1 : 0
-                },
-                {
-                    fieldtype: 'Check',
-                    fieldname: 'show_price',
-                    label: __('Show Price'),
-                    default: columnConfig.price ? 1 : 0
-                },
-                {
-                    fieldtype: 'HTML',
-                    fieldname: 'note',
-                    options: '<p class="text-muted small" style="margin-top: 10px;">' +
-                             '<i class="fa fa-info-circle"></i> ' +
-                             __('Item Name is always visible') +
-                             '</p>'
-                }
-            ],
-            primary_action_label: __('Apply'),
-            primary_action: (values) => {
-                columnConfig = {
-                    image: values.show_image ? true : false,
-                    code: values.show_code ? true : false,
-                    stock: values.show_stock ? true : false,
-                    price: values.show_price ? true : false
-                };
-
-                // Save to POS Profile
-                saveColumnConfig().then(() => {
-                    const $container = cur_pos.item_selector.$items_container;
-                    applyColumnConfig($container);
-
-                    dialog.hide();
-
-                    frappe.show_alert({
-                        message: __('Column settings saved'),
-                        indicator: 'green'
-                    }, 3);
-                }).catch((err) => {
-                    frappe.show_alert({
-                        message: __('Failed to save settings'),
-                        indicator: 'red'
-                    }, 3);
-                    console.error('Save error:', err);
-                });
-            },
-            secondary_action_label: __('Reset to Default'),
-            secondary_action: () => {
-                dialog.set_value('show_image', 1);
-                dialog.set_value('show_code', 1);
-                dialog.set_value('show_stock', 1);
-                dialog.set_value('show_price', 1);
-            }
-        });
-
-        dialog.show();
-    }
 
     // =========================================
     // Enhancement 3: Right-Click Quick Quantity
@@ -823,197 +822,6 @@
         }
     }
 
-    // =========================================
-    // Enhancement 6: Bulk Add Mode
-    // =========================================
-
-    function toggleBulkMode() {
-        bulkModeActive = !bulkModeActive;
-
-        if (bulkModeActive) {
-            enableBulkMode();
-        } else {
-            disableBulkMode();
-        }
-    }
-
-    function enableBulkMode() {
-        // Update button
-        $('.powerpack-bulk-toggle-btn').addClass('active');
-
-        // Add bulk class to container
-        const $container = cur_pos.item_selector.$items_container;
-        $container.addClass('powerpack-bulk-mode');
-
-        // Inject checkboxes
-        injectBulkCheckboxes();
-
-        // Show bulk action bar
-        showBulkActionBar();
-
-        // Disable keyboard nav
-        disableKeyboardNavigation();
-
-        frappe.show_alert({
-            message: __('Bulk mode activated. Select items to add.'),
-            indicator: 'blue'
-        }, 3);
-    }
-
-    function disableBulkMode() {
-        $('.powerpack-bulk-toggle-btn').removeClass('active');
-
-        const $container = cur_pos.item_selector.$items_container;
-        $container.removeClass('powerpack-bulk-mode');
-
-        // Remove checkboxes
-        $('.bulk-checkbox-wrapper').remove();
-
-        // Hide action bar
-        $('.powerpack-bulk-action-bar').remove();
-
-        // Clear selections
-        bulkSelections = {};
-
-        // Re-enable keyboard nav if in compact view
-        if (currentViewMode === 'compact') {
-            enableKeyboardNavigation();
-        }
-    }
-
-    function injectBulkCheckboxes() {
-        $('.powerpack-compact-item').each(function() {
-            const $item = $(this);
-            const itemCode = unescape($item.attr('data-item-code'));
-
-            const checkboxHtml = `
-                <div class="bulk-checkbox-wrapper">
-                    <input type="checkbox" class="bulk-item-checkbox"
-                           data-item-code="${itemCode}"
-                           ${bulkSelections[itemCode] ? 'checked' : ''}>
-                </div>
-            `;
-
-            $item.prepend(checkboxHtml);
-        });
-
-        // Bind checkbox events
-        $('.bulk-item-checkbox').on('change', function() {
-            const itemCode = $(this).data('item-code');
-            handleBulkCheckboxChange(itemCode, $(this).is(':checked'));
-        });
-    }
-
-    function handleBulkCheckboxChange(itemCode, isChecked) {
-        if (isChecked) {
-            // Prompt for quantity
-            frappe.prompt({
-                label: __('Quantity'),
-                fieldname: 'qty',
-                fieldtype: 'Int',
-                default: 1,
-                reqd: 1
-            }, (values) => {
-                if (values.qty > 0) {
-                    bulkSelections[itemCode] = values.qty;
-                    updateBulkCounter();
-                } else {
-                    // Uncheck if invalid
-                    $(`.bulk-item-checkbox[data-item-code="${itemCode}"]`).prop('checked', false);
-                }
-            }, __('Set Quantity'));
-        } else {
-            // Remove from selections
-            delete bulkSelections[itemCode];
-            updateBulkCounter();
-        }
-    }
-
-    function showBulkActionBar() {
-        const barHtml = `
-            <div class="powerpack-bulk-action-bar">
-                <div class="bulk-counter">
-                    <span class="bulk-count">0</span> ${__('items selected')}
-                </div>
-                <div class="bulk-actions">
-                    <button class="btn btn-default btn-sm bulk-clear-btn">
-                        ${__('Clear All')}
-                    </button>
-                    <button class="btn btn-primary btn-sm bulk-add-btn">
-                        <i class="fa fa-shopping-cart"></i> ${__('Add All to Cart')}
-                    </button>
-                </div>
-            </div>
-        `;
-
-        $('.pos-view').append(barHtml);
-
-        // Bind actions
-        $('.bulk-clear-btn').on('click', clearBulkSelections);
-        $('.bulk-add-btn').on('click', bulkAddToCart);
-    }
-
-    function updateBulkCounter() {
-        const count = Object.keys(bulkSelections).length;
-        $('.bulk-count').text(count);
-
-        if (count > 0) {
-            $('.bulk-add-btn').prop('disabled', false);
-        } else {
-            $('.bulk-add-btn').prop('disabled', true);
-        }
-    }
-
-    function clearBulkSelections() {
-        bulkSelections = {};
-        $('.bulk-item-checkbox').prop('checked', false);
-        updateBulkCounter();
-    }
-
-    function bulkAddToCart() {
-        const itemCount = Object.keys(bulkSelections).length;
-
-        if (itemCount === 0) {
-            frappe.show_alert({
-                message: __('No items selected'),
-                indicator: 'orange'
-            }, 3);
-            return;
-        }
-
-        // Add each item to cart
-        let addedCount = 0;
-        for (const [itemCode, qty] of Object.entries(bulkSelections)) {
-            const $item = $(`.powerpack-compact-item[data-item-code="${itemCode}"]`);
-
-            if ($item.length > 0) {
-                cur_pos.item_selector.events.item_selected({
-                    field: 'qty',
-                    value: qty,
-                    item: {
-                        item_code: itemCode,
-                        batch_no: unescape($item.attr('data-batch-no')),
-                        serial_no: unescape($item.attr('data-serial-no')),
-                        uom: unescape($item.attr('data-uom')),
-                        rate: unescape($item.attr('data-rate')),
-                        stock_uom: unescape($item.attr('data-stock-uom'))
-                    }
-                });
-                addedCount++;
-            }
-        }
-
-        // Show success
-        frappe.show_alert({
-            message: __('{0} items added to cart', [addedCount]),
-            indicator: 'green'
-        }, 3);
-
-        // Clear and exit bulk mode
-        clearBulkSelections();
-        disableBulkMode();
-    }
-
     function enhanceSearchLogic() {
         // Store original get_items method
         originalGetItems = cur_pos.item_selector.get_items.bind(cur_pos.item_selector);
@@ -1044,11 +852,20 @@
         };
     }
 
+    function wildcard_to_regex(pattern) {
+        // Convert wildcard pattern to regex
+        // Escape special regex chars, then replace % with .*
+        const escaped = pattern
+            .split('%')
+            .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('.*');
+        return new RegExp(escaped, 'i');
+    }
+
     function getSortedFilteredData(items, search_term) {
         if (!search_term) return items;
 
         const search_lower = search_term.toLowerCase();
-        const tokens = search_lower.split(/\s+/).filter(t => t.length > 0);
 
         // Check if using wildcard pattern (%)
         const hasWildcard = search_term.includes('%');
@@ -1056,12 +873,8 @@
         let scoredItems;
 
         if (hasWildcard) {
-            // Wildcard search using regex
-            const pattern = search_lower
-                .split('%')
-                .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-                .join('.*');
-            const regex = new RegExp(pattern, 'i');
+            // Wildcard search using regex (matching bulk_selection logic)
+            const pattern_local = wildcard_to_regex(search_lower);
 
             scoredItems = items.map(item => {
                 const item_code_lower = (item.item_code || '').toLowerCase();
@@ -1070,11 +883,11 @@
 
                 let score = 0;
 
-                if (regex.test(combined)) {
+                if (pattern_local.test(combined)) {
                     score += 10;
 
                     // Boost for item_code match
-                    if (regex.test(item_code_lower)) {
+                    if (pattern_local.test(item_code_lower)) {
                         score += 30;
                     }
 
@@ -1093,49 +906,39 @@
                 return { item, score };
             });
         } else {
-            // Token-based fuzzy search (always enabled)
+            // Natural multi-word search mode (matching bulk_selection logic)
+            const tokens = search_lower.split(/\s+/).filter(t => t.length > 0);
+
             scoredItems = items.map(item => {
-                const item_code = (item.item_code || '').toLowerCase();
-                const item_name = (item.item_name || '').toLowerCase();
-                const combined = item_code + ' ' + item_name;
+                const item_code_lower = (item.item_code || '').toLowerCase();
+                const item_name_lower = (item.item_name || '').toLowerCase();
+                const combined = item_code_lower + ' ' + item_name_lower;
+
+                // Check if ALL tokens match somewhere
+                const all_match = tokens.every(token => combined.includes(token));
 
                 let score = 0;
 
-                // Exact match gets highest priority
-                if (item_code === search_lower || item_name === search_lower) {
-                    score += 1000;
-                }
+                if (all_match) {
+                    tokens.forEach(token => {
+                        // Exact match in item_code (highest priority)
+                        if (item_code_lower === token) score += 100;
+                        // Item code starts with token
+                        else if (item_code_lower.startsWith(token)) score += 50;
+                        // Token in item_code
+                        else if (item_code_lower.includes(token)) score += 30;
 
-                // Starts with search term
-                if (item_code.startsWith(search_lower)) {
-                    score += 500;
-                } else if (item_name.startsWith(search_lower)) {
-                    score += 400;
-                }
+                        // Exact word match in item_name
+                        const name_words = item_name_lower.split(/\s+/);
+                        if (name_words.includes(token)) score += 25;
+                        // Item name starts with token
+                        else if (item_name_lower.startsWith(token)) score += 15;
+                        // Token in item_name
+                        else if (item_name_lower.includes(token)) score += 10;
+                    });
 
-                // Contains search term
-                if (item_code.includes(search_lower)) {
-                    score += 200;
-                } else if (item_name.includes(search_lower)) {
-                    score += 100;
-                }
-
-                // Token-based matching for multi-word searches
-                let tokensMatched = 0;
-                tokens.forEach(token => {
-                    if (item_code.includes(token)) {
-                        score += 50;
-                        tokensMatched++;
-                    }
-                    if (item_name.includes(token)) {
-                        score += 30;
-                        tokensMatched++;
-                    }
-                });
-
-                // Bonus for matching all tokens
-                if (tokensMatched === tokens.length * 2) {
-                    score += 150;
+                    // Bonus for shorter item codes (more specific matches)
+                    score += Math.max(0, 20 - item_code_lower.length);
                 }
 
                 return { item, score };

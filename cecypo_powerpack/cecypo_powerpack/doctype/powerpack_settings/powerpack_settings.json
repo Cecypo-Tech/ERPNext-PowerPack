@@ -8,6 +8,12 @@
   "pos_powerup_section",
   "enable_pos_powerup",
   "pos_powerup_description",
+  "pos_view_settings_section",
+  "pos_default_view",
+  "column_break_pos_1",
+  "pos_enable_custom_search",
+  "pos_column_settings_section",
+  "pos_show_cost_price",
   "sales_powerup_section",
   "enable_quotation_powerup",
   "enable_sales_order_powerup",
@@ -57,6 +63,46 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Enable enhanced Point of Sale features including custom layouts and advanced configurations.</p>"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_pos_powerup",
+   "fieldname": "pos_view_settings_section",
+   "fieldtype": "Section Break",
+   "label": "POS View Settings"
+  },
+  {
+   "default": "Thumbnail",
+   "fieldname": "pos_default_view",
+   "fieldtype": "Select",
+   "label": "Default View Mode",
+   "options": "Thumbnail\nCompact",
+   "description": "Select the default view mode when POS loads"
+  },
+  {
+   "fieldname": "column_break_pos_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "pos_enable_custom_search",
+   "fieldtype": "Check",
+   "label": "Enable Enhanced Search",
+   "description": "Enable advanced search with wildcard support (%) and multi-word token matching"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_pos_powerup",
+   "fieldname": "pos_column_settings_section",
+   "fieldtype": "Section Break",
+   "label": "POS Compact View - Column Settings"
+  },
+  {
+   "default": "0",
+   "fieldname": "pos_show_cost_price",
+   "fieldtype": "Check",
+   "label": "Show Cost Price",
+   "description": "Show cost price column (only visible to users with cost viewing permissions)"
   },
   {
    "fieldname": "sales_powerup_section",
