@@ -229,10 +229,19 @@ cecypo_powerpack.sales_powerup = {
 		const show_last_sale = settings.show_last_sale !== 0; // Default true
 		const show_last_sale_customer = settings.show_last_sale_to_customer !== 0; // Default true
 
+		// Use shared profit calculator for consistent calculations
+		const profit_calc = cecypo_powerpack.profit_calculator;
+		const tax_inclusive = profit_calc.is_tax_inclusive(cur_frm);
+		const item_tax_rate = profit_calc.calculate_item_tax_rate(item_doc.rate, item_doc.net_rate);
 
 		// Helper function to format currency without symbol
-		const format_amount = (value) => {
-			return frappe.format(value, {fieldtype: 'Float', precision: 2});
+		// If tax-inclusive, add tax to the value for display
+		const format_amount = (value, add_tax = false) => {
+			let display_value = value;
+			if (add_tax && tax_inclusive && item_tax_rate > 0) {
+				display_value = value * (1 + item_tax_rate);
+			}
+			return frappe.format(display_value, {fieldtype: 'Float', precision: 2});
 		};
 
 		// Helper function to format date as DD-MMM-YY
@@ -288,45 +297,58 @@ cecypo_powerpack.sales_powerup = {
 		}
 
 		// Valuation rate (with permission check)
+		// Show with tax if tax-inclusive to make it comparable to item rate
 		if (has_permission && show_valuation && data.valuation_rate !== null && data.valuation_rate !== undefined) {
-			html_parts.push(`<span class="info-item"><strong>Value:</strong> ${format_amount(data.valuation_rate)}</span>`);
+			const value_text = format_amount(data.valuation_rate, true);
+			const tax_label = !tax_inclusive && item_tax_rate > 0 ? '+' : '';
+			html_parts.push(`<span class="info-item"><strong>Value:</strong> ${value_text}${tax_label}</span>`);
 		}
 
 		// Last purchase (with permission check)
+		// Show with tax if tax-inclusive to make it comparable to item rate
 		if (has_permission && show_last_purchase && data.last_purchase_rate !== null && data.last_purchase_rate !== undefined) {
-			let purchase_text = format_amount(data.last_purchase_rate);
+			let purchase_text = format_amount(data.last_purchase_rate, true);
 			if (data.last_purchase_date) {
 				purchase_text += ` (${format_short_date(data.last_purchase_date)})`;
 			}
-			html_parts.push(`<span class="info-item"><strong>Last Purchase:</strong> ${purchase_text}</span>`);
+			const tax_label = !tax_inclusive && item_tax_rate > 0 ? '+' : '';
+			html_parts.push(`<span class="info-item"><strong>Last Purchase:</strong> ${purchase_text}${tax_label}</span>`);
 		}
 
 		// Last sale to anyone
+		// Show with tax if tax-inclusive to make it comparable to item rate
 		if (show_last_sale && data.last_sale_rate !== null && data.last_sale_rate !== undefined) {
-			let last_sale_text = format_amount(data.last_sale_rate);
+			let last_sale_text = format_amount(data.last_sale_rate, true);
 			if (data.last_sale_date) {
 				last_sale_text += ` (${format_short_date(data.last_sale_date)})`;
 			}
-			html_parts.push(`<span class="info-item"><strong>Last Sale:</strong> ${last_sale_text}</span>`);
+			const tax_label = !tax_inclusive && item_tax_rate > 0 ? '+' : '';
+			html_parts.push(`<span class="info-item"><strong>Last Sale:</strong> ${last_sale_text}${tax_label}</span>`);
 		}
 
 		// Last sale to this customer
+		// Show with tax if tax-inclusive to make it comparable to item rate
 		if (show_last_sale_customer && data.last_sale_to_customer_rate !== null && data.last_sale_to_customer_rate !== undefined) {
-			let customer_sale_text = format_amount(data.last_sale_to_customer_rate);
+			let customer_sale_text = format_amount(data.last_sale_to_customer_rate, true);
 			if (data.last_sale_to_customer_date) {
 				customer_sale_text += ` (${format_short_date(data.last_sale_to_customer_date)})`;
 			}
-			html_parts.push(`<span class="info-item"><strong>Last Sold to Customer:</strong> ${customer_sale_text}</span>`);
+			const tax_label = !tax_inclusive && item_tax_rate > 0 ? '+' : '';
+			html_parts.push(`<span class="info-item"><strong>Last Sold to Customer:</strong> ${customer_sale_text}${tax_label}</span>`);
 		}
 
 		// Calculate profit indicator separately (positioned on far right via CSS)
 		let profit_indicator_html = '';
 		if (has_permission && show_profit && data.valuation_rate !== null && data.valuation_rate !== undefined) {
-			const valuation = data.valuation_rate || 0;
-			const rate = item_rate || 0;
-			const profit_amount = rate - valuation;
-			const profit_margin = valuation > 0 ? (profit_amount / rate * 100) : 0;
-			profit_indicator_html = get_profit_indicator(profit_margin);
+			// Use shared profit calculator for consistent calculations
+			const profit_result = profit_calc.calculate_item_profit({
+				rate: item_rate || 0,
+				net_rate: item_doc.net_rate || item_rate || 0,
+				valuation_rate: data.valuation_rate || 0,
+				qty: 1,
+				tax_inclusive: tax_inclusive
+			});
+			profit_indicator_html = get_profit_indicator(profit_result.margin);
 		}
 
 		// Render the info if we have any data
@@ -355,11 +377,19 @@ cecypo_powerpack.sales_powerup = {
 			return;
 		}
 
-		// Calculate new profit margin
-		const valuation = item_doc.valuation_rate || 0;
-		const rate = item_doc.rate || 0;
-		const profit_amount = rate - valuation;
-		const profit_margin = valuation > 0 ? (profit_amount / rate * 100) : 0;
+		// Use shared profit calculator for consistent calculations
+		const profit_calc = cecypo_powerpack.profit_calculator;
+		const tax_inclusive = profit_calc.is_tax_inclusive(frm);
+
+		// Calculate new profit margin using shared calculator
+		const profit_result = profit_calc.calculate_item_profit({
+			rate: item_doc.rate || 0,
+			net_rate: item_doc.net_rate || item_doc.rate || 0,
+			valuation_rate: item_doc.valuation_rate || 0,
+			qty: 1,
+			tax_inclusive: tax_inclusive
+		});
+		const profit_margin = profit_result.margin;
 
 		// Determine profit class
 		let profit_class, profit_label;
@@ -400,50 +430,34 @@ cecypo_powerpack.sales_powerup = {
 			return;
 		}
 
-		// Calculate profit metrics
-		let total_cost = 0;
-		let total_amount = 0;
+		// Use shared profit calculator for consistent calculations
+		const profit_calc = cecypo_powerpack.profit_calculator;
+		const metrics = profit_calc.calculate_doc_profit(frm, frm.doc.items);
+
+		const {
+			total_cost,
+			net_total,
+			grand_total,
+			total_taxes,
+			profit,
+			margin,
+			tax_inclusive
+		} = metrics;
+
+		// Count items with cost for display purposes
 		let items_with_cost = 0;
-
 		frm.doc.items.forEach(function(item) {
-			const qty = item.qty || 0;
-			const amount = item.amount || 0;
-			total_amount += amount;
-
-			// Get valuation rate from the item if available
 			if (item.valuation_rate && item.valuation_rate > 0) {
-				total_cost += (item.valuation_rate * qty);
 				items_with_cost++;
 			}
 		});
 
-		// Check if taxes are included in the item rate
-		let net_total = frm.doc.net_total || total_amount;
-		const total_taxes = frm.doc.total_taxes_and_charges || 0;
-		const grand_total = frm.doc.grand_total || (net_total + total_taxes);
-
-		// If we have a base_net_total, use that (it's always tax-exclusive)
-		if (frm.doc.base_net_total) {
-			net_total = frm.doc.base_net_total;
-		}
-
-		// Check if prices are tax-inclusive
-		let tax_inclusive = false;
-		if (frm.doc.taxes) {
-			tax_inclusive = frm.doc.taxes.some(tax => tax.included_in_print_rate === 1);
-		}
-
-		// Profit calculation (excluding taxes - tax is collected for government, not business revenue)
-		// Profit = Net Sales (before tax) - Cost of Goods Sold
-		const profit = net_total - total_cost;
-
-		// For margin: if tax-inclusive, show margin on grand total (what customer sees)
-		// Otherwise show margin on net total
-		const margin_base = tax_inclusive ? grand_total : net_total;
-		const margin = margin_base > 0 ? (profit / margin_base * 100) : 0;
-
 		// Format values without currency symbols
 		const format_amt = (val) => frappe.format(val, {fieldtype: 'Float', precision: 2});
+
+		// Calculate cost with tax for display (when tax_inclusive)
+		const doc_tax_rate = total_taxes > 0 && net_total > 0 ? total_taxes / net_total : 0;
+		const display_cost = tax_inclusive && doc_tax_rate > 0 ? total_cost * (1 + doc_tax_rate) : total_cost;
 
 		// Determine profit class
 		let profit_class = '';
@@ -457,7 +471,7 @@ cecypo_powerpack.sales_powerup = {
 			// Show tax-inclusive amounts (what customer sees)
 			metrics_html = `
 				<div class="profit-metrics-section ${profit_class}">
-					<span class="metric-mini">Cost: ${format_amt(total_cost)}</span>
+					<span class="metric-mini">Cost: ${format_amt(display_cost)} <span class="tax-info">(incl. tax)</span></span>
 					<span class="metric-mini">Sale: ${format_amt(grand_total)} <span class="tax-info">(incl. tax)</span></span>
 					<span class="metric-mini tax-info">Tax: ${format_amt(total_taxes)}</span>
 					<span class="metric-mini metric-highlight">Profit: ${format_amt(profit)}</span>
@@ -468,7 +482,7 @@ cecypo_powerpack.sales_powerup = {
 			// Show tax-exclusive amounts
 			metrics_html = `
 				<div class="profit-metrics-section ${profit_class}">
-					<span class="metric-mini">Cost: ${format_amt(total_cost)}</span>
+					<span class="metric-mini">Cost: ${format_amt(display_cost)}</span>
 					<span class="metric-mini">Sale: ${format_amt(net_total)}</span>
 					${total_taxes > 0 ? `<span class="metric-mini tax-info">+Tax: ${format_amt(total_taxes)}</span>` : ''}
 					<span class="metric-mini metric-highlight">Profit: ${format_amt(profit)}</span>

@@ -567,9 +567,14 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
         # Use bin valuation if available, otherwise item valuation
         valuation = bin_valuation.get(item_code) or item.get('valuation_rate', 0) or 0
 
-        # Apply tax adjustment to valuation rate if taxes are included in print rate
-        if tax_rate > 0 and valuation > 0:
-            valuation = valuation * (1 + tax_rate / 100)
+        # Get price_list_rate (may include tax if tax_inclusive)
+        price_list_rate = float(prices.get(item_code, 0))
+
+        # Calculate net_rate (tax-exclusive rate) if taxes are included in print rate
+        net_rate = price_list_rate
+        if tax_rate > 0 and price_list_rate > 0:
+            # net_rate = price_list_rate / (1 + tax_rate%)
+            net_rate = price_list_rate / (1 + tax_rate / 100)
 
         result.append({
             'item_code': item_code,
@@ -578,7 +583,8 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
             'stock_uom': item.get('stock_uom') or 'Nos',
             'image': _get_item_image_url(item.get('image')),
             'valuation_rate': float(valuation),
-            'price_list_rate': float(prices.get(item_code, 0)),
+            'price_list_rate': price_list_rate,
+            'net_rate': float(net_rate),
             'actual_qty': float(stock.get(item_code, 0)),
             'item_tax_template': item_tax_template or ''
         })
@@ -613,9 +619,11 @@ def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rat
             price_list_rate = _get_item_price(item_code, price_list)
             actual_qty = _get_stock_qty(item_code, warehouse) if warehouse else 0
 
-            # Apply tax adjustment to valuation rate if taxes are included in print rate
-            if tax_rate > 0 and valuation_rate > 0:
-                valuation_rate = valuation_rate * (1 + tax_rate / 100)
+            # Calculate net_rate (tax-exclusive rate) if taxes are included in print rate
+            net_rate = price_list_rate
+            if tax_rate > 0 and price_list_rate > 0:
+                # net_rate = price_list_rate / (1 + tax_rate%)
+                net_rate = price_list_rate / (1 + tax_rate / 100)
 
             # Get item tax template
             item_tax_template = None
@@ -643,6 +651,7 @@ def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rat
                 'image': _get_item_image_url(item_doc.image),
                 'valuation_rate': float(valuation_rate),
                 'price_list_rate': float(price_list_rate),
+                'net_rate': float(net_rate),
                 'actual_qty': float(actual_qty),
                 'item_tax_template': item_tax_template or ''
             })

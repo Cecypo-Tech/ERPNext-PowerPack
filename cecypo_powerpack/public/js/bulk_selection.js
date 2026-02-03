@@ -587,12 +587,19 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
         if (can_see_cost && totals.total > 0) {
             let margin_class = totals.margin_pct >= 0 ? 'profit-positive' : 'profit-negative';
+
+            // Show tax info when tax-inclusive
+            let tax_info = '';
+            if (totals.tax_inclusive && totals.total_taxes > 0) {
+                tax_info = ` | Tax: ${format_currency(totals.total_taxes)}`;
+            }
+
             profit_html = `
                 <div class="stat-item profit-info ${margin_class}">
                     <span class="profit-detail">
-                        Cost: ${format_currency(totals.total_cost)} |
+                        Cost: ${format_currency(totals.display_cost)}${totals.tax_inclusive ? ' <span class="tax-note">(incl. tax)</span>' : ''} |
                         Profit: ${format_currency(totals.profit)}
-                        (${totals.margin_pct.toFixed(1)}%)
+                        (${totals.margin_pct.toFixed(1)}%)${tax_info}
                     </span>
                 </div>
             `;
@@ -763,7 +770,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 }
 
                 .item-row { cursor: pointer; transition: background 0.15s; }
-                .item-row:hover { background: var(--gray-50); }
+                .item-row:hover { background: var(--table-hover-bg, var(--gray-50)); }
                 .item-row.has-qty { background: rgba(102, 126, 234, 0.08) !important; }
                 .item-row.has-qty .line-total { color: var(--green-700); font-weight: 600; }
 
@@ -1032,7 +1039,49 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     }
 
     function calculate_totals() {
-        let count = 0, qty = 0, total = 0, total_cost = 0;
+        let count = 0, qty = 0;
+        let net_total = 0;  // Tax-exclusive total
+        let total_cost = 0; // Total cost (no tax on cost)
+
+        // Use shared profit calculator for consistent calculations
+        const profit_calc = cecypo_powerpack.profit_calculator;
+        const tax_inclusive = profit_calc.is_tax_inclusive(frm);
+
+        // Calculate document tax rate for deriving net_rate when not available
+        const doc_tax_rate = profit_calc.calculate_doc_tax_rate(frm);
+
+        // If doc_tax_rate is 0 but we have tax_inclusive, try to derive from existing items or taxes
+        let effective_tax_rate = doc_tax_rate;
+        if (tax_inclusive && doc_tax_rate === 0) {
+            // Strategy 1: Calculate from existing items that have both rate and net_rate
+            if (frm.doc.items && frm.doc.items.length > 0) {
+                let tax_rate_sum = 0;
+                let tax_rate_count = 0;
+                frm.doc.items.forEach(item => {
+                    if (item.rate > 0 && item.net_rate > 0 && item.net_rate < item.rate) {
+                        const item_tax_rate = (item.rate - item.net_rate) / item.net_rate;
+                        tax_rate_sum += item_tax_rate;
+                        tax_rate_count++;
+                    }
+                });
+                if (tax_rate_count > 0) {
+                    effective_tax_rate = tax_rate_sum / tax_rate_count;
+                }
+            }
+
+            // Strategy 2: If still 0, calculate from taxes table with included_in_print_rate
+            if (effective_tax_rate === 0 && frm.doc.taxes && frm.doc.taxes.length > 0) {
+                let total_tax_rate = 0;
+                frm.doc.taxes.forEach(tax => {
+                    if (tax.included_in_print_rate === 1 && tax.rate) {
+                        total_tax_rate += tax.rate;
+                    }
+                });
+                if (total_tax_rate > 0) {
+                    effective_tax_rate = total_tax_rate / 100; // Convert percentage to decimal
+                }
+            }
+        }
 
         for (let item_code in state.quantities) {
             let q = state.quantities[item_code];
@@ -1041,16 +1090,71 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 qty += q;
                 let item = item_data.find(i => i.item_code === item_code);
                 if (item) {
-                    total += q * (item.price_list_rate || 0);
+                    const rate = item.price_list_rate || 0;
+
+                    // Calculate net_rate (tax-exclusive rate)
+                    let net_rate = item.net_rate;
+
+                    // If net_rate is not available or equals rate (no tax applied), try to derive it
+                    if (!net_rate || net_rate === rate) {
+                        // First: Try to find the item in the document's items table
+                        const item_in_doc = (frm.doc.items || []).find(i => i.item_code === item_code);
+                        if (item_in_doc && item_in_doc.net_rate && item_in_doc.net_rate < rate) {
+                            // Use the net_rate from the document item (most accurate)
+                            net_rate = item_in_doc.net_rate;
+                        } else if (tax_inclusive && effective_tax_rate > 0 && rate > 0) {
+                            // Derive net_rate from rate using effective tax rate
+                            net_rate = rate / (1 + effective_tax_rate);
+                        } else if (tax_inclusive && rate > 0) {
+                            // Tax inclusive but no way to calculate net_rate accurately
+                            net_rate = rate;
+                        } else {
+                            // Not tax inclusive, or rate is 0
+                            net_rate = rate;
+                        }
+                    }
+
+                    // Accumulate net total (tax-exclusive)
+                    net_total += q * net_rate;
+
+                    // Accumulate cost (no tax on cost)
                     total_cost += q * (item.valuation_rate || 0);
                 }
             }
         }
 
-        let profit = total - total_cost;
-        let margin_pct = total > 0 ? (profit / total * 100) : 0;
+        // Calculate totals
+        // Use effective_tax_rate to calculate grand_total when doc_tax_rate is not available
+        const tax_rate_for_total = doc_tax_rate > 0 ? doc_tax_rate : effective_tax_rate;
+        const total_taxes = net_total > 0 ? net_total * tax_rate_for_total : 0;
+        const grand_total = net_total + total_taxes;
 
-        return { count, qty, total, total_cost, profit, margin_pct };
+        // Profit calculation (always use net total - tax is not business profit)
+        const profit = net_total - total_cost;
+
+        // For margin: if tax-inclusive, show margin on grand total (what customer sees)
+        // This matches the sales form calculation: (net_rate - cost) / display_rate * 100
+        const margin_base = tax_inclusive ? grand_total : net_total;
+        const margin_pct = margin_base > 0 ? (profit / margin_base * 100) : 0;
+
+        // Calculate cost with tax for display (when tax_inclusive)
+        const display_cost = tax_inclusive && doc_tax_rate > 0
+            ? total_cost * (1 + doc_tax_rate)
+            : total_cost;
+
+        return {
+            count,
+            qty,
+            total: tax_inclusive ? grand_total : net_total,
+            total_cost: total_cost,  // Raw cost for calculation
+            display_cost: display_cost,  // Cost with tax for display
+            profit: profit,
+            margin_pct: margin_pct,
+            tax_inclusive: tax_inclusive,
+            total_taxes: total_taxes,
+            net_total: net_total,
+            grand_total: grand_total
+        };
     }
 
     function update_summary() {
@@ -1063,21 +1167,26 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
             let $profit = d.$wrapper.find('.profit-info');
             if (totals.total > 0) {
                 let margin_class = totals.margin_pct >= 0 ? 'profit-positive' : 'profit-negative';
+
+                // Show tax info when tax-inclusive
+                let tax_info = '';
+                if (totals.tax_inclusive && totals.total_taxes > 0) {
+                    tax_info = ` | Tax: ${format_currency(totals.total_taxes)}`;
+                }
+
+                let detail_html = `Cost: ${format_currency(totals.display_cost)}${totals.tax_inclusive ? ' <span class="tax-note">(incl. tax)</span>' : ''} | ` +
+                    `Profit: ${format_currency(totals.profit)} ` +
+                    `(${totals.margin_pct.toFixed(1)}%)${tax_info}`;
+
                 if ($profit.length) {
                     $profit.removeClass('profit-positive profit-negative').addClass(margin_class);
-                    $profit.find('.profit-detail').html(
-                        `Cost: ${format_currency(totals.total_cost)} | ` +
-                        `Profit: ${format_currency(totals.profit)} ` +
-                        `(${totals.margin_pct.toFixed(1)}%)`
-                    );
+                    $profit.find('.profit-detail').html(detail_html);
                     $profit.show();
                 } else {
                     let profit_html = `
                         <div class="stat-item profit-info ${margin_class}">
                             <span class="profit-detail">
-                                Cost: ${format_currency(totals.total_cost)} |
-                                Profit: ${format_currency(totals.profit)}
-                                (${totals.margin_pct.toFixed(1)}%)
+                                ${detail_html}
                             </span>
                         </div>
                     `;
