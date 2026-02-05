@@ -16,6 +16,9 @@
     // Enhanced search enabled flag
     let enhancedSearchEnabled = true;
 
+    // POS search fields from POS Profile
+    let posSearchFields = [];
+
     // Cost permission check
     let canSeeCost = false;
 
@@ -83,9 +86,38 @@
                     // Check cost permission
                     canSeeCost = hasCostPermission();
 
+                    // Load POS Profile search fields
+                    loadPOSSearchFields();
+
                     // Enable features
                     enablePowerPackFeatures();
                 }
+            }
+        });
+    }
+
+    function loadPOSSearchFields() {
+        // Fetch POS Settings to get search fields (child table)
+        frappe.call({
+            method: 'frappe.client.get',
+            args: {
+                doctype: 'POS Settings',
+                name: 'POS Settings'
+            },
+            callback: (r) => {
+                if (r.message && r.message.pos_search_fields && Array.isArray(r.message.pos_search_fields)) {
+                    // Extract fieldnames from child table
+                    posSearchFields = r.message.pos_search_fields
+                        .map(row => row.fieldname)
+                        .filter(f => f && f.length > 0);
+
+                    console.log('PowerPack: Loaded POS search fields from POS Settings:', posSearchFields);
+                } else {
+                    console.log('PowerPack: No POS search fields configured in POS Settings');
+                }
+            },
+            error: (r) => {
+                console.log('PowerPack: Could not load POS Settings');
             }
         });
     }
@@ -1046,7 +1078,19 @@
             scoredItems = items.map(item => {
                 const item_code_lower = (item.item_code || '').toLowerCase();
                 const item_name_lower = (item.item_name || '').toLowerCase();
-                const combined = item_code_lower + ' ' + item_name_lower;
+
+                // Build combined string with POS search fields
+                let combined = item_code_lower + ' ' + item_name_lower;
+
+                // Add POS search fields to combined string
+                if (posSearchFields && posSearchFields.length > 0) {
+                    posSearchFields.forEach(field => {
+                        const fieldValue = (item[field] || '').toString().toLowerCase();
+                        if (fieldValue) {
+                            combined += ' ' + fieldValue;
+                        }
+                    });
+                }
 
                 let score = 0;
 
@@ -1056,6 +1100,16 @@
                     // Boost for item_code match
                     if (pattern_local.test(item_code_lower)) {
                         score += 30;
+                    }
+
+                    // Check POS search fields for matches
+                    if (posSearchFields && posSearchFields.length > 0) {
+                        posSearchFields.forEach(field => {
+                            const fieldValue = (item[field] || '').toString().toLowerCase();
+                            if (fieldValue && pattern_local.test(fieldValue)) {
+                                score += 20; // Boost for POS search field match
+                            }
+                        });
                     }
 
                     // Boost for exact match
@@ -1079,7 +1133,19 @@
             scoredItems = items.map(item => {
                 const item_code_lower = (item.item_code || '').toLowerCase();
                 const item_name_lower = (item.item_name || '').toLowerCase();
-                const combined = item_code_lower + ' ' + item_name_lower;
+
+                // Build combined string with POS search fields
+                let combined = item_code_lower + ' ' + item_name_lower;
+
+                // Add POS search fields to combined string
+                if (posSearchFields && posSearchFields.length > 0) {
+                    posSearchFields.forEach(field => {
+                        const fieldValue = (item[field] || '').toString().toLowerCase();
+                        if (fieldValue) {
+                            combined += ' ' + fieldValue;
+                        }
+                    });
+                }
 
                 // Check if ALL tokens match somewhere
                 const all_match = tokens.every(token => combined.includes(token));
@@ -1102,6 +1168,21 @@
                         else if (item_name_lower.startsWith(token)) score += 15;
                         // Token in item_name
                         else if (item_name_lower.includes(token)) score += 10;
+
+                        // Check POS search fields for matches
+                        if (posSearchFields && posSearchFields.length > 0) {
+                            posSearchFields.forEach(field => {
+                                const fieldValue = (item[field] || '').toString().toLowerCase();
+                                if (fieldValue) {
+                                    // Exact match in POS search field
+                                    if (fieldValue === token) score += 40;
+                                    // Starts with token
+                                    else if (fieldValue.startsWith(token)) score += 20;
+                                    // Contains token
+                                    else if (fieldValue.includes(token)) score += 12;
+                                }
+                            });
+                        }
                     });
 
                     // Bonus for shorter item codes (more specific matches)

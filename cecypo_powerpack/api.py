@@ -764,3 +764,229 @@ def _get_item_tax_template_for_category(item_code, tax_category, item_taxes_map)
 
     # If nothing matches, return first available
     return templates[0].get('item_tax_template') if templates else None
+
+
+@frappe.whitelist()
+def zero_allocate_entries(doc, payments, invoices):
+    """
+    Create zero-amount allocation entries for selected payments and invoices.
+
+    This is the "Zero Allocate" PowerUp for Payment Reconciliation that allows
+    users to manually distribute large payments across multiple invoices without
+    the FIFO limitation of the standard "Allocate" button.
+
+    Args:
+        doc: Payment Reconciliation document (dict or JSON string)
+        payments: Selected payment entries (list or JSON string)
+        invoices: Selected invoice entries (list or JSON string)
+
+    Returns:
+        list: Allocation entries with allocated_amount = 0
+    """
+    from cecypo_powerpack.utils import is_feature_enabled
+    import json
+
+    try:
+        # Check if feature is enabled
+        if not is_feature_enabled('enable_payment_reconciliation_zero_allocate'):
+            frappe.throw(_("Zero Allocate feature is not enabled in PowerPack Settings"))
+
+        # Parse JSON inputs if needed
+        if isinstance(doc, str):
+            doc = json.loads(doc)
+        if isinstance(payments, str):
+            payments = json.loads(payments)
+        if isinstance(invoices, str):
+            invoices = json.loads(invoices)
+
+        # Validate inputs
+        if not doc:
+            frappe.throw(_("Payment Reconciliation document is required"))
+
+        if not payments or not isinstance(payments, list) or len(payments) == 0:
+            frappe.throw(_("Please select at least one payment"))
+
+        if not invoices or not isinstance(invoices, list) or len(invoices) == 0:
+            frappe.throw(_("Please select at least one invoice"))
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Error in zero_allocate_entries validation: {str(e)}",
+            title="Zero Allocate Validation Error"
+        )
+        frappe.throw(_("Error validating inputs: {0}").format(str(e)))
+
+    try:
+        # Get exchange rate map for multi-currency support
+        invoice_exchange_map = get_invoice_exchange_map_for_zero_allocate(doc, invoices)
+
+        # Get Accounts Settings for exchange gain/loss account
+        accounts_settings = frappe.get_cached_doc("Accounts Settings")
+
+        allocations = []
+
+        # Create allocation entries for each payment × invoice combination
+        for payment in payments:
+            for invoice in invoices:
+                # Note: invoices table uses invoice_type/invoice_number
+                # but allocation table also uses invoice_type/invoice_number
+                invoice_type = invoice.get("invoice_type")
+                invoice_number = invoice.get("invoice_number")
+
+                if not invoice_type or not invoice_number:
+                    continue
+
+                # Get exchange rate
+                exchange_rate = invoice_exchange_map.get(invoice_number, {}).get("exchange_rate", 1)
+
+                # Get accounting dimensions
+                dimensions = get_accounting_dimensions_for_doc(
+                    invoice_type,
+                    invoice_number
+                )
+
+                # Create allocation entry with zero amount
+                # Important: Copy tracking fields from payment and invoice to prevent
+                # "Payment Entry has been modified" errors during reconciliation
+                allocation = {
+                    # Payment fields
+                    "reference_type": payment.get("reference_type"),
+                    "reference_name": payment.get("reference_name"),
+                    "reference_row": payment.get("reference_row"),
+                    "is_advance": payment.get("is_advance"),
+                    "amount": payment.get("amount"),  # Original payment amount (for tracking)
+
+                    # Invoice fields
+                    "invoice_type": invoice_type,
+                    "invoice_number": invoice_number,
+                    "unreconciled_amount": invoice.get("outstanding_amount"),  # Track original outstanding
+
+                    # Allocation amount (zero - user will fill manually)
+                    "allocated_amount": 0,
+
+                    # Currency and exchange
+                    "currency": payment.get("currency") or invoice.get("currency"),
+                    "exchange_rate": exchange_rate,
+
+                    # Difference handling
+                    "difference_amount": 0,
+                    "difference_account": accounts_settings.get("gain_loss_account"),
+                    "gain_loss_posting_date": frappe.utils.nowdate(),
+
+                    # Cost center from payment (if available)
+                    "cost_center": payment.get("cost_center")
+                }
+
+                # Add accounting dimensions if present
+                for dimension_field, dimension_value in dimensions.items():
+                    allocation[dimension_field] = dimension_value
+
+                allocations.append(allocation)
+
+        if not allocations:
+            # Log more details for debugging
+            frappe.log_error(
+                message=f"No allocations created.\nPayments count: {len(payments)}\nInvoices count: {len(invoices)}\nPayments: {payments}\nInvoices: {invoices}",
+                title="Zero Allocate - No Allocations Created"
+            )
+            frappe.throw(_("No valid allocations could be created. Please check the Error Log for details."))
+
+        return allocations
+
+    except frappe.exceptions.ValidationError:
+        # Re-raise validation errors without wrapping
+        raise
+    except Exception as e:
+        frappe.log_error(
+            message=f"Error creating zero allocations: {str(e)}\nDoc: {doc}\nPayments: {payments}\nInvoices: {invoices}",
+            title="Zero Allocate Creation Error"
+        )
+        frappe.throw(_("Error creating allocations: {0}").format(str(e)))
+
+
+def get_invoice_exchange_map_for_zero_allocate(doc, invoices):
+    """
+    Get exchange rate mapping for invoices in multi-currency scenarios.
+
+    Args:
+        doc: Payment Reconciliation document
+        invoices: List of invoice entries
+
+    Returns:
+        dict: Map of invoice_number -> {exchange_rate, invoice_currency}
+    """
+    invoice_exchange_map = {}
+
+    # Get company currency
+    company_currency = frappe.get_cached_value("Company", doc.get("company"), "default_currency")
+    party_account_currency = doc.get("party_account_currency") or company_currency
+
+    for invoice in invoices:
+        invoice_type = invoice.get("invoice_type")
+        invoice_number = invoice.get("invoice_number")
+
+        if not invoice_type or not invoice_number:
+            continue
+
+        # Get invoice currency and exchange rate
+        invoice_currency = frappe.db.get_value(invoice_type, invoice_number, "currency")
+
+        if invoice_currency == party_account_currency:
+            exchange_rate = 1
+        else:
+            # Get exchange rate from the invoice document
+            exchange_rate = frappe.db.get_value(invoice_type, invoice_number, "conversion_rate") or 1
+
+        invoice_exchange_map[invoice_number] = {
+            "exchange_rate": exchange_rate,
+            "invoice_currency": invoice_currency
+        }
+
+    return invoice_exchange_map
+
+
+def get_accounting_dimensions_for_doc(doctype, docname):
+    """
+    Get accounting dimensions (cost center, project, etc.) from a document.
+
+    Args:
+        doctype: Document type (e.g., "Sales Invoice", "Purchase Invoice")
+        docname: Document name
+
+    Returns:
+        dict: Accounting dimension fields and values
+    """
+    dimensions = {}
+
+    if not doctype or not docname:
+        return dimensions
+
+    try:
+        # Get accounting dimensions from the system
+        accounting_dimensions = frappe.get_all(
+            "Accounting Dimension",
+            filters={"disabled": 0},
+            fields=["fieldname", "label"]
+        )
+
+        if not accounting_dimensions:
+            return dimensions
+
+        # Get dimension values from the document
+        dimension_fields = [d["fieldname"] for d in accounting_dimensions]
+        doc_data = frappe.db.get_value(doctype, docname, dimension_fields, as_dict=True)
+
+        if doc_data:
+            for field in dimension_fields:
+                value = doc_data.get(field)
+                if value:
+                    dimensions[field] = value
+
+    except Exception as e:
+        # Log error but don't fail - dimensions are optional
+        frappe.log_error(
+            message=f"Error fetching accounting dimensions for {doctype} {docname}: {str(e)}",
+            title="Accounting Dimensions Error"
+        )
+
+    return dimensions

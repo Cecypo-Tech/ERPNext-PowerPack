@@ -35,7 +35,8 @@ app_include_js = [
     "/assets/cecypo_powerpack/js/point_of_sale_powerpack.js",
     "/assets/cecypo_powerpack/js/profit_calculator.js",
     "/assets/cecypo_powerpack/js/sales_powerup.js",
-    "/assets/cecypo_powerpack/js/bulk_selection.js"
+    "/assets/cecypo_powerpack/js/bulk_selection.js",
+    "/assets/cecypo_powerpack/js/payment_reconciliation_powerup.js"
 ]
 
 # include js, css files in header of web template
@@ -177,9 +178,9 @@ fixtures = [
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Payment Reconciliation": "cecypo_powerpack.custom_payment_reconciliation.CustomPaymentReconciliation"
+}
 
 # Document Events
 # ---------------
@@ -191,6 +192,9 @@ doc_events = {
 	},
 	"POS Invoice": {
 		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation"
+	},
+	"Payment Reconciliation": {
+		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
 	}
 }
 

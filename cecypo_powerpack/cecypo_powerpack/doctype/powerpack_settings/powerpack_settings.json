@@ -39,6 +39,9 @@
   "item_list_powerup_section",
   "enable_item_list_powerup",
   "item_list_powerup_description",
+  "payment_reconciliation_section",
+  "enable_payment_reconciliation_zero_allocate",
+  "payment_reconciliation_description",
   "validation_section",
   "enable_duplicate_tax_id_check",
   "tax_id_validation_description",
@@ -255,6 +258,23 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Enable the Price List Bulk Editor client script for efficient bulk editing of item prices.</p>"
+  },
+  {
+   "fieldname": "payment_reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Reconciliation Powerup"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_payment_reconciliation_zero_allocate",
+   "fieldtype": "Check",
+   "label": "Enable Zero Allocate Feature"
+  },
+  {
+   "fieldname": "payment_reconciliation_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Enable the 'Zero Allocate' button in Payment Reconciliation. This creates allocation rows with zero amounts for all selected payments and invoices, allowing manual distribution of large payments across multiple invoices without FIFO limitations.</p>"
   },
   {
    "fieldname": "validation_section",
