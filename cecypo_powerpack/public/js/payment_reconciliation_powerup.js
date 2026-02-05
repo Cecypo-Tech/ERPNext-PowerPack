@@ -59,7 +59,7 @@ function add_zero_allocate_button(frm) {
         // Add button next to "Allocate" button
         frm.page.add_inner_button(__('Zero Allocate'), function() {
             zero_allocate(frm);
-        }, __('Actions'));
+        }, __('Powerup'));
     }
 }
 
@@ -124,7 +124,7 @@ function add_zero_reconcile_button(frm) {
                     });
                 }
             );
-        }, __('Actions'));
+        }, __('Powerup'));
 
         console.log('Zero Reconcile button added - Total:', total_count, 'Non-zero:', non_zero_count, 'Zero:', zero_count);
     }
