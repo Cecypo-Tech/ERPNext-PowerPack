@@ -1,0 +1,61 @@
+# Python bytecode
+__pycache__/
+**/__pycache__/
+*.py[cod]
+# Node / JS
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-error.log*
+
+# Python packaging/builds
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Caches / coverage / logs / DBs
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+*.sqlite3
+*.db
+
+# local Python tooling / runtime
+.python-version
+pip-log.txt
+
+# Frappe/bench site artifacts
+sites/*/private/backups/
+sites/*/logs/
+sites/*/private/*
+sites/*/public/files/
+sites/node_modules/
+*.pyo
+*.pyd
+
+# Test / typecheck caches
+.pytest_cache/
+.mypy_cache/
+
+# Environment / virtualenv
+.env
+.env/
+.venv/
+venv/
+env/
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Claude-related files
+claude*
+.claude*
+claude_logs/
+claude_history.json
+claude_session*
