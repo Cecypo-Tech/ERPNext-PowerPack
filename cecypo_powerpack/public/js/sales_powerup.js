@@ -137,10 +137,14 @@ cecypo_powerpack.sales_powerup = {
 				if (r.message) {
 					cecypo_powerpack.sales_powerup.render_item_info(info_container, r.message, item_rate, item_doc);
 
-					// Store valuation rate in the item doc for profit calculation
+					// Store valuation rate in the item doc for profit calculation.
+					// Use direct locals assignment instead of frappe.model.set_value to avoid
+					// marking the form as dirty (which would revert Submit back to Save).
 					const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 					if (r.message.valuation_rate && frappe.user.has_role(visible_role)) {
-						frappe.model.set_value(item_doc.doctype, item_doc.name, 'valuation_rate', r.message.valuation_rate);
+						if (locals[item_doc.doctype] && locals[item_doc.doctype][item_doc.name]) {
+							locals[item_doc.doctype][item_doc.name].valuation_rate = r.message.valuation_rate;
+						}
 
 						// Update profit metrics after setting valuation rate
 						setTimeout(function() {

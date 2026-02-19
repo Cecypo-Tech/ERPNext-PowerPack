@@ -38,6 +38,9 @@
         const posProfile = cur_pos.frm?.doc?.pos_profile;
         if (!posProfile) return false;
 
+        // Always patch item details description field (runs regardless of PowerPack Settings)
+        patchItemDetailsDescription();
+
         // Check if PowerPack enabled via PowerPack Settings
         frappe.call({
             method: 'frappe.client.get_single_value',
@@ -53,6 +56,52 @@
         });
 
         return true;
+    }
+
+    function patchItemDetailsDescription() {
+        const itemDetails = cur_pos.item_details;
+        if (!itemDetails || itemDetails._descriptionPatched) return;
+        itemDetails._descriptionPatched = true;
+
+        // Patch get_form_fields to append "description"
+        const originalGetFormFields = itemDetails.get_form_fields.bind(itemDetails);
+        itemDetails.get_form_fields = function(item) {
+            const fields = originalGetFormFields(item);
+            if (!fields.includes('description')) {
+                fields.push('description');
+            }
+            return fields;
+        };
+
+        // Patch render_form to override description control fieldtype
+        const originalRenderForm = itemDetails.render_form.bind(itemDetails);
+        itemDetails.render_form = function(item) {
+            originalRenderForm(item);
+
+            // Override the description control from Text Editor to Small Text
+            const descControl = this.description_control;
+            if (descControl && descControl.df) {
+                if (descControl.df.fieldtype === 'Text Editor') {
+                    // Re-create the control as Small Text
+                    const $wrapper = this.$form_container.find('.description-control');
+                    $wrapper.empty();
+
+                    const me = this;
+                    this.description_control = frappe.ui.form.make_control({
+                        df: {
+                            ...descControl.df,
+                            fieldtype: 'Small Text',
+                            onchange: function() {
+                                me.events.form_updated(me.current_item, 'description', this.value);
+                            },
+                        },
+                        parent: $wrapper,
+                        render_input: true,
+                    });
+                    this.description_control.set_value(item.description || '');
+                }
+            }
+        };
     }
 
     function loadPowerPackSettings() {

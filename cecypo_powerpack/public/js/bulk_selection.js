@@ -17,7 +17,7 @@ const BULK_SELECTION_CONFIG = {
         requires_warehouse: false,  // Warehouse is optional for Quotation
         has_taxes: true,
         customer_field: 'party_name',  // Quotation uses party_name
-        warehouse_field: 'custom_warehouse'  // Quotation uses custom field
+        warehouse_field: 'set_warehouse'  // Unified with Sales Order/Invoice
     },
     'Sales Order': {
         setting_field: 'enable_sales_order_bulk_selection',

@@ -5,6 +5,9 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "theme_section",
+  "enable_compact_theme",
+  "compact_theme_description",
   "pos_powerup_section",
   "enable_pos_powerup",
   "pos_powerup_description",
@@ -46,9 +49,29 @@
   "enable_duplicate_tax_id_check",
   "tax_id_validation_description",
   "prevent_etr_invoice_cancellation",
-  "etr_validation_description"
+  "etr_validation_description",
+  "warnings_section",
+  "enable_warnings",
+  "warnings_description"
  ],
  "fields": [
+  {
+   "fieldname": "theme_section",
+   "fieldtype": "Section Break",
+   "label": "Theme"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_compact_theme",
+   "fieldtype": "Check",
+   "label": "Enable Compact Theme"
+  },
+  {
+   "fieldname": "compact_theme_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Reduces line-height and input sizes for a more compact, information-dense layout.</p>"
+  },
   {
    "fieldname": "pos_powerup_section",
    "fieldtype": "Section Break",
@@ -304,6 +327,23 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">When enabled, Sales Invoices and POS Invoices with an ETR Invoice Number cannot be cancelled. This prevents accidental cancellation of tax-registered invoices.</p>"
+  },
+  {
+   "fieldname": "warnings_section",
+   "fieldtype": "Section Break",
+   "label": "Warnings"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_warnings",
+   "fieldtype": "Check",
+   "label": "Enable Warnings"
+  },
+  {
+   "fieldname": "warnings_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer Overdue Invoices:</strong> When selecting a customer on a Quotation, Sales Order, or Sales Invoice, shows a popup if the customer has outstanding overdue invoices — with a copy button for sending a payment reminder.</p>"
   }
  ],
  "issingle": 1,

@@ -362,6 +362,48 @@ def check_duplicate_tax_id(doctype: str, tax_id: str, current_name: str = None) 
 
 
 @frappe.whitelist()
+def get_customer_overdue_invoices(customer: str, company: str = None) -> dict:
+    """
+    Get overdue Sales Invoices for a customer (docstatus=1, outstanding > 0, due_date < today).
+    Filtered to the given company when provided.
+    """
+    from cecypo_powerpack.utils import is_feature_enabled
+    if not is_feature_enabled('enable_warnings') or not customer:
+        return {"has_overdue": False, "invoices": [], "customer_name": ""}
+
+    today = frappe.utils.today()
+
+    if company:
+        overdue = frappe.db.sql("""
+            SELECT name, due_date, grand_total, outstanding_amount, currency, customer_name
+            FROM `tabSales Invoice`
+            WHERE customer = %s
+              AND company = %s
+              AND docstatus = 1
+              AND outstanding_amount > 0.001
+              AND due_date < %s
+            ORDER BY due_date ASC
+        """, (customer, company, today), as_dict=True)
+    else:
+        overdue = frappe.db.sql("""
+            SELECT name, due_date, grand_total, outstanding_amount, currency, customer_name
+            FROM `tabSales Invoice`
+            WHERE customer = %s
+              AND docstatus = 1
+              AND outstanding_amount > 0.001
+              AND due_date < %s
+            ORDER BY due_date ASC
+        """, (customer, today), as_dict=True)
+
+    customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+    return {
+        "has_overdue": len(overdue) > 0,
+        "invoices": overdue,
+        "customer_name": customer_name
+    }
+
+
+@frappe.whitelist()
 def get_bulk_item_details(items, price_list: str, warehouse: str = None, customer: str = None,
                           tax_category: str = None, taxes_and_charges: str = None,
                           optimized: bool = True, doctype: str = 'Sales Order') -> dict:

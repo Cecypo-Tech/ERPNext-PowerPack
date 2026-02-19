@@ -32,8 +32,9 @@ class PowerPackSettings(Document):
 		frappe.cache().delete_value("powerpack_settings")
 
 		# Clear feature-specific caches
-		for feature in ["enable_pos_powerup", "enable_quotation_powerup",
-		                "enable_sales_order_powerup", "enable_sales_invoice_powerup",
-		                "enable_pos_invoice_powerup", "enable_item_list_powerup",
-		                "enable_duplicate_tax_id_check", "prevent_etr_invoice_cancellation"]:
+		for feature in ["enable_compact_theme", "enable_pos_powerup",
+		                "enable_quotation_powerup", "enable_sales_order_powerup",
+		                "enable_sales_invoice_powerup", "enable_pos_invoice_powerup",
+		                "enable_item_list_powerup", "enable_duplicate_tax_id_check",
+		                "prevent_etr_invoice_cancellation", "enable_warnings"]:
 			frappe.cache().delete_value(f"powerpack_feature_{feature}")

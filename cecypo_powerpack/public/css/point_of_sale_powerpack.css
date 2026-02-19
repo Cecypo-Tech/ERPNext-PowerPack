@@ -341,6 +341,15 @@
 }
 
 /* =========================================
+   POS Item Details - Description Field
+   ========================================= */
+.item-details-container .description-control textarea {
+    height: 4rem;
+    font-size: var(--text-sm);
+    resize: vertical;
+}
+
+/* =========================================
    Responsive Design
    ========================================= */
 @media (max-width: 768px) {

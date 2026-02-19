@@ -109,7 +109,7 @@ fixtures = [
                 [
                     "POS Profile-enable_powerpack_by_cecypo",
                     "POS Profile-powerpack_column_config",
-                    "Quotation-custom_warehouse"
+                    "Quotation-set_warehouse"
                 ]
             ]
         ]

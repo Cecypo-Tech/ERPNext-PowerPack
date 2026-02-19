@@ -8,7 +8,10 @@
 window.CecypoPowerPack = window.CecypoPowerPack || {};
 
 $(document).ready(function () {
-    // PowerPack initialized
+    // Apply compact theme if enabled
+    CecypoPowerPack.Settings.isEnabled('enable_compact_theme', function (enabled) {
+        $('body').toggleClass('compact-theme', enabled);
+    });
 });
 
 /**
@@ -292,7 +295,7 @@ CecypoPowerPack.TaxIDChecker = {
 // Hook into Customer form
 frappe.ui.form.on('Customer', {
     validate: function(frm) {
-        // Check for duplicates and block save if found
+        CecypoPowerPack.Warnings.checkEmptyTaxId(frm, 'Customer');
         const allow_save = CecypoPowerPack.TaxIDChecker.checkAndShowDialog(frm, 'Customer');
         if (!allow_save) {
             frappe.validated = false;  // Block the save
@@ -307,7 +310,7 @@ frappe.ui.form.on('Customer', {
 // Hook into Supplier form
 frappe.ui.form.on('Supplier', {
     validate: function(frm) {
-        // Check for duplicates and block save if found
+        CecypoPowerPack.Warnings.checkEmptyTaxId(frm, 'Supplier');
         const allow_save = CecypoPowerPack.TaxIDChecker.checkAndShowDialog(frm, 'Supplier');
         if (!allow_save) {
             frappe.validated = false;  // Block the save
@@ -318,6 +321,197 @@ frappe.ui.form.on('Supplier', {
         frm._tax_id_confirmed = false;
     }
 });
+
+/**
+ * Warnings — Empty Tax ID and Customer Overdue Invoices
+ */
+CecypoPowerPack.Warnings = {
+    /**
+     * Show orange toast if Customer/Supplier is being saved with no Tax ID.
+     * Non-blocking — does not prevent the save.
+     * @param {Object} frm - The form object
+     * @param {String} doctype - 'Customer' or 'Supplier'
+     */
+    checkEmptyTaxId: function(frm, doctype) {
+        let enabled = false;
+        CecypoPowerPack.Settings.get(function(settings) {
+            enabled = settings.enable_warnings === 1;
+        });
+        if (!enabled) return;
+
+        if (!frm.doc.tax_id) {
+            frappe.show_alert({
+                message: __('Warning: {0} has no Tax ID set.', [frm.doc[doctype === 'Customer' ? 'customer_name' : 'supplier_name'] || frm.doc.name]),
+                indicator: 'orange'
+            }, 8);
+        }
+    },
+
+    /**
+     * Check if the selected customer has overdue invoices and show a dialog if so.
+     * @param {Object} frm - The form object
+     * @param {String} customer - Customer docname
+     */
+    checkCustomerOverdue: function(frm, customer) {
+        let enabled = false;
+        CecypoPowerPack.Settings.get(function(settings) {
+            enabled = settings.enable_warnings === 1;
+        });
+        if (!enabled || !customer) return;
+
+        frappe.call({
+            method: 'cecypo_powerpack.api.get_customer_overdue_invoices',
+            args: { customer: customer, company: frm.doc.company || '' },
+            callback: function(r) {
+                if (r.message && r.message.has_overdue) {
+                    CecypoPowerPack.Warnings.showOverdueDialog(r.message);
+                }
+            }
+        });
+    },
+
+    /**
+     * Show a red-bordered dialog listing overdue invoices for the selected customer.
+     * @param {Object} data - Response from get_customer_overdue_invoices
+     */
+    showOverdueDialog: function(data) {
+        const invoices = data.invoices || [];
+        const customer_name = data.customer_name || '';
+
+        // Calculate total outstanding
+        let total_outstanding = 0;
+        const currency = invoices.length ? (invoices[0].currency || '') : '';
+        invoices.forEach(function(inv) {
+            total_outstanding += flt(inv.outstanding_amount);
+        });
+
+        let rows = '';
+        invoices.forEach(function(inv) {
+            const due = frappe.datetime.str_to_user(inv.due_date);
+            const amount = format_currency(inv.grand_total, inv.currency);
+            const outstanding = format_currency(inv.outstanding_amount, inv.currency);
+            rows += `
+                <tr>
+                    <td style="padding:6px;">
+                        <a href="/app/sales-invoice/${inv.name}" target="_blank">${inv.name}</a>
+                    </td>
+                    <td style="padding:6px; color: var(--red-500); font-weight:500;">${due}</td>
+                    <td style="padding:6px; text-align:right;">${amount}</td>
+                    <td style="padding:6px; text-align:right; font-weight:500;">${outstanding}</td>
+                </tr>`;
+        });
+
+        const total_fmt = format_currency(total_outstanding, currency);
+
+        const html = `
+            <div style="margin-bottom:12px; padding:10px; background:var(--alert-bg,var(--bg-color)); border-left:3px solid var(--red-500); border-radius:4px;">
+                <strong style="color:var(--red-500);">&#9888; ${invoices.length} overdue invoice${invoices.length !== 1 ? 's' : ''} found</strong>
+            </div>
+            <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px;">
+                <table class="table table-sm" style="margin-bottom:0; font-size:12px; color:var(--text-color);">
+                    <thead style="position:sticky; top:0; background:var(--fg-color); z-index:1;">
+                        <tr>
+                            <th style="padding:8px;">Invoice</th>
+                            <th style="padding:8px;">Due Date</th>
+                            <th style="padding:8px; text-align:right;">Amount</th>
+                            <th style="padding:8px; text-align:right;">Outstanding</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                    <tfoot>
+                        <tr style="background:var(--fg-color);">
+                            <td colspan="3" style="padding:8px; font-weight:600; text-align:right;">Total Outstanding:</td>
+                            <td style="padding:8px; font-weight:600; text-align:right; color:var(--red-500);">${total_fmt}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>`;
+
+        const d = new frappe.ui.Dialog({
+            title: __('Overdue Invoices \u2014 {0}', [customer_name]),
+            indicator: 'red',
+            fields: [{ fieldtype: 'HTML', options: html }],
+            primary_action_label: __('Copy Reminder'),
+            primary_action: function() {
+                CecypoPowerPack.Warnings.copyReminderText(customer_name, invoices, total_outstanding, currency);
+            },
+            secondary_action_label: __('Close'),
+            secondary_action: function() { d.hide(); }
+        });
+
+        d.show();
+
+        d.$wrapper.find('.modal-content').css({
+            'border': '2px solid var(--red-500)',
+            'box-shadow': '0 4px 20px rgba(220, 53, 69, 0.3)'
+        });
+    },
+
+    /**
+     * Build a plain-text payment reminder and copy it to the clipboard.
+     * @param {String} customer_name
+     * @param {Array}  invoices
+     * @param {Number} total_outstanding
+     * @param {String} currency
+     */
+    copyReminderText: function(customer_name, invoices, total_outstanding, currency) {
+        const pad = function(str, len) {
+            str = String(str);
+            return str + ' '.repeat(Math.max(0, len - str.length));
+        };
+
+        const sep = '-'.repeat(72);
+        let lines = [
+            'Dear ' + customer_name + ',',
+            'Please note that the following invoices are overdue:',
+            pad('Invoice', 22) + pad('Due Date', 16) + pad('Amount', 20) + 'Outstanding',
+            sep
+        ];
+
+        invoices.forEach(function(inv) {
+            const due = frappe.datetime.str_to_user(inv.due_date);
+            const amount = format_currency(inv.grand_total, inv.currency);
+            const outstanding = format_currency(inv.outstanding_amount, inv.currency);
+            lines.push(pad(inv.name, 22) + pad(due, 16) + pad(amount, 20) + outstanding);
+        });
+
+        const total_fmt = format_currency(total_outstanding, currency);
+        lines.push(sep);
+        lines.push('Total Outstanding: ' + total_fmt);
+        lines.push('');
+        lines.push('Kindly arrange for payment at your earliest convenience.');
+        lines.push('Thank you.');
+
+        const text = lines.join('\n');
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() {
+                frappe.show_alert({ message: __('Reminder copied to clipboard'), indicator: 'green' }, 4);
+            }).catch(function() {
+                CecypoPowerPack.Warnings._fallbackCopy(text);
+            });
+        } else {
+            CecypoPowerPack.Warnings._fallbackCopy(text);
+        }
+    },
+
+    _fallbackCopy: function(text) {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.position = 'fixed';
+        el.style.opacity = '0';
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        try {
+            document.execCommand('copy');
+            frappe.show_alert({ message: __('Reminder copied to clipboard'), indicator: 'green' }, 4);
+        } catch (e) {
+            frappe.show_alert({ message: __('Could not copy to clipboard'), indicator: 'red' }, 4);
+        }
+        document.body.removeChild(el);
+    }
+};
 
 /**
  * ETR Invoice Cancellation Prevention
@@ -349,5 +543,26 @@ frappe.ui.form.on('Sales Invoice', {
 frappe.ui.form.on('POS Invoice', {
     before_cancel: function(frm) {
         CecypoPowerPack.ETRCancelBlock.showWarning(frm);
+    }
+});
+
+// Overdue invoice checks for sales documents
+frappe.ui.form.on('Sales Order', {
+    customer: function(frm) {
+        CecypoPowerPack.Warnings.checkCustomerOverdue(frm, frm.doc.customer);
+    }
+});
+
+frappe.ui.form.on('Sales Invoice', {
+    customer: function(frm) {
+        CecypoPowerPack.Warnings.checkCustomerOverdue(frm, frm.doc.customer);
+    }
+});
+
+frappe.ui.form.on('Quotation', {
+    party_name: function(frm) {
+        if (frm.doc.quotation_to === 'Customer') {
+            CecypoPowerPack.Warnings.checkCustomerOverdue(frm, frm.doc.party_name);
+        }
     }
 });

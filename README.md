@@ -1,6 +1,6 @@
 ### Cecypo PowerPack
 
-Gives ERPNext Power ups! :facepunch: :lightning:
+Gives ERPNext Power ups! :facepunch:
 
 ### Features
 
