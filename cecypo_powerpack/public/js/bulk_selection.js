@@ -770,7 +770,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 }
 
                 .item-row { cursor: pointer; transition: background 0.15s; }
-                .item-row:hover { background: var(--table-hover-bg, var(--gray-50)); }
+                .item-row:hover { background: var(--table-hover-bg, var(--gray-50)); color: var(--text-color); }
                 .item-row.has-qty { background: rgba(102, 126, 234, 0.08) !important; }
                 .item-row.has-qty .line-total { color: var(--green-700); font-weight: 600; }
 

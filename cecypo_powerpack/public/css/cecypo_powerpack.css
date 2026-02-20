@@ -13,6 +13,11 @@ body.compact-theme {
     --input-height: 22px;
 }
 
+body.compact-theme .grid-body .grid-static-col[data-fieldtype="Text Editor"] .ql-editor {
+    line-height: 1 !important;
+    font-size: 10px;
+}
+
 .cecypo-card {
     background: white;
     border-radius: 12px;
