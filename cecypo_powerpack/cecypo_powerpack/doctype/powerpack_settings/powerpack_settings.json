@@ -39,6 +39,11 @@
   "column_break_bulk_1",
   "enable_sales_invoice_bulk_selection",
   "bulk_selection_description",
+  "stock_bulk_selection_section",
+  "enable_stock_reconciliation_bulk_selection",
+  "column_break_stock_bulk_1",
+  "enable_stock_entry_bulk_selection",
+  "stock_bulk_selection_description",
   "item_list_powerup_section",
   "enable_item_list_powerup",
   "item_list_powerup_description",
@@ -264,6 +269,35 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Enable the Bulk Selection button in sales document items table. This allows you to quickly select and add multiple items with quantities, prices, stock information, and tax-adjusted costs in an intuitive dialog with search, filtering, and pagination capabilities. When taxes with <strong>included_in_print_rate</strong> are set, the cost price will be automatically adjusted by the tax amount.</p>"
+  },
+  {
+   "fieldname": "stock_bulk_selection_section",
+   "fieldtype": "Section Break",
+   "label": "Bulk Selection - Stock Documents"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_stock_reconciliation_bulk_selection",
+   "fieldtype": "Check",
+   "label": "Enable for Stock Reconciliation",
+   "description": "Enable bulk item selection for Stock Reconciliation documents"
+  },
+  {
+   "fieldname": "column_break_stock_bulk_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_stock_entry_bulk_selection",
+   "fieldtype": "Check",
+   "label": "Enable for Stock Entry",
+   "description": "Enable bulk item selection for Stock Entry documents"
+  },
+  {
+   "fieldname": "stock_bulk_selection_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Enable the Bulk Selection button in stock document items table. This provides a simplified dialog showing item code, description, valuation rate, and available stock — without sell prices, taxes, or profit calculations.</p>"
   },
   {
    "fieldname": "item_list_powerup_section",

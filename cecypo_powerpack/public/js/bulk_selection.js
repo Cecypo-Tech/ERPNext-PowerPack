@@ -1,12 +1,13 @@
 /**
- * Bulk Selection for Sales Documents
- * Supports: Quotation, Sales Order, Sales Invoice
+ * Bulk Selection for Sales & Stock Documents
+ * Supports: Quotation, Sales Order, Sales Invoice, Stock Reconciliation, Stock Entry
  *
  * Features:
  * - Bulk item selection with search and filtering
- * - Tax-adjusted cost calculation
+ * - Tax-adjusted cost calculation (sales docs)
+ * - Simplified view for stock docs (no pricing/profit)
  * - Pagination and sorting
- * - Sales/purchase history tooltips
+ * - Sales/purchase history tooltips (sales docs only)
  * - Wildcard search support
  */
 
@@ -16,38 +17,70 @@ const BULK_SELECTION_CONFIG = {
         setting_field: 'enable_quotation_bulk_selection',
         requires_warehouse: false,  // Warehouse is optional for Quotation
         has_taxes: true,
+        has_price: true,
+        is_stock_doctype: false,
         customer_field: 'party_name',  // Quotation uses party_name
-        warehouse_field: 'set_warehouse'  // Unified with Sales Order/Invoice
+        warehouse_field: 'set_warehouse',  // Unified with Sales Order/Invoice
+        item_warehouse_field: 'warehouse'
     },
     'Sales Order': {
         setting_field: 'enable_sales_order_bulk_selection',
         requires_warehouse: true,  // Warehouse is mandatory
         has_taxes: true,
+        has_price: true,
+        is_stock_doctype: false,
         customer_field: 'customer',
-        warehouse_field: 'set_warehouse'
+        warehouse_field: 'set_warehouse',
+        item_warehouse_field: 'warehouse'
     },
     'Sales Invoice': {
         setting_field: 'enable_sales_invoice_bulk_selection',
         requires_warehouse: true,  // Warehouse is mandatory
         has_taxes: true,
+        has_price: true,
+        is_stock_doctype: false,
         customer_field: 'customer',
-        warehouse_field: 'set_warehouse'
+        warehouse_field: 'set_warehouse',
+        item_warehouse_field: 'warehouse'
+    },
+    'Stock Reconciliation': {
+        setting_field: 'enable_stock_reconciliation_bulk_selection',
+        requires_warehouse: true,
+        has_taxes: false,
+        has_price: false,
+        is_stock_doctype: true,
+        customer_field: null,
+        warehouse_field: 'set_warehouse',
+        item_warehouse_field: 'warehouse'
+    },
+    'Stock Entry': {
+        setting_field: 'enable_stock_entry_bulk_selection',
+        requires_warehouse: false,  // depends on purpose; at least one of from/to
+        has_taxes: false,
+        has_price: false,
+        is_stock_doctype: true,
+        customer_field: null,
+        warehouse_field: 'from_warehouse',
+        item_warehouse_field: 's_warehouse'
     }
 };
 
 // Helper function to get customer value based on doctype
 function get_customer(frm) {
     const config = BULK_SELECTION_CONFIG[frm.doctype];
+    if (!config.customer_field) return null;
     return frm.doc[config.customer_field];
 }
 
 // Initialize for each supported doctype
 Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
+    const config = BULK_SELECTION_CONFIG[doctype];
+
     let handlers = {
         onload: function(frm) {
-            const config = BULK_SELECTION_CONFIG[frm.doctype];
+            const cfg = BULK_SELECTION_CONFIG[frm.doctype];
             // Check if feature is enabled for this doctype
-            frappe.db.get_single_value('PowerPack Settings', config.setting_field)
+            frappe.db.get_single_value('PowerPack Settings', cfg.setting_field)
                 .then(enabled => {
                     frm._bulk_selection_enabled = enabled;
                 });
@@ -59,28 +92,32 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
 
             add_bulk_selection_button(frm);
             toggle_bulk_button(frm);
-        },
-
-        selling_price_list: function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        },
-
-        taxes_and_charges: function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            // Clear cache when tax template changes (affects cost calculation)
-            frm._bulk_item_cache = null;
         }
     };
 
-    // Add customer field handler based on doctype
-    const config = BULK_SELECTION_CONFIG[doctype];
-    handlers[config.customer_field] = function(frm) {
-        if (!frm._bulk_selection_enabled) return;
-        toggle_bulk_button(frm);
-        frm._bulk_item_cache = null;
-    };
+    // Sales-only handlers
+    if (!config.is_stock_doctype) {
+        handlers.selling_price_list = function(frm) {
+            if (!frm._bulk_selection_enabled) return;
+            toggle_bulk_button(frm);
+            frm._bulk_item_cache = null;
+        };
+
+        handlers.taxes_and_charges = function(frm) {
+            if (!frm._bulk_selection_enabled) return;
+            // Clear cache when tax template changes (affects cost calculation)
+            frm._bulk_item_cache = null;
+        };
+    }
+
+    // Add customer field handler based on doctype (sales only)
+    if (config.customer_field) {
+        handlers[config.customer_field] = function(frm) {
+            if (!frm._bulk_selection_enabled) return;
+            toggle_bulk_button(frm);
+            frm._bulk_item_cache = null;
+        };
+    }
 
     // Add warehouse field handler based on doctype
     handlers[config.warehouse_field] = function(frm) {
@@ -88,6 +125,15 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
         toggle_bulk_button(frm);
         frm._bulk_item_cache = null;
     };
+
+    // Stock Entry: also watch to_warehouse
+    if (doctype === 'Stock Entry') {
+        handlers.to_warehouse = function(frm) {
+            if (!frm._bulk_selection_enabled) return;
+            toggle_bulk_button(frm);
+            frm._bulk_item_cache = null;
+        };
+    }
 
     frappe.ui.form.on(doctype, handlers);
 });
@@ -130,28 +176,50 @@ function toggle_bulk_button(frm) {
     let btn = frm._bulk_selection_btn;
     if (btn && btn.length) {
         const config = BULK_SELECTION_CONFIG[frm.doctype];
-        let customer = get_customer(frm);
-        let warehouse = get_warehouse(frm);
         let disabled = false;
         let title = '';
 
-        if (config.requires_warehouse) {
-            // Sales Order & Sales Invoice: Requires both customer and warehouse
-            if (!customer && !warehouse) {
-                disabled = true;
-                title = __('Please select Customer and Warehouse first');
-            } else if (!customer) {
-                disabled = true;
-                title = __('Please select a Customer first');
-            } else if (!warehouse) {
-                disabled = true;
-                title = __('Please select a Warehouse first');
+        if (config.is_stock_doctype) {
+            // Stock doctypes: no customer check
+            if (frm.doctype === 'Stock Entry') {
+                // Stock Entry: require at least from_warehouse or to_warehouse
+                let from_wh = frm.doc.from_warehouse;
+                let to_wh = frm.doc.to_warehouse;
+                if (!from_wh && !to_wh) {
+                    disabled = true;
+                    title = __('Please select a Source or Target Warehouse first');
+                }
+            } else {
+                // Stock Reconciliation: requires warehouse
+                let warehouse = get_warehouse(frm);
+                if (!warehouse) {
+                    disabled = true;
+                    title = __('Please select a Warehouse first');
+                }
             }
         } else {
-            // Quotation: Only requires customer (warehouse is optional)
-            disabled = !customer;
-            if (disabled) {
-                title = __('Please select a Customer first');
+            // Sales doctypes: existing logic
+            let customer = get_customer(frm);
+            let warehouse = get_warehouse(frm);
+
+            if (config.requires_warehouse) {
+                // Sales Order & Sales Invoice: Requires both customer and warehouse
+                if (!customer && !warehouse) {
+                    disabled = true;
+                    title = __('Please select Customer and Warehouse first');
+                } else if (!customer) {
+                    disabled = true;
+                    title = __('Please select a Customer first');
+                } else if (!warehouse) {
+                    disabled = true;
+                    title = __('Please select a Warehouse first');
+                }
+            } else {
+                // Quotation: Only requires customer (warehouse is optional)
+                disabled = !customer;
+                if (disabled) {
+                    title = __('Please select a Customer first');
+                }
             }
         }
 
@@ -166,12 +234,21 @@ function toggle_bulk_button(frm) {
 }
 
 function get_cached_items(frm) {
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
     let warehouse = get_warehouse(frm);
-    let customer = get_customer(frm);
 
-    if (frm._bulk_item_cache &&
-        frm._bulk_item_cache.price_list === frm.doc.selling_price_list &&
-        frm._bulk_item_cache.warehouse === warehouse &&
+    if (!frm._bulk_item_cache || frm._bulk_item_cache.warehouse !== warehouse) {
+        return null;
+    }
+
+    if (config.is_stock_doctype) {
+        // Stock doctypes: only validate warehouse
+        return frm._bulk_item_cache.items;
+    }
+
+    // Sales doctypes: validate price_list, customer, taxes
+    let customer = get_customer(frm);
+    if (frm._bulk_item_cache.price_list === frm.doc.selling_price_list &&
         frm._bulk_item_cache.customer === customer &&
         frm._bulk_item_cache.taxes_and_charges === frm.doc.taxes_and_charges) {
         return frm._bulk_item_cache.items;
@@ -180,14 +257,19 @@ function get_cached_items(frm) {
 }
 
 function set_cached_items(frm, items, warehouse) {
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+
     frm._bulk_item_cache = {
         items: items,
-        price_list: frm.doc.selling_price_list,
         warehouse: warehouse,
-        customer: get_customer(frm),
-        taxes_and_charges: frm.doc.taxes_and_charges,
         timestamp: Date.now()
     };
+
+    if (!config.is_stock_doctype) {
+        frm._bulk_item_cache.price_list = frm.doc.selling_price_list;
+        frm._bulk_item_cache.customer = get_customer(frm);
+        frm._bulk_item_cache.taxes_and_charges = frm.doc.taxes_and_charges;
+    }
 }
 
 function get_warehouse(frm) {
@@ -198,56 +280,110 @@ function get_warehouse(frm) {
 
 function show_bulk_item_selector(frm) {
     const config = BULK_SELECTION_CONFIG[frm.doctype];
-    let customer = get_customer(frm);
 
-    // Validate customer
-    if (!customer) {
-        frappe.msgprint(__('Please select a Customer first'));
-        return;
-    }
+    if (config.is_stock_doctype) {
+        // Stock doctypes: no customer validation needed
+        let warehouse = get_warehouse(frm);
 
-    // Get warehouse (optional for Quotation, mandatory for Sales Order/Invoice)
-    let warehouse = get_warehouse(frm);
-
-    // Validate warehouse for Sales Order/Invoice (where it's mandatory)
-    if (config.requires_warehouse && !warehouse) {
-        frappe.msgprint(__('Please select a Warehouse first'));
-        return;
-    }
-
-    // Determine cost permission on client side
-    let can_see_cost = has_cost_permission();
-
-    let cached = get_cached_items(frm);
-    if (cached) {
-        show_item_dialog(frm, cached.items, can_see_cost, warehouse);
-        return;
-    }
-
-    frappe.show_progress(__('Loading Items'), 0, 100, __('Fetching item list...'));
-
-    frappe.call({
-        method: 'frappe.client.get_list',
-        args: {
-            doctype: 'Item',
-            filters: { disabled: 0, is_sales_item: 1 },
-            fields: ['name', 'item_name', 'stock_uom'],
-            limit_page_length: 0
-        },
-        callback: function(r) {
-            if (r.message && r.message.length > 0) {
-                frappe.show_progress(__('Loading Items'), 50, 100, __('Fetching details for {0} items...', [r.message.length]));
-                fetch_bulk_item_details(frm, r.message, warehouse, can_see_cost);
-            } else {
-                frappe.hide_progress();
-                frappe.msgprint(__('No items found'));
+        if (frm.doctype === 'Stock Entry') {
+            let from_wh = frm.doc.from_warehouse;
+            let to_wh = frm.doc.to_warehouse;
+            if (!from_wh && !to_wh) {
+                frappe.msgprint(__('Please select a Source or Target Warehouse first'));
+                return;
             }
-        },
-        error: function() {
-            frappe.hide_progress();
-            frappe.msgprint(__('Error loading items'));
+            // Use from_warehouse for stock lookup, fallback to to_warehouse
+            warehouse = from_wh || to_wh;
+        } else if (!warehouse) {
+            frappe.msgprint(__('Please select a Warehouse first'));
+            return;
         }
-    });
+
+        let can_see_cost = has_cost_permission();
+
+        let cached = get_cached_items(frm);
+        if (cached) {
+            show_item_dialog(frm, cached.items, can_see_cost, warehouse);
+            return;
+        }
+
+        frappe.show_progress(__('Loading Items'), 0, 100, __('Fetching item list...'));
+
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'Item',
+                filters: { disabled: 0, is_stock_item: 1 },
+                fields: ['name', 'item_name', 'stock_uom'],
+                limit_page_length: 0
+            },
+            callback: function(r) {
+                if (r.message && r.message.length > 0) {
+                    frappe.show_progress(__('Loading Items'), 50, 100, __('Fetching details for {0} items...', [r.message.length]));
+                    fetch_bulk_stock_item_details(frm, r.message, warehouse, can_see_cost);
+                } else {
+                    frappe.hide_progress();
+                    frappe.msgprint(__('No stock items found'));
+                }
+            },
+            error: function() {
+                frappe.hide_progress();
+                frappe.msgprint(__('Error loading items'));
+            }
+        });
+    } else {
+        // Sales doctypes: existing logic
+        let customer = get_customer(frm);
+
+        // Validate customer
+        if (!customer) {
+            frappe.msgprint(__('Please select a Customer first'));
+            return;
+        }
+
+        // Get warehouse (optional for Quotation, mandatory for Sales Order/Invoice)
+        let warehouse = get_warehouse(frm);
+
+        // Validate warehouse for Sales Order/Invoice (where it's mandatory)
+        if (config.requires_warehouse && !warehouse) {
+            frappe.msgprint(__('Please select a Warehouse first'));
+            return;
+        }
+
+        // Determine cost permission on client side
+        let can_see_cost = has_cost_permission();
+
+        let cached = get_cached_items(frm);
+        if (cached) {
+            show_item_dialog(frm, cached.items, can_see_cost, warehouse);
+            return;
+        }
+
+        frappe.show_progress(__('Loading Items'), 0, 100, __('Fetching item list...'));
+
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'Item',
+                filters: { disabled: 0, is_sales_item: 1 },
+                fields: ['name', 'item_name', 'stock_uom'],
+                limit_page_length: 0
+            },
+            callback: function(r) {
+                if (r.message && r.message.length > 0) {
+                    frappe.show_progress(__('Loading Items'), 50, 100, __('Fetching details for {0} items...', [r.message.length]));
+                    fetch_bulk_item_details(frm, r.message, warehouse, can_see_cost);
+                } else {
+                    frappe.hide_progress();
+                    frappe.msgprint(__('No items found'));
+                }
+            },
+            error: function() {
+                frappe.hide_progress();
+                frappe.msgprint(__('Error loading items'));
+            }
+        });
+    }
 }
 
 function fetch_bulk_item_details(frm, items, warehouse, can_see_cost) {
@@ -280,6 +416,32 @@ function fetch_bulk_item_details(frm, items, warehouse, can_see_cost) {
     });
 }
 
+function fetch_bulk_stock_item_details(frm, items, warehouse, can_see_cost) {
+    frappe.call({
+        method: 'cecypo_powerpack.api.get_bulk_stock_item_details',
+        args: {
+            items: items.map(i => i.name),
+            warehouse: warehouse,
+            doctype: frm.doctype
+        },
+        callback: function(r) {
+            frappe.hide_progress();
+            if (r.message && r.message.items && Array.isArray(r.message.items)) {
+                set_cached_items(frm, {
+                    items: r.message.items
+                }, warehouse);
+                show_item_dialog(frm, r.message.items, can_see_cost, warehouse);
+            } else {
+                frappe.msgprint(__('Error loading stock item details'));
+            }
+        },
+        error: function() {
+            frappe.hide_progress();
+            frappe.msgprint(__('Error fetching stock item details'));
+        }
+    });
+}
+
 // Convert wildcard pattern (with %) to regex
 function wildcard_to_regex(pattern) {
     // Escape special regex characters except %
@@ -295,6 +457,10 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         frappe.msgprint(__('No items available to display'));
         return;
     }
+
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+    const is_stock = config.is_stock_doctype;
+    const has_price = config.has_price;
 
     const PAGE_SIZE = 20;
     let state = {
@@ -463,11 +629,11 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                         <span id="showing-info">Showing 0 items</span>
                     </div>
                     <div class="pagination-controls">
-                        <button class="btn btn-xs btn-default" id="page-first" title="First">«</button>
-                        <button class="btn btn-xs btn-default" id="page-prev" title="Previous">‹</button>
+                        <button class="btn btn-xs btn-default" id="page-first" title="First">&laquo;</button>
+                        <button class="btn btn-xs btn-default" id="page-prev" title="Previous">&lsaquo;</button>
                         <input type="number" id="page-input" class="form-control" min="1" value="1" style="width: 60px;">
-                        <button class="btn btn-xs btn-default" id="page-next" title="Next">›</button>
-                        <button class="btn btn-xs btn-default" id="page-last" title="Last">»</button>
+                        <button class="btn btn-xs btn-default" id="page-next" title="Next">&rsaquo;</button>
+                        <button class="btn btn-xs btn-default" id="page-last" title="Last">&raquo;</button>
                     </div>
                 </div>
             </div>
@@ -477,15 +643,26 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
     function render_table() {
         let page_data = get_page_data();
-        const config = BULK_SELECTION_CONFIG[frm.doctype];
 
-        let cost_header = can_see_cost
-            ? `<th class="sortable text-right" data-column="valuation_rate">Cost <span class="sort-icon"></span></th>`
-            : '';
+        // Valuation Rate column (always shown for stock docs, only with cost permission for sales)
+        let cost_header = '';
+        if (is_stock) {
+            cost_header = `<th class="sortable text-right" data-column="valuation_rate">Valuation Rate <span class="sort-icon"></span></th>`;
+        } else if (can_see_cost) {
+            cost_header = `<th class="sortable text-right" data-column="valuation_rate">Cost <span class="sort-icon"></span></th>`;
+        }
 
-        // Show stock column if warehouse is set (even for Quotation with custom_warehouse)
+        // Show stock column if warehouse is set
         let stock_header = warehouse
             ? `<th class="sortable text-right" data-column="actual_qty">Available <span class="sort-icon"></span></th>`
+            : '';
+
+        // Sell Price and Line Total only for sales docs
+        let sell_price_header = has_price
+            ? `<th class="sortable text-right" data-column="price_list_rate">Sell Price <span class="sort-icon"></span></th>`
+            : '';
+        let line_total_header = has_price
+            ? `<th class="text-right line-total-header">Line Total</th>`
             : '';
 
         let html = `
@@ -500,20 +677,25 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                             <th class="sortable" data-column="item_code">Item Code <span class="sort-icon"></span></th>
                             <th class="sortable" data-column="item_name">Description <span class="sort-icon"></span></th>
                             ${cost_header}
-                            <th class="sortable text-right" data-column="price_list_rate">Sell Price <span class="sort-icon"></span></th>
+                            ${sell_price_header}
                             ${stock_header}
-                            <th class="text-right line-total-header">Line Total</th>
+                            ${line_total_header}
                         </tr>
                     </thead>
                     <tbody>
         `;
 
         if (page_data.length === 0) {
-            let colspan = can_see_cost ? (warehouse ? 9 : 8) : (warehouse ? 8 : 7);
+            // Calculate colspan dynamically
+            let colspan = 5; // checkbox + qty + img + item_code + description
+            if (is_stock || can_see_cost) colspan++;
+            if (has_price) colspan++; // sell price
+            if (warehouse) colspan++;
+            if (has_price) colspan++; // line total
             html += `
                 <tr>
                     <td colspan="${colspan}" class="text-center" style="padding: 40px;">
-                        <div style="font-size: 48px;">🔍</div>
+                        <div style="font-size: 48px;">&#128269;</div>
                         <div style="font-size: 16px; font-weight: 500; margin-top: 10px;">No items found</div>
                         <div style="font-size: 12px; color: var(--text-muted); margin-top: 5px;">
                             Try different keywords or use % for wildcard (e.g., sam%tv)
@@ -524,18 +706,37 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         } else {
             page_data.forEach(item => {
                 let qty = state.quantities[item.item_code] || 0;
-                let rate = item.price_list_rate || 0;
+                let rate = has_price ? (item.price_list_rate || 0) : 0;
                 let line_total = qty * rate;
-                let is_unavailable = rate <= 0 || (warehouse && (item.actual_qty || 0) <= 0);
+
+                // For stock docs: only check stock availability
+                // For sales docs: check both price and stock
+                let is_unavailable;
+                if (is_stock) {
+                    is_unavailable = warehouse && (item.actual_qty || 0) <= 0;
+                } else {
+                    is_unavailable = rate <= 0 || (warehouse && (item.actual_qty || 0) <= 0);
+                }
                 let row_class = is_unavailable ? 'unavailable-row' : '';
                 if (qty > 0) row_class += ' has-qty';
 
-                let cost_cell = can_see_cost
-                    ? `<td class="text-right cost-price-cell" data-item="${item.item_code}">${format_currency(item.valuation_rate || 0)}</td>`
-                    : '';
+                let cost_cell = '';
+                if (is_stock) {
+                    cost_cell = `<td class="text-right">${format_currency(item.valuation_rate || 0)}</td>`;
+                } else if (can_see_cost) {
+                    cost_cell = `<td class="text-right cost-price-cell" data-item="${item.item_code}">${format_currency(item.valuation_rate || 0)}</td>`;
+                }
 
                 let stock_cell = warehouse
                     ? `<td class="text-right ${(item.actual_qty || 0) <= 0 ? 'text-danger' : ''}">${format_number(item.actual_qty || 0, null, 2)}</td>`
+                    : '';
+
+                let sell_price_cell = has_price
+                    ? `<td class="text-right sell-price-cell" data-item="${item.item_code}">${format_currency(rate)}</td>`
+                    : '';
+
+                let line_total_cell = has_price
+                    ? `<td class="text-right line-total">${format_currency(line_total)}</td>`
                     : '';
 
                 let image_cell = item.image
@@ -558,9 +759,9 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                         <td class="item-code">${item.item_code}</td>
                         <td>${item.item_name || ''}</td>
                         ${cost_cell}
-                        <td class="text-right sell-price-cell" data-item="${item.item_code}">${format_currency(rate)}</td>
+                        ${sell_price_cell}
                         ${stock_cell}
-                        <td class="text-right line-total">${format_currency(line_total)}</td>
+                        ${line_total_cell}
                     </tr>
                 `;
             });
@@ -583,6 +784,29 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
     function render_summary() {
         let totals = calculate_totals();
+
+        if (is_stock) {
+            // Simplified summary for stock doctypes: just count + qty
+            return `
+                <div class="selection-summary">
+                    <div class="summary-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Selected:</span>
+                            <span class="stat-value" id="stat-selected">${totals.count}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Total Qty:</span>
+                            <span class="stat-value" id="stat-qty">${format_number(totals.qty, null, 2)}</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-add-selected" id="btn-add-selected">
+                        <span class="icon">&#10003;</span> ${__('Add Selected')}
+                    </button>
+                </div>
+            `;
+        }
+
+        // Sales doc summary with profit info
         let profit_html = '';
 
         if (can_see_cost && totals.total > 0) {
@@ -623,7 +847,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                     ${profit_html}
                 </div>
                 <button class="btn btn-add-selected" id="btn-add-selected">
-                    <span class="icon">✓</span> ${__('Add Selected')}
+                    <span class="icon">&#10003;</span> ${__('Add Selected')}
                 </button>
             </div>
         `;
@@ -758,9 +982,9 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                     background: var(--gray-100);
                 }
 
-                .sort-icon::after { content: '⇅'; color: var(--text-muted); margin-left: 4px; }
-                .sort-icon.asc::after { content: '▲'; color: var(--primary); }
-                .sort-icon.desc::after { content: '▼'; color: var(--primary); }
+                .sort-icon::after { content: '\\21C5'; color: var(--text-muted); margin-left: 4px; }
+                .sort-icon.asc::after { content: '\\25B2'; color: var(--primary); }
+                .sort-icon.desc::after { content: '\\25BC'; color: var(--primary); }
 
                 .qty-input {
                     width: 60px;
@@ -1040,6 +1264,20 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
     function calculate_totals() {
         let count = 0, qty = 0;
+
+        if (is_stock) {
+            // Stock doctypes: just count and qty
+            for (let item_code in state.quantities) {
+                let q = state.quantities[item_code];
+                if (q > 0) {
+                    count++;
+                    qty += q;
+                }
+            }
+            return { count, qty };
+        }
+
+        // Sales doctypes: full calculation with profit
         let net_total = 0;  // Tax-exclusive total
         let total_cost = 0; // Total cost (no tax on cost)
 
@@ -1161,6 +1399,12 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         let totals = calculate_totals();
         d.$wrapper.find('#stat-selected').text(totals.count);
         d.$wrapper.find('#stat-qty').text(format_number(totals.qty, null, 2));
+
+        if (is_stock) {
+            // Stock docs: no grand total or profit to update
+            return;
+        }
+
         d.$wrapper.find('#stat-total').text(format_currency(totals.total));
 
         if (can_see_cost) {
@@ -1457,8 +1701,10 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
             state.quantities[item_code] = qty;
 
-            let rate = parseFloat($row.data('rate')) || 0;
-            $row.find('.line-total').text(format_currency(qty * rate));
+            if (has_price) {
+                let rate = parseFloat($row.data('rate')) || 0;
+                $row.find('.line-total').text(format_currency(qty * rate));
+            }
             $row.find('.item-checkbox').prop('checked', qty > 0);
             $row.toggleClass('has-qty', qty > 0);
 
@@ -1480,8 +1726,10 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 qty_input.val(0);
             }
 
-            let rate = parseFloat($row.data('rate')) || 0;
-            $row.find('.line-total').text(format_currency(state.quantities[item_code] * rate));
+            if (has_price) {
+                let rate = parseFloat($row.data('rate')) || 0;
+                $row.find('.line-total').text(format_currency(state.quantities[item_code] * rate));
+            }
             $row.toggleClass('has-qty', state.quantities[item_code] > 0);
 
             update_summary();
@@ -1505,8 +1753,10 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 }
 
                 $row.find('.item-checkbox').prop('checked', checked);
-                let rate = parseFloat($row.data('rate')) || 0;
-                $row.find('.line-total').text(format_currency(state.quantities[item_code] * rate));
+                if (has_price) {
+                    let rate = parseFloat($row.data('rate')) || 0;
+                    $row.find('.line-total').text(format_currency(state.quantities[item_code] * rate));
+                }
                 $row.toggleClass('has-qty', state.quantities[item_code] > 0);
             });
 
@@ -1534,15 +1784,19 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
             d.hide();
         });
 
-        d.$wrapper.find('.sell-price-cell').off('mouseenter').on('mouseenter', function() {
-            let $cell = $(this);
-            let item_code = $cell.data('item');
-            if (get_customer(frm) && item_code) {
-                fetch_sales_history(item_code, $cell);
-            }
-        });
+        // Sales history tooltips — only for sales docs
+        if (has_price) {
+            d.$wrapper.find('.sell-price-cell').off('mouseenter').on('mouseenter', function() {
+                let $cell = $(this);
+                let item_code = $cell.data('item');
+                if (get_customer(frm) && item_code) {
+                    fetch_sales_history(item_code, $cell);
+                }
+            });
+        }
 
-        if (can_see_cost) {
+        // Purchase history tooltips — only for sales docs with cost permission
+        if (!is_stock && can_see_cost) {
             d.$wrapper.find('.cost-price-cell').off('mouseenter').on('mouseenter', function() {
                 let $cell = $(this);
                 let item_code = $cell.data('item');
@@ -1608,7 +1862,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     if (warehouse) {
         d.$wrapper.find('#show-available').prop('checked', true);
     } else {
-        // Hide the "Available only" checkbox for Quotation since it's not applicable
+        // Hide the "Available only" checkbox since it's not applicable without warehouse
         d.$wrapper.find('#show-available').closest('.checkbox-label').hide();
     }
 
@@ -1621,16 +1875,12 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 }
 
 /**
- * Add selected items to the document using proper ERPNext patterns
- * This function follows ERPNext's standard workflow:
- * 1. Create child row with frappe.model.add_child or frm.add_child
- * 2. Set item_code using frappe.model.set_value (triggers get_item_details)
- * 3. get_item_details fetches rate, UOM, taxes, etc. from server
- * 4. Set qty using frappe.model.set_value (triggers qty event)
- * 5. Set warehouse if applicable
- * 6. Refresh field to update UI and recalculate totals
+ * Add selected items to the document using proper ERPNext patterns.
+ * Handles sales docs, Stock Reconciliation, and Stock Entry differently.
  */
 function add_items_to_doc(frm, selected_items, warehouse) {
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+
     // Step 1: Remove empty rows
     let items_to_remove = [];
     (frm.doc.items || []).forEach((row) => {
@@ -1656,62 +1906,155 @@ function add_items_to_doc(frm, selected_items, warehouse) {
 
     let updated_count = 0;
     let added_count = 0;
-    const config = BULK_SELECTION_CONFIG[frm.doctype];
 
     // Step 3: Process items sequentially to avoid race conditions
     let chain = Promise.resolve();
 
-    selected_items.forEach(item => {
-        chain = chain.then(() => {
-            if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
-                // Update existing item - just update the quantity
-                // frappe.model.set_value triggers qty event which recalculates amounts
-                let existing_row = existing_items[item.item_code][0];
-                updated_count++;
-
-                return frappe.model.set_value(
-                    existing_row.doctype,
-                    existing_row.name,
-                    'qty',
-                    item.qty
-                );
-            } else {
-                // Add new item using proper ERPNext workflow
-                added_count++;
-
-                // Create child row
-                let child = frm.add_child('items');
-
-                // Set item_code first - this triggers get_item_details() on server
-                // which fetches: rate, UOM, description, taxes, etc.
-                return frappe.model.set_value(
-                    child.doctype,
-                    child.name,
-                    'item_code',
-                    item.item_code
-                ).then(() => {
-                    // After item details are fetched, set quantity
-                    // This triggers qty event which calculates amount
+    if (frm.doctype === 'Stock Reconciliation') {
+        // Stock Reconciliation: item_code -> warehouse -> wait for valuation -> qty
+        selected_items.forEach(item => {
+            chain = chain.then(() => {
+                if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
+                    let existing_row = existing_items[item.item_code][0];
+                    updated_count++;
                     return frappe.model.set_value(
-                        child.doctype,
-                        child.name,
+                        existing_row.doctype,
+                        existing_row.name,
                         'qty',
                         item.qty
                     );
-                }).then(() => {
-                    // Set warehouse if applicable (for Sales Order/Invoice)
-                    if (config.requires_warehouse && warehouse) {
+                } else {
+                    added_count++;
+                    let child = frm.add_child('items');
+
+                    return frappe.model.set_value(
+                        child.doctype,
+                        child.name,
+                        'item_code',
+                        item.item_code
+                    ).then(() => {
                         return frappe.model.set_value(
                             child.doctype,
                             child.name,
                             'warehouse',
                             warehouse
                         );
-                    }
-                });
-            }
+                    }).then(() => {
+                        // Wait for ERPNext to fetch valuation_rate and current_qty
+                        return new Promise(resolve => setTimeout(resolve, 300));
+                    }).then(() => {
+                        return frappe.model.set_value(
+                            child.doctype,
+                            child.name,
+                            'qty',
+                            item.qty
+                        );
+                    });
+                }
+            });
         });
-    });
+    } else if (frm.doctype === 'Stock Entry') {
+        // Stock Entry: item_code (triggers get_item_details) -> wait -> qty -> set warehouses
+        let s_warehouse = frm.doc.from_warehouse || '';
+        let t_warehouse = frm.doc.to_warehouse || '';
+
+        selected_items.forEach(item => {
+            chain = chain.then(() => {
+                if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
+                    let existing_row = existing_items[item.item_code][0];
+                    updated_count++;
+                    return frappe.model.set_value(
+                        existing_row.doctype,
+                        existing_row.name,
+                        'qty',
+                        item.qty
+                    );
+                } else {
+                    added_count++;
+                    let child = frm.add_child('items');
+
+                    return frappe.model.set_value(
+                        child.doctype,
+                        child.name,
+                        'item_code',
+                        item.item_code
+                    ).then(() => {
+                        // Wait for ERPNext get_item_details
+                        return new Promise(resolve => setTimeout(resolve, 500));
+                    }).then(() => {
+                        return frappe.model.set_value(
+                            child.doctype,
+                            child.name,
+                            'qty',
+                            item.qty
+                        );
+                    }).then(() => {
+                        // Set source warehouse
+                        if (s_warehouse) {
+                            return frappe.model.set_value(
+                                child.doctype,
+                                child.name,
+                                's_warehouse',
+                                s_warehouse
+                            );
+                        }
+                    }).then(() => {
+                        // Set target warehouse
+                        if (t_warehouse) {
+                            return frappe.model.set_value(
+                                child.doctype,
+                                child.name,
+                                't_warehouse',
+                                t_warehouse
+                            );
+                        }
+                    });
+                }
+            });
+        });
+    } else {
+        // Sales doctypes: item_code -> qty -> warehouse
+        selected_items.forEach(item => {
+            chain = chain.then(() => {
+                if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
+                    let existing_row = existing_items[item.item_code][0];
+                    updated_count++;
+                    return frappe.model.set_value(
+                        existing_row.doctype,
+                        existing_row.name,
+                        'qty',
+                        item.qty
+                    );
+                } else {
+                    added_count++;
+                    let child = frm.add_child('items');
+
+                    return frappe.model.set_value(
+                        child.doctype,
+                        child.name,
+                        'item_code',
+                        item.item_code
+                    ).then(() => {
+                        return frappe.model.set_value(
+                            child.doctype,
+                            child.name,
+                            'qty',
+                            item.qty
+                        );
+                    }).then(() => {
+                        if (config.requires_warehouse && warehouse) {
+                            return frappe.model.set_value(
+                                child.doctype,
+                                child.name,
+                                'warehouse',
+                                warehouse
+                            );
+                        }
+                    });
+                }
+            });
+        });
+    }
 
     // Step 4: After all items are processed, refresh and show message
     chain.then(() => {
@@ -1744,7 +2087,7 @@ function add_items_to_doc(frm, selected_items, warehouse) {
 }
 
 function format_currency(value) {
-    if (value === null || value === undefined || value === 0) return '—';
+    if (value === null || value === undefined || value === 0) return '\u2014';
     // Use native formatting to avoid recursion with frappe's formatter system
     let formatted = parseFloat(value).toLocaleString('en-US', {
         minimumFractionDigits: 2,
@@ -1756,7 +2099,7 @@ function format_currency(value) {
 }
 
 function format_number(value, format, decimals) {
-    if (value === null || value === undefined) return '—';
+    if (value === null || value === undefined) return '\u2014';
     // Use toFixed to avoid recursion with frappe's formatter system
     let precision = decimals || 2;
     return parseFloat(value).toLocaleString('en-US', {

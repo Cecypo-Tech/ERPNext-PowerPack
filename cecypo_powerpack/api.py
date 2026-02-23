@@ -809,6 +809,117 @@ def _get_item_tax_template_for_category(item_code, tax_category, item_taxes_map)
 
 
 @frappe.whitelist()
+def get_bulk_stock_item_details(items, warehouse: str = None, doctype: str = 'Stock Reconciliation') -> dict:
+    """
+    Get bulk item details for bulk selection in stock documents.
+
+    Args:
+        items: List of item codes (or pipe-delimited string)
+        warehouse: Warehouse name (optional)
+        doctype: DocType name (Stock Reconciliation, Stock Entry)
+
+    Returns:
+        dict: Contains 'items' (list), 'total_items' (int)
+    """
+    from cecypo_powerpack.utils import is_feature_enabled
+
+    feature_map = {
+        'Stock Reconciliation': 'enable_stock_reconciliation_bulk_selection',
+        'Stock Entry': 'enable_stock_entry_bulk_selection'
+    }
+
+    feature_name = feature_map.get(doctype)
+    if not feature_name or not is_feature_enabled(feature_name):
+        frappe.throw(_("Bulk Selection feature is not enabled for {0} in PowerPack Settings").format(doctype))
+
+    # Parse items input
+    if isinstance(items, str):
+        items = items.strip()
+        if items.startswith('[') and items.endswith(']'):
+            items = items[1:-1]
+        if not items:
+            items = []
+        else:
+            items = [item.strip().strip('"').strip("'").strip()
+                    for item in items.split(',') if item.strip()]
+    elif not isinstance(items, list):
+        items = []
+
+    if not items:
+        frappe.throw(_("No items provided"))
+
+    if warehouse and not frappe.db.exists('Warehouse', warehouse):
+        frappe.throw(_("Warehouse {0} does not exist").format(warehouse))
+
+    # Batch fetch all stock items
+    item_docs = frappe.db.get_all(
+        'Item',
+        filters={
+            'name': ['in', items],
+            'disabled': 0,
+            'is_stock_item': 1
+        },
+        fields=['name', 'item_name', 'description', 'stock_uom', 'image', 'valuation_rate']
+    )
+
+    if not item_docs:
+        return {'items': [], 'total_items': 0}
+
+    item_codes = [item['name'] for item in item_docs]
+
+    # Batch fetch stock and valuation from Bin
+    stock = {}
+    bin_valuation = {}
+    if warehouse:
+        bin_data = frappe.db.get_all(
+            'Bin',
+            filters={
+                'item_code': ['in', item_codes],
+                'warehouse': warehouse
+            },
+            fields=['item_code', 'actual_qty', 'valuation_rate']
+        )
+        for b in bin_data:
+            stock[b['item_code']] = b['actual_qty']
+            if b.get('valuation_rate'):
+                bin_valuation[b['item_code']] = b['valuation_rate']
+    else:
+        # Get total stock across all warehouses
+        bin_data = frappe.db.sql("""
+            SELECT item_code, SUM(actual_qty) as actual_qty, AVG(valuation_rate) as valuation_rate
+            FROM `tabBin`
+            WHERE item_code IN %s
+            GROUP BY item_code
+        """, [item_codes], as_dict=True)
+        for b in bin_data:
+            stock[b['item_code']] = b['actual_qty']
+            if b.get('valuation_rate'):
+                bin_valuation[b['item_code']] = b['valuation_rate']
+
+    result = []
+    for item in item_docs:
+        item_code = item['name']
+        valuation = bin_valuation.get(item_code) or item.get('valuation_rate', 0) or 0
+
+        result.append({
+            'item_code': item_code,
+            'item_name': item.get('item_name') or item_code,
+            'description': item.get('description') or item.get('item_name') or item_code,
+            'stock_uom': item.get('stock_uom') or 'Nos',
+            'image': _get_item_image_url(item.get('image')),
+            'valuation_rate': float(valuation),
+            'actual_qty': float(stock.get(item_code, 0))
+        })
+
+    result.sort(key=lambda x: x['item_code'])
+
+    return {
+        'items': result,
+        'total_items': len(result)
+    }
+
+
+@frappe.whitelist()
 def zero_allocate_entries(doc, payments, invoices):
     """
     Create zero-amount allocation entries for selected payments and invoices.
