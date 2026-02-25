@@ -6,6 +6,13 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 cecypo_powerpack.sales_powerup = {
 	enabled: false,
 	settings: {},
+	// Cache valuation rates separately to avoid writing to item docs (which dirties the form)
+	_valuation_cache: {},
+
+	// Get valuation rate from cache for an item row
+	get_valuation_rate: function(item_doc) {
+		return cecypo_powerpack.sales_powerup._valuation_cache[item_doc.name] || 0;
+	},
 
 	// Helper function to check if feature is enabled for a specific doctype
 	is_enabled_for_doctype: function(doctype) {
@@ -21,6 +28,9 @@ cecypo_powerpack.sales_powerup = {
 	},
 
 	check_and_setup: function(frm) {
+		// Clear valuation cache for fresh data
+		cecypo_powerpack.sales_powerup._valuation_cache = {};
+
 		// Fetch settings first
 		frappe.call({
 			method: 'frappe.client.get',
@@ -137,14 +147,11 @@ cecypo_powerpack.sales_powerup = {
 				if (r.message) {
 					cecypo_powerpack.sales_powerup.render_item_info(info_container, r.message, item_rate, item_doc);
 
-					// Store valuation rate in the item doc for profit calculation.
-					// Use direct locals assignment instead of frappe.model.set_value to avoid
-					// marking the form as dirty (which would revert Submit back to Save).
+					// Store valuation rate in a separate cache (NOT on the item doc)
+					// to avoid dirtying the form, which causes Submit to revert to Save/Update.
 					const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 					if (r.message.valuation_rate && frappe.user.has_role(visible_role)) {
-						if (locals[item_doc.doctype] && locals[item_doc.doctype][item_doc.name]) {
-							locals[item_doc.doctype][item_doc.name].valuation_rate = r.message.valuation_rate;
-						}
+						cecypo_powerpack.sales_powerup._valuation_cache[item_doc.name] = r.message.valuation_rate;
 
 						// Update profit metrics after setting valuation rate
 						setTimeout(function() {
@@ -371,7 +378,8 @@ cecypo_powerpack.sales_powerup = {
 		const has_permission = frappe.user.has_role(visible_role);
 		const show_profit = settings.show_profit_indicator !== 0;
 
-		if (!has_permission || !show_profit || !item_doc.valuation_rate) {
+		const cached_valuation = cecypo_powerpack.sales_powerup.get_valuation_rate(item_doc);
+		if (!has_permission || !show_profit || !cached_valuation) {
 			return;
 		}
 
@@ -389,7 +397,7 @@ cecypo_powerpack.sales_powerup = {
 		const profit_result = profit_calc.calculate_item_profit({
 			rate: item_doc.rate || 0,
 			net_rate: item_doc.net_rate || item_doc.rate || 0,
-			valuation_rate: item_doc.valuation_rate || 0,
+			valuation_rate: cached_valuation,
 			qty: 1,
 			tax_inclusive: tax_inclusive
 		});
@@ -434,9 +442,17 @@ cecypo_powerpack.sales_powerup = {
 			return;
 		}
 
+		// Build items array with cached valuation rates for profit calculation
+		const cache = cecypo_powerpack.sales_powerup._valuation_cache;
+		const items_with_valuation = frm.doc.items.map(function(item) {
+			return Object.assign({}, item, {
+				valuation_rate: cache[item.name] || 0
+			});
+		});
+
 		// Use shared profit calculator for consistent calculations
 		const profit_calc = cecypo_powerpack.profit_calculator;
-		const metrics = profit_calc.calculate_doc_profit(frm, frm.doc.items);
+		const metrics = profit_calc.calculate_doc_profit(frm, items_with_valuation);
 
 		const {
 			total_cost,
@@ -450,7 +466,7 @@ cecypo_powerpack.sales_powerup = {
 
 		// Count items with cost for display purposes
 		let items_with_cost = 0;
-		frm.doc.items.forEach(function(item) {
+		items_with_valuation.forEach(function(item) {
 			if (item.valuation_rate && item.valuation_rate > 0) {
 				items_with_cost++;
 			}
