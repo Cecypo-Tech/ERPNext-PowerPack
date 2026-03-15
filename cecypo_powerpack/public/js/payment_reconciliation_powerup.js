@@ -9,11 +9,21 @@ frappe.ui.form.on('Payment Reconciliation', {
     refresh: function(frm) {
         check_and_setup(frm);
         add_zero_reconcile_button(frm);
+        check_and_setup_2pct(frm);
     },
 
     party: function(frm) {
         // Re-check when party changes
         check_and_setup(frm);
+        check_and_setup_2pct(frm);
+    },
+
+    party_type: function(frm) {
+        check_and_setup_2pct(frm);
+    },
+
+    allocate: function(frm) {
+        check_and_setup_2pct(frm);
     }
 });
 
@@ -324,5 +334,121 @@ function execute_zero_allocate(frm, payments, invoices, replace) {
             });
         }
     });
+}
+
+// ─── 2% Allocate Feature ─────────────────────────────────────────────────────
+
+function check_and_setup_2pct(frm) {
+	frappe.call({
+		method: 'cecypo_powerpack.utils.is_feature_enabled',
+		args: { feature_name: 'enable_payment_reconciliation_2pct_allocate' },
+		callback: function(r) {
+			if (r.message) {
+				setup_allocate_2pct_button(frm);
+			}
+		}
+	});
+}
+
+function setup_allocate_2pct_button(frm) {
+	const grid = frm.fields_dict.allocation && frm.fields_dict.allocation.grid;
+	if (!grid) return;
+
+	if (frm.doc.party_type !== 'Supplier') {
+		const $existing = grid.custom_buttons && grid.custom_buttons[__('Allocate 2%')];
+		if ($existing) $existing.addClass('hidden');
+		return;
+	}
+
+	// Don't add duplicate buttons
+	if (grid.custom_buttons && grid.custom_buttons[__('Allocate 2%')]) {
+		grid.custom_buttons[__('Allocate 2%')].removeClass('hidden');
+		return;
+	}
+
+	const $btn = grid.add_custom_button(__('Allocate 2%'), async function() {
+		$btn.prop('disabled', true).text(__('Calculating\u2026'));
+		try {
+			await apply_2pct_allocation(frm);
+		} finally {
+			$btn.prop('disabled', false).text(__('Allocate 2%'));
+		}
+	}, 'top');
+
+	$btn.css({ 'font-size': '11px', 'padding': '2px 9px', 'margin-top': '4px' });
+}
+
+async function apply_2pct_allocation(frm) {
+	const alloc_rows = (frm.doc.allocation || []).filter(
+		r => r.invoice_type === 'Purchase Invoice' && r.invoice_number
+	);
+	if (!alloc_rows.length) {
+		frappe.show_alert({ message: __('No Purchase Invoice rows in the Allocation table'), indicator: 'orange' });
+		return;
+	}
+
+	// Batch: fetch net_total for all unique invoices in one query
+	const pi_names = [...new Set(alloc_rows.map(r => r.invoice_number))];
+	const pi_rows = await frappe.db.get_list('Purchase Invoice', {
+		filters: [['name', 'in', pi_names]],
+		fields: ['name', 'net_total'],
+		limit: Math.min(pi_names.length, 500),
+	});
+	const net_total_map = {};
+	pi_rows.forEach(r => { net_total_map[r.name] = r.net_total; });
+
+	// Track per-payment totals for the summary popup
+	const payment_summary = {};
+
+	for (const row of alloc_rows) {
+		const net_total = net_total_map[row.invoice_number];
+		if (net_total == null) continue;
+
+		// 2% of taxable amount, rounded up to nearest whole number
+		const allocated = Math.ceil(net_total * 0.02);
+		frappe.model.set_value(row.doctype, row.name, 'allocated_amount', allocated);
+
+		const ref = row.reference_name;
+		if (ref) {
+			if (!payment_summary[ref]) {
+				payment_summary[ref] = { unreconciled: row.unreconciled_amount || 0, allocated_2pct: 0 };
+			}
+			payment_summary[ref].allocated_2pct += allocated;
+		}
+	}
+
+	frm.refresh_field('allocation');
+
+	// Show payment remaining summary
+	const currency = frm.doc.company_currency;
+	const summary_rows = Object.entries(payment_summary).map(([ref, d]) => {
+		const remaining = d.unreconciled - d.allocated_2pct;
+		const rem_color = remaining >= 0 ? '#10b981' : '#ef4444';
+		return `<tr>
+			<td style="font-family:monospace;">${frappe.utils.escape_html(ref)}</td>
+			<td style="text-align:right;">${format_currency(d.unreconciled, currency)}</td>
+			<td style="text-align:right;">${format_currency(d.allocated_2pct, currency)}</td>
+			<td style="text-align:right;font-weight:700;color:${rem_color};">${format_currency(remaining, currency)}</td>
+		</tr>`;
+	}).join('');
+
+	if (summary_rows) {
+		frappe.msgprint({
+			title: __('2% Allocation Applied'),
+			message: `
+				<table class="table table-bordered table-sm" style="margin:0;font-size:12px;">
+					<thead style="background:var(--control-bg);">
+						<tr>
+							<th>${__('Payment')}</th>
+							<th style="text-align:right;">${__('Available')}</th>
+							<th style="text-align:right;">${__('2% Applied')}</th>
+							<th style="text-align:right;">${__('Remaining')}</th>
+						</tr>
+					</thead>
+					<tbody>${summary_rows}</tbody>
+				</table>`,
+			indicator: 'green',
+		});
+	}
 }
 

@@ -596,6 +596,17 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         }
     });
 
+    // Tax display logic for cost column — mirrors sales_powerup.js render_item_info.
+    // included_in_print_rate=1 → tax-inclusive: scale cost up by doc tax rate, no '+'.
+    // included_in_print_rate=0 with doc taxes → tax-exclusive: show raw cost with '+' suffix.
+    const profit_calc = cecypo_powerpack.profit_calculator;
+    const cost_tax_inclusive = (!is_stock && !config.is_purchase_doctype)
+        ? profit_calc.is_tax_inclusive(frm) : false;
+    const cost_tax_rate = (!is_stock && !config.is_purchase_doctype)
+        ? profit_calc.calculate_doc_tax_rate(frm) : 0;
+    const has_doc_taxes = !is_stock && frm.doc.taxes && frm.doc.taxes.some(t => (t.rate || 0) > 0);
+    const cost_plus_sign = (!cost_tax_inclusive && has_doc_taxes) ? '+' : '';
+
     let d = new frappe.ui.Dialog({
         title: __('Select Items ({0} total)', [item_data.length]),
         fields: [
@@ -842,7 +853,11 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 if (is_stock) {
                     cost_cell = `<td class="text-right">${format_currency(item.valuation_rate || 0)}</td>`;
                 } else if (can_see_cost) {
-                    cost_cell = `<td class="text-right cost-price-cell" data-item="${item.item_code}">${format_currency(item.valuation_rate || 0)}</td>`;
+                    let display_valuation = item.valuation_rate || 0;
+                    if (cost_tax_inclusive && cost_tax_rate > 0) {
+                        display_valuation = display_valuation * (1 + cost_tax_rate);
+                    }
+                    cost_cell = `<td class="text-right cost-price-cell" data-item="${item.item_code}">${format_currency(display_valuation)}${cost_plus_sign}</td>`;
                 }
 
                 let stock_cell = warehouse

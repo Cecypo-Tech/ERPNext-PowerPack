@@ -46,6 +46,7 @@
   "item_list_powerup_description",
   "payment_reconciliation_section",
   "enable_payment_reconciliation_zero_allocate",
+  "enable_payment_reconciliation_2pct_allocate",
   "payment_reconciliation_description",
   "validation_section",
   "enable_duplicate_tax_id_check",
@@ -305,10 +306,16 @@
    "label": "Enable Zero Allocate Feature"
   },
   {
+   "default": "0",
+   "fieldname": "enable_payment_reconciliation_2pct_allocate",
+   "fieldtype": "Check",
+   "label": "Enable 2% Allocate Feature"
+  },
+  {
    "fieldname": "payment_reconciliation_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">Enable the 'Zero Allocate' button in Payment Reconciliation. This creates allocation rows with zero amounts for all selected payments and invoices, allowing manual distribution of large payments across multiple invoices without FIFO limitations.</p>"
+   "options": "<p class=\"text-muted\">Enable the 'Zero Allocate' button to create allocation rows with zero amounts for selected payments and invoices, allowing manual distribution without FIFO.<br>Enable the '2% Allocate' button (Supplier only) to automatically set each allocation's amount to 2% of the invoice net total (Kenya VAT withholding).</p>"
   },
   {
    "fieldname": "validation_section",
