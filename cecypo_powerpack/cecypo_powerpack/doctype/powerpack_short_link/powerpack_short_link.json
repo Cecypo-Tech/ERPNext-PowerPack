@@ -71,6 +71,18 @@
    "role": "System Manager",
    "share": 0,
    "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Sales User"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  },
+  {
+   "read": 1,
+   "role": "Stock User"
   }
  ],
  "sort_field": "creation",
