@@ -124,6 +124,15 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
                 .then(enabled => {
                     frm._bulk_selection_enabled = enabled;
                 });
+
+            // Filter set_warehouse by the document's company
+            if (cfg.warehouse_field === 'set_warehouse') {
+                frm.set_query('set_warehouse', function() {
+                    return {
+                        filters: { company: frm.doc.company }
+                    };
+                });
+            }
         },
 
         refresh: function(frm) {
@@ -701,9 +710,9 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
             }
         }
 
-        // Apply stock filter
+        // Apply stock filter — always include non-stock items regardless
         if (show_available) {
-            data = data.filter(item => (item.actual_qty || 0) > 0);
+            data = data.filter(item => !item.is_stock_item || (item.actual_qty || 0) > 0);
         }
 
         // Apply column sort only when not searching (search has its own relevance sort)
@@ -844,7 +853,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 if (is_stock) {
                     is_unavailable = warehouse && (item.actual_qty || 0) <= 0;
                 } else {
-                    is_unavailable = rate <= 0 || (warehouse && (item.actual_qty || 0) <= 0);
+                    is_unavailable = rate <= 0 || (warehouse && item.is_stock_item && (item.actual_qty || 0) <= 0);
                 }
                 let row_class = is_unavailable ? 'unavailable-row' : '';
                 if (qty > 0) row_class += ' has-qty';

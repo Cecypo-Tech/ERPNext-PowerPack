@@ -666,6 +666,19 @@ frappe.ui.form.on('Purchase Invoice', {
 		});
 	},
 
+	bill_date(frm) {
+		CecypoPowerPack.Settings.isEnabled('enable_warnings', enabled => {
+			if (!enabled || !frm.doc.bill_date) return;
+			const today = frappe.datetime.get_today();
+			if (frm.doc.bill_date > today) {
+				frappe.show_alert({
+					message: __('Bill Date is in the future. Please check — a Purchase Invoice cannot be dated after today.'),
+					indicator: 'orange'
+				}, 10);
+			}
+		});
+	},
+
 	before_submit(frm) {
 		// Wrap in a Promise so Frappe waits for user decision before proceeding
 		return new Promise((resolve, reject) => {

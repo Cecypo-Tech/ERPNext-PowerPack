@@ -539,7 +539,7 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
             'disabled': 0,
             'is_sales_item': 1
         },
-        fields=['name', 'item_name', 'description', 'stock_uom', 'image', 'valuation_rate']
+        fields=['name', 'item_name', 'description', 'stock_uom', 'image', 'valuation_rate', 'is_stock_item']
     )
 
     if not item_docs:
@@ -629,7 +629,8 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
             'price_list_rate': price_list_rate,
             'net_rate': float(net_rate),
             'actual_qty': float(stock.get(item_code, 0)),
-            'item_tax_template': item_tax_template or ''
+            'item_tax_template': item_tax_template or '',
+            'is_stock_item': item.get('is_stock_item', 1)
         })
 
     result.sort(key=lambda x: x['item_code'])
@@ -696,7 +697,8 @@ def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rat
                 'price_list_rate': float(price_list_rate),
                 'net_rate': float(net_rate),
                 'actual_qty': float(actual_qty),
-                'item_tax_template': item_tax_template or ''
+                'item_tax_template': item_tax_template or '',
+                'is_stock_item': item_doc.is_stock_item
             })
 
         except Exception as e:
@@ -1144,3 +1146,262 @@ def get_accounting_dimensions_for_doc(doctype, docname):
         )
 
     return dimensions
+
+
+@frappe.whitelist()
+def get_document_public_link(doctype, name):
+	"""Return a short public link for a document.
+
+	Generates (or reuses) a PowerPack Short Link record with a token of the
+	form ``{name}-{4-char-random}`` and returns a URL like:
+	    https://yoursite.com/s/QTN-0001-x7kQ
+
+	The short link redirects to the full document URL secured by a share key.
+	Compatible with both v15 (signature-based) and v16+ (DocumentShareKey).
+	On v15 sites, System Settings must have allow_older_web_view_links enabled.
+	"""
+	import random
+	import string
+
+	doc = frappe.get_doc(doctype, name)
+
+	# Build the full target URL (v15/v16 compatible)
+	if hasattr(doc, "get_document_share_key"):
+		key = doc.get_document_share_key()
+	else:
+		key = doc.get_signature()
+
+	encoded_doctype = doctype.replace(" ", "%20")
+	target_url = f"{frappe.utils.get_url()}/{encoded_doctype}/{name}?key={key}"
+
+	# Reuse an existing short link for this document if one exists
+	existing = frappe.db.get_value(
+		"PowerPack Short Link",
+		{"reference_doctype": doctype, "reference_docname": name},
+		"token",
+	)
+	if existing:
+		return f"{frappe.utils.get_url()}/s/{existing}"
+
+	# Generate a unique 4-char alphanumeric suffix
+	chars = string.ascii_letters + string.digits
+	for _ in range(10):
+		suffix = "".join(random.choices(chars, k=4))
+		token = f"{name}-{suffix}"
+		if not frappe.db.exists("PowerPack Short Link", token):
+			break
+
+	# Determine expiry from DocumentShareKey if available (v16+)
+	expires_on = None
+	if hasattr(doc, "get_document_share_key"):
+		expires_on = frappe.db.get_value(
+			"Document Share Key",
+			{"reference_doctype": doctype, "reference_docname": name},
+			"expires_on",
+		)
+
+	short_link = frappe.new_doc("PowerPack Short Link")
+	short_link.token = token
+	short_link.target_url = target_url
+	short_link.reference_doctype = doctype
+	short_link.reference_docname = name
+	short_link.expires_on = expires_on
+	short_link.insert(ignore_permissions=True)
+
+	return f"{frappe.utils.get_url()}/s/{token}"
+
+
+@frappe.whitelist(allow_guest=True)
+def get_short_link_target(token):
+	"""Validate a short link token and return the document URL and metadata.
+
+	Used by the Frappe Builder Document Viewer component to resolve ?t=<token>
+	without exposing the underlying share key in the page URL.
+	"""
+	if not token:
+		frappe.throw("Invalid token.", frappe.PageDoesNotExistError)
+
+	short_link = frappe.db.get_value(
+		"PowerPack Short Link",
+		token,
+		["target_url", "reference_doctype", "reference_docname", "expires_on"],
+		as_dict=True,
+	)
+
+	if not short_link:
+		frappe.throw("This link does not exist.", frappe.PageDoesNotExistError)
+
+	if short_link.expires_on and str(short_link.expires_on) < frappe.utils.today():
+		frappe.throw("This link has expired.")
+
+	return {
+		"target_url": short_link.target_url,
+		"doctype": short_link.reference_doctype,
+		"name": short_link.reference_docname,
+	}
+
+
+@frappe.whitelist()
+def custom_search_link(doctype, txt, query=None, filters=None, page_length=10,
+		searchfield=None, reference_doctype=None, ignore_user_permissions=False,
+		link_fieldname=None):
+	"""Override for frappe.desk.search.search_link.
+
+	Replaces erpnext.controllers.queries.item_query with custom_item_query when
+	enable_item_search_powerup is enabled. This must override search_link (the actual
+	HTTP endpoint) rather than search_widget, because search_link → search_widget →
+	frappe.call(query) all run in Python and bypass handler.py's override lookup.
+	"""
+	from cecypo_powerpack.utils import is_feature_enabled
+	from frappe.desk.search import search_link
+
+	if (
+		query == "erpnext.controllers.queries.item_query"
+		and is_feature_enabled("enable_item_search_powerup")
+	):
+		query = "cecypo_powerpack.api.custom_item_query"
+
+	return search_link(
+		doctype, txt, query=query, filters=filters, page_length=page_length,
+		searchfield=searchfield, reference_doctype=reference_doctype,
+		ignore_user_permissions=ignore_user_permissions,
+		link_fieldname=link_fieldname,
+	)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_dict=False):
+	"""Enhanced item search replacing ERPNext's default item_query.
+
+	When enable_item_search_powerup is enabled:
+	- Multi-word: split txt on whitespace; all tokens must match (AND logic)
+	- Wildcard: if % is present, each token is used as-is in LIKE
+	Falls back to the standard ERPNext item_query when the feature is disabled.
+	"""
+	import json as _json
+
+	from frappe import scrub
+	from frappe.desk.reportview import get_filters_cond, get_match_cond
+	from frappe.utils import nowdate
+
+	from cecypo_powerpack.utils import is_feature_enabled
+
+	if not is_feature_enabled("enable_item_search_powerup"):
+		from erpnext.controllers.queries import item_query
+		return item_query(doctype, txt, searchfield, start, page_len, filters, as_dict)
+
+	doctype = "Item"
+	conditions = []
+
+	if isinstance(filters, str):
+		filters = _json.loads(filters)
+
+	# Party Specific Item restrictions — identical to ERPNext original
+	if filters and isinstance(filters, dict):
+		if filters.get("customer") or filters.get("supplier"):
+			party = filters.get("customer") or filters.get("supplier")
+			item_rules_list = frappe.get_all(
+				"Party Specific Item",
+				filters={
+					"party": ["!=", party],
+					"party_type": "Customer" if filters.get("customer") else "Supplier",
+				},
+				fields=["restrict_based_on", "based_on_value"],
+			)
+
+			filters_dict = {}
+			for rule in item_rules_list:
+				if rule["restrict_based_on"] == "Item":
+					rule["restrict_based_on"] = "name"
+				filters_dict[rule.restrict_based_on] = []
+
+			for rule in item_rules_list:
+				filters_dict[rule.restrict_based_on].append(rule.based_on_value)
+
+			for f in filters_dict:
+				filters[scrub(f)] = ["not in", filters_dict[f]]
+
+			if filters.get("customer"):
+				del filters["customer"]
+			else:
+				del filters["supplier"]
+		else:
+			filters.pop("customer", None)
+			filters.pop("supplier", None)
+
+	# Build SELECT columns (mirrors original)
+	meta = frappe.get_meta(doctype, cached=True)
+	searchfields = meta.get_search_fields()
+	extra_searchfields = [f for f in searchfields if f not in ["name", "description"]]
+
+	columns = ""
+	if extra_searchfields:
+		columns += ", " + ", ".join(extra_searchfields)
+
+	if "description" in searchfields:
+		columns += (
+			""", if(length(tabItem.description) > 40, """
+			"""concat(substr(tabItem.description, 1, 40), "..."), description) as description"""
+		)
+
+	# Columns to search across
+	search_cols = list(
+		dict.fromkeys(
+			[searchfield or "name", "item_code", "item_name", "item_group"]
+			+ [f for f in searchfields if f not in ["name", "description"]]
+		)
+	)
+
+	# Parse tokens
+	txt = (txt or "").strip()
+	if not txt:
+		tokens = ["%"]
+	elif "%" in txt:
+		tokens = [txt]  # wildcard mode: use as-is
+	else:
+		tokens = txt.split() or [txt]  # multi-word mode
+
+	# Build per-token AND conditions
+	values = {
+		"today": nowdate(),
+		"start": start,
+		"page_len": page_len,
+		"_txt": txt.replace("%", ""),
+	}
+
+	token_clauses = []
+	for i, token in enumerate(tokens):
+		key = f"tok{i}"
+		values[key] = token if "%" in token else f"%{token}%"
+		col_parts = [f"tabItem.{col} LIKE %({key})s" for col in search_cols]
+		col_parts.append(
+			f"tabItem.item_code IN (select parent from `tabItem Barcode` where barcode LIKE %({key})s)"
+		)
+		token_clauses.append("(" + " or ".join(col_parts) + ")")
+
+	search_cond = " and ".join(token_clauses)
+
+	return frappe.db.sql(
+		"""select tabItem.name {columns}
+		from tabItem
+		where tabItem.docstatus < 2
+			and tabItem.disabled=0
+			and tabItem.has_variants=0
+			and (tabItem.end_of_life > %(today)s or ifnull(tabItem.end_of_life, '0000-00-00')='0000-00-00')
+			and ({scond})
+			{fcond} {mcond}
+		order by
+			if(locate(%(_txt)s, name), locate(%(_txt)s, name), 99999),
+			if(locate(%(_txt)s, item_name), locate(%(_txt)s, item_name), 99999),
+			idx desc,
+			name, item_name
+		limit %(start)s, %(page_len)s""".format(
+			columns=columns,
+			scond=search_cond,
+			fcond=get_filters_cond(doctype, filters, conditions).replace("%", "%%"),
+			mcond=get_match_cond(doctype).replace("%", "%%"),
+		),
+		values,
+		as_dict=as_dict,
+	)

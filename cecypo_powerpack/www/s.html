@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{ reference_docname }} — {{ company_name }}</title>
+	<style>
+		*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+		:root {
+			--pp-bg:        #f1f4f8;
+			--pp-surface:   #ffffff;
+			--pp-border:    #e2e8f0;
+			--pp-text:      #0f172a;
+			--pp-muted:     #64748b;
+			--pp-accent:    #2563eb;
+			--pp-accent-h:  #1d4ed8;
+			--pp-radius:    10px;
+			--pp-shadow:    0 1px 4px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.04);
+		}
+
+		body {
+			background: var(--pp-bg);
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			color: var(--pp-text);
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+		}
+
+		/* ── Header ──────────────────────────────────────────────────── */
+		.pp-header {
+			background: var(--pp-surface);
+			border-bottom: 1px solid var(--pp-border);
+			padding: 14px 24px;
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+			box-shadow: 0 1px 3px rgba(0,0,0,.06);
+		}
+		.pp-logo {
+			height: 36px;
+			width: auto;
+			object-fit: contain;
+			flex-shrink: 0;
+		}
+		.pp-company {
+			font-size: 17px;
+			font-weight: 600;
+			letter-spacing: -.01em;
+			color: var(--pp-text);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		/* ── Banner ──────────────────────────────────────────────────── */
+		.pp-banner {
+			width: 100%;
+			display: block;
+			line-height: 0;
+		}
+		.pp-banner img {
+			width: 100%;
+			height: auto;
+			display: block;
+			max-height: 160px;
+			object-fit: cover;
+		}
+
+		/* ── Main layout ─────────────────────────────────────────────── */
+		.pp-main {
+			flex: 1;
+			max-width: 1100px;
+			width: 100%;
+			margin: 28px auto;
+			padding: 0 20px;
+		}
+
+		/* ── Document card ───────────────────────────────────────────── */
+		.pp-card {
+			background: var(--pp-surface);
+			border-radius: var(--pp-radius);
+			box-shadow: var(--pp-shadow);
+			overflow: hidden;
+			border: 1px solid var(--pp-border);
+		}
+
+		.pp-card-toolbar {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 16px;
+			padding: 14px 20px;
+			border-bottom: 1px solid var(--pp-border);
+			background: #fafbfd;
+			flex-wrap: wrap;
+		}
+
+		.pp-doc-meta {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+			min-width: 0;
+		}
+		.pp-doc-type {
+			font-size: 11px;
+			font-weight: 600;
+			text-transform: uppercase;
+			letter-spacing: .06em;
+			color: var(--pp-muted);
+		}
+		.pp-doc-name {
+			font-size: 18px;
+			font-weight: 700;
+			color: var(--pp-text);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.pp-actions {
+			display: flex;
+			gap: 8px;
+			flex-shrink: 0;
+		}
+
+		.pp-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			padding: 8px 16px;
+			border-radius: 7px;
+			font-size: 13px;
+			font-weight: 500;
+			cursor: pointer;
+			text-decoration: none;
+			border: none;
+			transition: background .15s, box-shadow .15s;
+			white-space: nowrap;
+			line-height: 1;
+		}
+		.pp-btn-outline {
+			background: var(--pp-surface);
+			color: var(--pp-text);
+			border: 1px solid var(--pp-border);
+		}
+		.pp-btn-outline:hover { background: #f1f5f9; }
+
+		.pp-btn-primary {
+			background: var(--pp-accent);
+			color: #fff;
+		}
+		.pp-btn-primary:hover { background: var(--pp-accent-h); }
+
+		/* ── Iframe ──────────────────────────────────────────────────── */
+		.pp-iframe {
+			width: 100%;
+			height: 78vh;
+			min-height: 480px;
+			border: none;
+			display: block;
+		}
+
+		/* ── Footer ──────────────────────────────────────────────────── */
+		.pp-footer {
+			text-align: center;
+			padding: 24px 20px 32px;
+			font-size: 13px;
+			color: var(--pp-muted);
+			line-height: 1.6;
+		}
+		.pp-footer-content {
+			margin-bottom: 10px;
+		}
+		.pp-footer a { color: inherit; }
+
+		/* ── Print ───────────────────────────────────────────────────── */
+		@media print {
+			.pp-header, .pp-banner, .pp-card-toolbar, .pp-footer { display: none !important; }
+			.pp-card { box-shadow: none; border: none; border-radius: 0; }
+			.pp-main { margin: 0; padding: 0; max-width: 100%; }
+			.pp-iframe { height: 100vh; }
+			body { background: white; }
+		}
+
+		/* ── Responsive ──────────────────────────────────────────────── */
+		@media (max-width: 600px) {
+			.pp-header { padding: 12px 16px; }
+			.pp-main { margin: 16px auto; padding: 0 12px; }
+			.pp-card-toolbar { padding: 12px 14px; }
+			.pp-doc-name { font-size: 15px; }
+			.pp-btn { padding: 7px 12px; font-size: 12px; }
+			.pp-iframe { height: 70vh; }
+		}
+	</style>
+</head>
+<body>
+
+	<!-- Header -->
+	<header class="pp-header">
+		{% if company_logo %}
+			<img class="pp-logo" src="{{ company_logo }}" alt="{{ company_name }}">
+		{% endif %}
+		{% if company_name %}
+			<span class="pp-company">{{ company_name }}</span>
+		{% endif %}
+	</header>
+
+	<!-- Top banner / ad -->
+	{% if top_banner %}
+		{% if top_banner_link %}
+			<a class="pp-banner" href="{{ top_banner_link }}" target="_blank" rel="noopener">
+				<img src="{{ top_banner }}" alt="Banner">
+			</a>
+		{% else %}
+			<div class="pp-banner">
+				<img src="{{ top_banner }}" alt="Banner">
+			</div>
+		{% endif %}
+	{% endif %}
+
+	<!-- Main content -->
+	<main class="pp-main">
+		<div class="pp-card">
+
+			<!-- Toolbar: doc info + action buttons -->
+			<div class="pp-card-toolbar">
+				<div class="pp-doc-meta">
+					<span class="pp-doc-type">{{ reference_doctype }}</span>
+					<span class="pp-doc-name">{{ reference_docname }}</span>
+				</div>
+				<div class="pp-actions">
+					<button class="pp-btn pp-btn-outline" onclick="window.print()">
+						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><rect x="6" y="17" width="12" height="5"/><path d="M6 13H4a2 2 0 0 0-2 2v4h4v-3h12v3h4v-4a2 2 0 0 0-2-2h-2"/></svg>
+						Print
+					</button>
+					<a class="pp-btn pp-btn-primary" href="{{ target_url }}" target="_blank" rel="noopener">
+						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+						Open
+					</a>
+				</div>
+			</div>
+
+			<!-- Document iframe -->
+			<iframe
+				class="pp-iframe"
+				src="{{ target_url }}"
+				title="{{ reference_doctype }} {{ reference_docname }}"
+				loading="lazy"
+			></iframe>
+
+		</div>
+	</main>
+
+	<!-- Footer -->
+	<footer class="pp-footer">
+		{% if footer_content %}
+			<div class="pp-footer-content">{{ footer_content }}</div>
+		{% endif %}
+		<div>Powered by <a href="https://cecypo.tech" target="_blank" rel="noopener">Cecypo PowerPack</a></div>
+	</footer>
+
+</body>
+</html>

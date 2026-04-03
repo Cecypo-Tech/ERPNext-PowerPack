@@ -41,6 +41,9 @@
   "enable_sales_invoice_bulk_selection",
   "enable_stock_reconciliation_bulk_selection",
   "enable_stock_entry_bulk_selection",
+  "item_search_powerup_section",
+  "enable_item_search_powerup",
+  "item_search_powerup_description",
   "item_list_powerup_section",
   "enable_item_list_powerup",
   "item_list_powerup_description",
@@ -54,7 +57,15 @@
   "etr_validation_description",
   "warnings_section",
   "enable_warnings",
-  "warnings_description"
+  "warnings_description",
+  "public_link_section",
+  "public_link_page",
+  "public_link_description",
+  "public_link_banner_section",
+  "public_link_top_banner",
+  "public_link_top_banner_link",
+  "column_break_public_link_1",
+  "public_link_footer_content"
  ],
  "fields": [
   {
@@ -277,6 +288,23 @@
    "label": "Enable for Stock Entry"
   },
   {
+   "fieldname": "item_search_powerup_section",
+   "fieldtype": "Section Break",
+   "label": "Item Search Powerup"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_item_search_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Item Search Powerup"
+  },
+  {
+   "fieldname": "item_search_powerup_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Replaces the default item search in all forms with an enhanced multi-word and wildcard search. Supports splitting search terms by spaces (all tokens must match) and <code>%</code> as a mid-word wildcard (e.g. <code>sam%tv</code>). When disabled, the standard ERPNext item search is used.</p>"
+  },
+  {
    "fieldname": "item_list_powerup_section",
    "fieldtype": "Section Break",
    "label": "Item List Powerup"
@@ -338,6 +366,51 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">When enabled, Sales Invoices and POS Invoices with an ETR Invoice Number cannot be cancelled. This prevents accidental cancellation of tax-registered invoices.</p>"
+  },
+  {
+   "fieldname": "public_link_section",
+   "fieldtype": "Section Break",
+   "label": "Public Document Links"
+  },
+  {
+   "fieldname": "public_link_page",
+   "fieldtype": "Data",
+   "label": "Builder Page Route",
+   "description": "Optional: route of a Frappe Builder page that displays the document (e.g. /doc-view). When set, short links redirect here with ?t=token instead of the built-in viewer."
+  },
+  {
+   "fieldname": "public_link_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Controls the branded document viewer shown when a customer opens a public link. Leave <strong>Builder Page Route</strong> empty to use the built-in viewer below. Set a banner image and footer to customise it.</p>"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "public_link_banner_section",
+   "fieldtype": "Section Break",
+   "label": "Banner &amp; Footer"
+  },
+  {
+   "fieldname": "public_link_top_banner",
+   "fieldtype": "Attach Image",
+   "label": "Top Banner Image",
+   "description": "Full-width banner shown above the document (e.g. a promotion or company image)"
+  },
+  {
+   "fieldname": "public_link_top_banner_link",
+   "fieldtype": "Data",
+   "label": "Banner Link URL",
+   "description": "Optional URL the banner image links to when clicked"
+  },
+  {
+   "fieldname": "column_break_public_link_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "public_link_footer_content",
+   "fieldtype": "Small Text",
+   "label": "Footer Content",
+   "description": "Optional text or HTML shown in the page footer (e.g. contact details, tagline, promotion)"
   },
   {
    "fieldname": "warnings_section",

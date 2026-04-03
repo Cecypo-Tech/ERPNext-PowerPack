@@ -81,6 +81,12 @@ app_include_js = [
 # automatically create page for each record of this doctype
 # website_generators = ["Web Page"]
 
+# Website Route Rules
+# -------------------
+website_route_rules = [
+	{"from_route": "/s/<token>", "to_route": "s"},
+]
+
 # Jinja
 # ----------
 
@@ -99,7 +105,19 @@ app_include_js = [
 # Fixtures
 # --------
 
+def _builder_installed():
+	try:
+		import frappe
+		return "builder" in frappe.get_installed_apps()
+	except Exception:
+		return False
+
+
 fixtures = [
+    *([{
+        "dt": "Builder Component",
+        "filters": [["component_id", "=", "powerpack-document-viewer"]]
+    }] if _builder_installed() else []),
     {
         "dt": "Custom Field",
         "filters": [
@@ -227,9 +245,13 @@ doc_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "cecypo_powerpack.event.get_events"
-# }
+override_whitelisted_methods = {
+	# search_link is the actual HTTP endpoint the Link field calls.
+	# search_link → search_widget → frappe.call(query) all happen in Python, bypassing
+	# handler.py's override_whitelisted_methods lookup. Overriding search_link lets us
+	# substitute custom_item_query before the chain runs.
+	"frappe.desk.search.search_link": "cecypo_powerpack.api.custom_search_link",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
