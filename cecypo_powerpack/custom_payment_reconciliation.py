@@ -98,6 +98,7 @@ class CustomPaymentReconciliation(PaymentReconciliation):
                 reconciled_entry = frappe._dict({
                     "voucher_type": row.reference_type,
                     "voucher_no": row.reference_name,
+                    "voucher_detail_no": row.get("reference_row"),
                     "against_voucher_type": row.invoice_type,
                     "against_voucher": row.invoice_number,
                     "account": self.receivable_payable_account,
