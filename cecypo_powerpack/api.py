@@ -1261,12 +1261,15 @@ def custom_search_link(doctype, txt, query=None, filters=None, page_length=10,
 	):
 		query = "cecypo_powerpack.api.custom_item_query"
 
-	return search_link(
-		doctype, txt, query=query, filters=filters, page_length=page_length,
+	import inspect
+	kwargs = dict(
+		query=query, filters=filters, page_length=page_length,
 		searchfield=searchfield, reference_doctype=reference_doctype,
 		ignore_user_permissions=ignore_user_permissions,
-		link_fieldname=link_fieldname,
 	)
+	if "link_fieldname" in inspect.signature(search_link).parameters:
+		kwargs["link_fieldname"] = link_fieldname
+	return search_link(doctype, txt, **kwargs)
 
 
 @frappe.whitelist()
