@@ -1376,7 +1376,17 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 	token_clauses = []
 	for i, token in enumerate(tokens):
 		key = f"tok{i}"
-		values[key] = token if "%" in token else f"%{token}%"
+		if "%" in token:
+			# Pad with % on both ends so "ridge%grey" acts as a substring wildcard
+			# (same as the client-side regex behaviour: ridge.*grey anywhere in the string)
+			val = token
+			if not val.startswith("%"):
+				val = "%" + val
+			if not val.endswith("%"):
+				val = val + "%"
+			values[key] = val
+		else:
+			values[key] = f"%{token}%"
 		col_parts = [f"tabItem.{col} LIKE %({key})s" for col in search_cols]
 		col_parts.append(
 			f"tabItem.item_code IN (select parent from `tabItem Barcode` where barcode LIKE %({key})s)"
