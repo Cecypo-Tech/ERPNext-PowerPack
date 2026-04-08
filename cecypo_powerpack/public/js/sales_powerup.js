@@ -84,8 +84,8 @@ cecypo_powerpack.sales_powerup = {
 		const warehouse = item_doc.warehouse || frm.doc.set_warehouse;
 		const item_rate = item_doc.rate || 0;
 
-		// Only show info when both customer and warehouse are present
-		if (!customer || !warehouse) {
+		// Only show info when item_code, customer and warehouse are present
+		if (!item_code || !customer || !warehouse) {
 			return;
 		}
 
