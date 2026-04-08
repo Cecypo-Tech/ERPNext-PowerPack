@@ -105,19 +105,7 @@ website_route_rules = [
 # Fixtures
 # --------
 
-def _builder_installed():
-	try:
-		import frappe
-		return "builder" in frappe.get_installed_apps()
-	except Exception:
-		return False
-
-
 fixtures = [
-    *([{
-        "dt": "Builder Component",
-        "filters": [["component_id", "=", "powerpack-document-viewer"]]
-    }] if _builder_installed() else []),
     {
         "dt": "Custom Field",
         "filters": [
