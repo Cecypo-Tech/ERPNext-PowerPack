@@ -67,7 +67,9 @@
   "public_link_banner_section",
   "public_link_top_banner",
   "public_link_top_banner_link",
+  "public_link_hide_header",
   "column_break_public_link_1",
+  "public_link_header_content",
   "public_link_footer_content"
  ],
  "fields": [
@@ -423,14 +425,29 @@
    "description": "Optional URL the banner image links to when clicked"
   },
   {
+   "default": "0",
+   "fieldname": "public_link_hide_header",
+   "fieldtype": "Check",
+   "label": "Hide Header",
+   "description": "Hide the company logo and name header on the public document viewer"
+  },
+  {
    "fieldname": "column_break_public_link_1",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "public_link_header_content",
+   "fieldtype": "Small Text",
+   "label": "Header Content",
+   "description": "Optional text or HTML shown below the header bar when no Top Banner Image is set",
+   "ignore_xss_filter": 1
   },
   {
    "fieldname": "public_link_footer_content",
    "fieldtype": "Small Text",
    "label": "Footer Content",
-   "description": "Optional text or HTML shown in the page footer (e.g. contact details, tagline, promotion)"
+   "description": "Optional text or HTML shown in the page footer (e.g. contact details, tagline, promotion)",
+   "ignore_xss_filter": 1
   },
   {
    "fieldname": "warnings_section",

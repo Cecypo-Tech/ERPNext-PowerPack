@@ -45,16 +45,29 @@ def get_context(context):
 	context.reference_doctype = short_link.reference_doctype
 	context.reference_docname = short_link.reference_docname
 
-	# Branding — company logo + name
-	default_company = frappe.db.get_single_value("Global Defaults", "default_company")
+	# Branding — prefer the company on the linked document (correct in multi-company setups)
+	doc_company = frappe.db.get_value(
+		short_link.reference_doctype,
+		short_link.reference_docname,
+		"company",
+	)
 	company = None
-	if default_company:
+	if doc_company:
 		company = frappe.db.get_value(
 			"Company",
-			default_company,
+			doc_company,
 			["company_name", "company_logo"],
 			as_dict=True,
 		)
+	if not company:
+		default_company = frappe.db.get_single_value("Global Defaults", "default_company")
+		if default_company:
+			company = frappe.db.get_value(
+				"Company",
+				default_company,
+				["company_name", "company_logo"],
+				as_dict=True,
+			)
 	if not company:
 		rows = frappe.get_all("Company", fields=["company_name", "company_logo"], limit=1)
 		company = rows[0] if rows else frappe._dict()
@@ -72,4 +85,6 @@ def get_context(context):
 	ps = frappe.get_single("PowerPack Settings")
 	context.top_banner = ps.get("public_link_top_banner") or ""
 	context.top_banner_link = ps.get("public_link_top_banner_link") or ""
+	context.header_content = ps.get("public_link_header_content") or ""
 	context.footer_content = ps.get("public_link_footer_content") or ""
+	context.hide_header = bool(ps.get("public_link_hide_header"))

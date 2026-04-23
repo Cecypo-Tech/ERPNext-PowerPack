@@ -71,6 +71,16 @@
 			object-fit: cover;
 		}
 
+		/* ── Header content (shown when no banner) ───────────────────── */
+		.pp-header-content {
+			background: var(--pp-surface);
+			border-bottom: 1px solid var(--pp-border);
+			padding: 14px 24px;
+			font-size: 14px;
+			color: var(--pp-text);
+			line-height: 1.6;
+		}
+
 		/* ── Main layout ─────────────────────────────────────────────── */
 		.pp-main {
 			flex: 1;
@@ -180,7 +190,7 @@
 
 		/* ── Print ───────────────────────────────────────────────────── */
 		@media print {
-			.pp-header, .pp-banner, .pp-card-toolbar, .pp-footer { display: none !important; }
+			.pp-header, .pp-banner, .pp-header-content, .pp-card-toolbar, .pp-footer { display: none !important; }
 			.pp-card { box-shadow: none; border: none; border-radius: 0; }
 			.pp-main { margin: 0; padding: 0; max-width: 100%; }
 			.pp-iframe { height: 100vh; }
@@ -201,6 +211,7 @@
 <body>
 
 	<!-- Header -->
+	{% if not hide_header %}
 	<header class="pp-header">
 		{% if company_logo %}
 			<img class="pp-logo" src="{{ company_logo }}" alt="{{ company_name }}">
@@ -209,8 +220,9 @@
 			<span class="pp-company">{{ company_name }}</span>
 		{% endif %}
 	</header>
+	{% endif %}
 
-	<!-- Top banner / ad -->
+	<!-- Top banner / ad; fall back to header content if no banner -->
 	{% if top_banner %}
 		{% if top_banner_link %}
 			<a class="pp-banner" href="{{ top_banner_link }}" target="_blank" rel="noopener">
@@ -221,6 +233,8 @@
 				<img src="{{ top_banner }}" alt="Banner">
 			</div>
 		{% endif %}
+	{% elif header_content %}
+		<div class="pp-header-content">{{ header_content }}</div>
 	{% endif %}
 
 	<!-- Main content -->
@@ -264,5 +278,15 @@
 		<div>Powered by <a href="https://cecypo.tech" target="_blank" rel="noopener">Cecypo PowerPack</a></div>
 	</footer>
 
+<script>
+	document.querySelector('.pp-iframe').addEventListener('load', function () {
+		try {
+			var doc = this.contentDocument || this.contentWindow.document;
+			var style = doc.createElement('style');
+			style.textContent = '.action-banner.print-hide { display: none !important; }';
+			doc.head.appendChild(style);
+		} catch (e) {}
+	});
+</script>
 </body>
 </html>
