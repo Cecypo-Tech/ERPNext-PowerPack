@@ -70,7 +70,14 @@
   "public_link_hide_header",
   "column_break_public_link_1",
   "public_link_header_content",
-  "public_link_footer_content"
+  "public_link_footer_content",
+  "quick_pay_section",
+  "enable_quick_pay",
+  "enable_quick_pay_mpesa",
+  "qp_column_break",
+  "qp_auto_create_invoice",
+  "qp_auto_submit_invoice",
+  "qp_update_stock_on_invoice"
  ],
  "fields": [
   {
@@ -465,6 +472,48 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer Overdue Invoices:</strong> When selecting a customer on a Quotation, Sales Order, or Sales Invoice, shows a popup if the customer has outstanding overdue invoices — with a copy button for sending a payment reminder.</p>"
+  },
+  {
+   "fieldname": "quick_pay_section",
+   "fieldtype": "Section Break",
+   "label": "Quick Pay"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_quick_pay",
+   "fieldtype": "Check",
+   "label": "Enable Quick Pay (Cash/Bank/Card)"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_quick_pay_mpesa",
+   "fieldtype": "Check",
+   "label": "Enable Quick Pay (Mpesa)"
+  },
+  {
+   "fieldname": "qp_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_quick_pay || doc.enable_quick_pay_mpesa",
+   "fieldname": "qp_auto_create_invoice",
+   "fieldtype": "Check",
+   "label": "Auto-create Sales Invoice after payment"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.qp_auto_create_invoice",
+   "fieldname": "qp_auto_submit_invoice",
+   "fieldtype": "Check",
+   "label": "Auto-submit invoice immediately"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.qp_auto_create_invoice",
+   "fieldname": "qp_update_stock_on_invoice",
+   "fieldtype": "Check",
+   "label": "Update stock on auto-created invoice"
   }
  ],
  "issingle": 1,
