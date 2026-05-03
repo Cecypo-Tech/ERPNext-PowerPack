@@ -1,9 +1,9 @@
 from frappe.tests import UnitTestCase
 
 from cecypo_powerpack.quick_pay.validators import (
-	normalize_amount,
-	compute_outstanding,
 	cap_allocation,
+	compute_outstanding,
+	normalize_amount,
 )
 
 
@@ -36,7 +36,8 @@ class TestPrecisionNormalization(UnitTestCase):
 
 
 import uuid
-from cecypo_powerpack.quick_pay.validators import claim_idempotency_token, IdempotencyError
+
+from cecypo_powerpack.quick_pay.validators import IdempotencyError, claim_idempotency_token
 
 
 class TestIdempotency(UnitTestCase):
@@ -59,6 +60,7 @@ class TestIdempotency(UnitTestCase):
 
 
 import frappe
+
 from cecypo_powerpack.quick_pay.validators import preflight_stock_for_so
 
 
@@ -70,16 +72,20 @@ class TestStockPreflight(UnitTestCase):
 			warehouse = ""
 			batch_no = None
 			serial_no = None
+
 		class FakeSO:
-			items = [FakeItem()]
+			items: list = [FakeItem()]  # noqa: RUF012
+
 		if not frappe.db.exists("Item", "_Test Service Item QP"):
-			frappe.get_doc({
-				"doctype": "Item",
-				"item_code": "_Test Service Item QP",
-				"item_name": "_Test Service Item QP",
-				"item_group": "Services",
-				"stock_uom": "Nos",
-				"is_stock_item": 0,
-			}).insert(ignore_permissions=True)
+			frappe.get_doc(
+				{
+					"doctype": "Item",
+					"item_code": "_Test Service Item QP",
+					"item_name": "_Test Service Item QP",
+					"item_group": "Services",
+					"stock_uom": "Nos",
+					"is_stock_item": 0,
+				}
+			).insert(ignore_permissions=True)
 		issues = preflight_stock_for_so(FakeSO())
 		self.assertEqual(issues, [])

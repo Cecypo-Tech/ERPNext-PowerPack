@@ -1,8 +1,7 @@
 import frappe
 from frappe.tests import UnitTestCase
 
-from cecypo_powerpack.quick_pay.builders import build_payment_entry
-from cecypo_powerpack.quick_pay.builders import build_sales_invoice
+from cecypo_powerpack.quick_pay.builders import build_payment_entry, build_sales_invoice
 
 
 class TestBuildPaymentEntry(UnitTestCase):
@@ -12,10 +11,14 @@ class TestBuildPaymentEntry(UnitTestCase):
 			self.skipTest("No submitted Sales Order in DB to build a PE against")
 		so = frappe.get_doc("Sales Order", so_name)
 
-		mop = frappe.db.sql("""
+		mop = frappe.db.sql(
+			"""
 			SELECT parent FROM `tabMode of Payment Account`
 			WHERE company = %s AND default_account IS NOT NULL LIMIT 1
-		""", so.company, as_dict=True)
+		""",
+			so.company,
+			as_dict=True,
+		)
 		if not mop:
 			self.skipTest("No Mode of Payment Account for company")
 		mode_of_payment = mop[0]["parent"]
@@ -30,6 +33,7 @@ class TestBuildPaymentEntry(UnitTestCase):
 
 		# paid_from must be the party-specific receivable, not Company default
 		from erpnext.accounts.party import get_party_account
+
 		expected_paid_from = get_party_account("Customer", so.customer, so.company)
 		self.assertEqual(pe.paid_from, expected_paid_from)
 

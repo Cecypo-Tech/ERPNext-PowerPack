@@ -8,10 +8,9 @@ inside its idempotency / pre-flight logic.
 from __future__ import annotations
 
 import frappe
-from frappe.utils import flt, nowdate
-
 from erpnext.accounts.party import get_party_account
 from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+from frappe.utils import flt, nowdate
 
 from cecypo_powerpack.quick_pay.validators import (
 	cap_allocation,
@@ -77,14 +76,17 @@ def build_payment_entry(
 	pe.reference_date = nowdate()
 	pe.remarks = remarks or f"Payment for {so_doc.name}"
 
-	pe.append("references", {
-		"reference_doctype": "Sales Order",
-		"reference_name": so_doc.name,
-		"due_date": so_doc.delivery_date or nowdate(),
-		"total_amount": flt(so_doc.grand_total, precision),
-		"outstanding_amount": outstanding,
-		"allocated_amount": allocated,
-	})
+	pe.append(
+		"references",
+		{
+			"reference_doctype": "Sales Order",
+			"reference_name": so_doc.name,
+			"due_date": so_doc.delivery_date or nowdate(),
+			"total_amount": flt(so_doc.grand_total, precision),
+			"outstanding_amount": outstanding,
+			"allocated_amount": allocated,
+		},
+	)
 
 	return pe
 

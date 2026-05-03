@@ -10,8 +10,8 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt
 
-
 # --- Precision -------------------------------------------------------------
+
 
 def normalize_amount(value, precision: int = 2) -> float:
 	"""Round a money amount to currency precision, killing IEEE-754 drift."""
@@ -57,6 +57,7 @@ def claim_idempotency_token(token: str, ttl_seconds: int = 120) -> None:
 
 # --- Stock pre-check -------------------------------------------------------
 
+
 def preflight_stock_for_so(so_doc) -> list[str]:
 	"""Return human-readable issues that would cause Sales Invoice (with
 	update_stock=1) to fail. Empty list = OK to proceed.
@@ -88,16 +89,17 @@ def preflight_stock_for_so(so_doc) -> list[str]:
 			issues.append(f"{row.item_code}: no warehouse set on Sales Order line")
 			continue
 
-		actual_qty = frappe.db.get_value(
-			"Bin",
-			{"item_code": row.item_code, "warehouse": warehouse},
-			"actual_qty",
-		) or 0
+		actual_qty = (
+			frappe.db.get_value(
+				"Bin",
+				{"item_code": row.item_code, "warehouse": warehouse},
+				"actual_qty",
+			)
+			or 0
+		)
 		needed = flt(row.qty)
 		if flt(actual_qty) < needed:
-			issues.append(
-				f"{row.item_code}: only {flt(actual_qty)} available at {warehouse}, need {needed}"
-			)
+			issues.append(f"{row.item_code}: only {flt(actual_qty)} available at {warehouse}, need {needed}")
 
 		if meta.has_batch_no and not getattr(row, "batch_no", None):
 			issues.append(f"{row.item_code}: requires a batch but none set on Sales Order line")

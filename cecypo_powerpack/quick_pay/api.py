@@ -132,11 +132,13 @@ def process_quick_pay(
 		pe.insert(ignore_permissions=True)
 		pe.submit()
 
-		payment_entries.append({
-			"name": pe.name,
-			"type": p_type,
-			"amount": allocated,
-		})
+		payment_entries.append(
+			{
+				"name": pe.name,
+				"type": p_type,
+				"amount": allocated,
+			}
+		)
 		total_paid += allocated
 		remaining = validators.normalize_amount(remaining - allocated, precision)
 
@@ -195,11 +197,7 @@ def _mpesa_shortcode_for_company(company: str) -> str | None:
 @frappe.whitelist()
 def check_mpesa_available(company: str) -> dict:
 	validators.assert_quick_pay_enabled("mpesa")
-	return {
-		"available": bool(
-			_phone_mop_for_company(company) and _mpesa_shortcode_for_company(company)
-		)
-	}
+	return {"available": bool(_phone_mop_for_company(company) and _mpesa_shortcode_for_company(company))}
 
 
 @frappe.whitelist()
@@ -217,14 +215,24 @@ def list_pending_mpesa_payments(company: str, search: str = "") -> dict:
 		all_payments = frappe.get_all(
 			"Mpesa C2B Payment Register",
 			filters=base_filters,
-			fields=["name", "full_name", "transamount", "transid", "msisdn",
-				"posting_date", "billrefnumber", "creation"],
+			fields=[
+				"name",
+				"full_name",
+				"transamount",
+				"transid",
+				"msisdn",
+				"posting_date",
+				"billrefnumber",
+				"creation",
+			],
 			order_by="creation desc",
 			limit_page_length=100,
 		)
 		s = search.lower()
 		for p in all_payments:
-			if any(s in (p.get(f) or "").lower() for f in ("full_name", "transid", "billrefnumber", "msisdn")):
+			if any(
+				s in (p.get(f) or "").lower() for f in ("full_name", "transid", "billrefnumber", "msisdn")
+			):
 				payments.append(p)
 	return {"count": total_count, "payments": payments}
 
@@ -304,12 +312,14 @@ def process_mpesa_quick_pay(
 		mpesa.save(ignore_permissions=True)
 		mpesa.submit()
 
-		payment_entries.append({
-			"name": pe.name,
-			"type": "Mpesa",
-			"amount": allocated,
-			"full_amount": mpesa_amt,
-		})
+		payment_entries.append(
+			{
+				"name": pe.name,
+				"type": "Mpesa",
+				"amount": allocated,
+				"full_amount": mpesa_amt,
+			}
+		)
 		mpesa_results.append({"name": mpesa.name, "amount": mpesa_amt})
 		remaining = validators.normalize_amount(remaining - allocated, precision)
 
