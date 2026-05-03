@@ -56,3 +56,30 @@ class TestIdempotency(UnitTestCase):
 			claim_idempotency_token("", ttl_seconds=60)
 		with self.assertRaises(IdempotencyError):
 			claim_idempotency_token(None, ttl_seconds=60)
+
+
+import frappe
+from cecypo_powerpack.quick_pay.validators import preflight_stock_for_so
+
+
+class TestStockPreflight(UnitTestCase):
+	def test_no_stock_items_returns_empty(self):
+		class FakeItem:
+			item_code = "_Test Service Item QP"
+			qty = 1
+			warehouse = ""
+			batch_no = None
+			serial_no = None
+		class FakeSO:
+			items = [FakeItem()]
+		if not frappe.db.exists("Item", "_Test Service Item QP"):
+			frappe.get_doc({
+				"doctype": "Item",
+				"item_code": "_Test Service Item QP",
+				"item_name": "_Test Service Item QP",
+				"item_group": "Services",
+				"stock_uom": "Nos",
+				"is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+		issues = preflight_stock_for_so(FakeSO())
+		self.assertEqual(issues, [])
