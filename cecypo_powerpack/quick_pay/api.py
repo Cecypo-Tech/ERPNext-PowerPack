@@ -332,3 +332,89 @@ def process_mpesa_quick_pay(
 		result["sales_invoice"] = {"name": si.name, "submitted": si.docstatus == 1}
 
 	return result
+
+
+@frappe.whitelist()
+def get_customer_phone(customer: str) -> str:
+	validators.assert_quick_pay_enabled("mpesa")
+	if not customer:
+		return ""
+	contact = frappe.db.get_value(
+		"Dynamic Link",
+		{"link_doctype": "Customer", "link_name": customer, "parenttype": "Contact"},
+		"parent",
+	)
+	if contact:
+		for field in ("mobile_no", "phone"):
+			phone = frappe.db.get_value("Contact", contact, field)
+			if phone:
+				return phone
+	return frappe.db.get_value("Customer", customer, "mobile_no") or ""
+
+
+@frappe.whitelist()
+def create_mpesa_payment_request(
+	sales_order: str,
+	customer: str,
+	phone_number: str,
+	amount: float,
+) -> dict:
+	validators.assert_quick_pay_enabled("mpesa")
+	if not (sales_order and phone_number and float(amount) > 0):
+		frappe.throw(_("Missing required parameters"))
+
+	so = frappe.get_doc("Sales Order", sales_order)
+
+	settings = frappe.get_all(
+		"Mpesa Settings",
+		filters={"company": so.company},
+		fields=["name", "payment_gateway_name"],
+		limit=1,
+	)
+	if not settings:
+		frappe.throw(_("No Mpesa Settings for {0}").format(so.company))
+	gateway_name = settings[0].get("payment_gateway_name") or settings[0].get("name")
+
+	gateway_account = frappe.db.get_value(
+		"Payment Gateway Account",
+		{"payment_gateway": gateway_name},
+		["name", "payment_account", "payment_gateway"],
+		as_dict=True,
+	)
+	if not gateway_account:
+		rows = frappe.get_all(
+			"Payment Gateway Account",
+			filters={"payment_gateway": ["like", "%Mpesa%"]},
+			fields=["name", "payment_gateway", "payment_account"],
+			limit=1,
+		)
+		if rows:
+			gateway_account = rows[0]
+	if not gateway_account:
+		frappe.throw(_("No Payment Gateway Account found for Mpesa"))
+
+	pr = frappe.new_doc("Payment Request")
+	pr.payment_request_type = "Inward"
+	pr.transaction_date = frappe.utils.nowdate()
+	pr.phone_number = phone_number
+	pr.company = so.company
+	pr.party_type = "Customer"
+	pr.party = customer
+	pr.reference_doctype = "Sales Order"
+	pr.reference_name = sales_order
+	pr.grand_total = float(amount)
+	pr.currency = so.currency
+	pr.outstanding_amount = float(amount)
+	pr.payment_gateway_account = gateway_account.get("name")
+	pr.payment_gateway = gateway_account.get("payment_gateway") or gateway_name
+	pr.payment_account = gateway_account.get("payment_account")
+	pr.payment_channel = "Phone"
+	pr.mode_of_payment = _phone_mop_for_company(so.company)
+	pr.subject = f"Payment for {sales_order}"
+	pr.message = f"Payment for {sales_order}"
+	pr.mute_email = 1
+	pr.make_sales_invoice = 0
+	pr.insert(ignore_permissions=True)
+	pr.submit()
+
+	return {"success": True, "payment_request": pr.name}
