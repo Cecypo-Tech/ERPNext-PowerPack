@@ -227,3 +227,108 @@ def list_pending_mpesa_payments(company: str, search: str = "") -> dict:
 			if any(s in (p.get(f) or "").lower() for f in ("full_name", "transid", "billrefnumber", "msisdn")):
 				payments.append(p)
 	return {"count": total_count, "payments": payments}
+
+
+@frappe.whitelist()
+def process_mpesa_quick_pay(
+	sales_order: str,
+	customer: str,
+	mpesa_payments: str,
+	outstanding_amount: float,
+	create_invoice: int = 0,
+	submit_invoice: int = 0,
+	idempotency_token: str = "",
+) -> dict:
+	validators.assert_quick_pay_enabled("mpesa")
+	create_invoice = int(create_invoice or 0)
+	submit_invoice = int(submit_invoice or 0)
+	validators.assert_can_create_payment_and_invoice(create_invoice, submit_invoice)
+	validators.claim_idempotency_token(idempotency_token)
+
+	mpesa_names = [n.strip() for n in (mpesa_payments or "").split(",") if n.strip()]
+	if not mpesa_names:
+		frappe.throw(_("No Mpesa payments selected"))
+
+	so = frappe.get_doc("Sales Order", sales_order)
+	settings = get_powerpack_settings()
+	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
+
+	if create_invoice:
+		issues = validators.preflight_stock_for_so(so)
+		if issues:
+			frappe.throw(_("Cannot create invoice — fix stock first:\n• ") + "\n• ".join(issues))
+
+	phone_mop = _phone_mop_for_company(so.company)
+	if not phone_mop:
+		frappe.throw(_("No Phone-type Mode of Payment configured for {0}").format(so.company))
+	shortcode = _mpesa_shortcode_for_company(so.company)
+	if not shortcode:
+		frappe.throw(_("No Mpesa Settings for {0}").format(so.company))
+
+	precision = so.precision("grand_total")
+	remaining = validators.compute_outstanding(so.grand_total, so.advance_paid, precision)
+
+	payment_entries: list[dict] = []
+	mpesa_results: list[dict] = []
+
+	for mpesa_name in mpesa_names:
+		if remaining <= 0:
+			break
+		mpesa = frappe.get_doc("Mpesa C2B Payment Register", mpesa_name)
+		if mpesa.docstatus != 0:
+			continue
+		if str(mpesa.businessshortcode or "") != shortcode:
+			continue
+
+		mpesa_amt = float(mpesa.transamount or 0)
+		if mpesa_amt <= 0:
+			continue
+		allocated = validators.cap_allocation(mpesa_amt, remaining, precision)
+
+		# Build & submit the PE FIRST.
+		pe = builders.build_payment_entry(
+			so_doc=so,
+			amount=allocated,
+			mode_of_payment=phone_mop,
+			reference_no=mpesa_name,
+			remarks=f"Mpesa payment: {mpesa_name}",
+			full_received_amount=mpesa_amt,
+		)
+		pe.insert(ignore_permissions=True)
+		pe.submit()
+
+		# Now mark the Mpesa row as processed and link the PE.
+		mpesa.customer = customer
+		mpesa.submit_payment = 0
+		mpesa.payment_entry = pe.name
+		mpesa.save(ignore_permissions=True)
+		mpesa.submit()
+
+		payment_entries.append({
+			"name": pe.name,
+			"type": "Mpesa",
+			"amount": allocated,
+			"full_amount": mpesa_amt,
+		})
+		mpesa_results.append({"name": mpesa.name, "amount": mpesa_amt})
+		remaining = validators.normalize_amount(remaining - allocated, precision)
+
+	if not payment_entries:
+		frappe.throw(_("No valid Mpesa payments processed"))
+
+	result = {
+		"success": True,
+		"payment_entries": payment_entries,
+		"mpesa_payments": mpesa_results,
+		"total_amount": sum(p["amount"] for p in payment_entries),
+	}
+
+	if create_invoice and remaining <= 0:
+		so.reload()
+		si = builders.build_sales_invoice(so, update_stock=update_stock)
+		si.insert(ignore_permissions=True)
+		if submit_invoice:
+			si.submit()
+		result["sales_invoice"] = {"name": si.name, "submitted": si.docstatus == 1}
+
+	return result
