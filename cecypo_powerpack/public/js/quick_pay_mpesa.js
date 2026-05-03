@@ -80,8 +80,8 @@ function show_mpesa_pay_dialog(frm) {
     dialog.outstanding = outstanding;
     dialog.currency = frm.doc.currency;
     dialog.company = frm.doc.company;
-    dialog.create_invoice = true;
-    dialog.submit_invoice = true;
+    dialog.create_invoice = false;
+    dialog.submit_invoice = false;
     dialog.search_term = '';
     dialog.mpesa_data = {count: 0, payments: []};
     dialog.idempotency_token = (window.crypto && crypto.randomUUID)
@@ -468,10 +468,6 @@ function process_mpesa_payments(frm, dialog, outstanding) {
                             <span class="indicator-pill ${inv.submitted ? 'green' : 'orange'}">${inv.submitted ? __('Submitted') : __('Draft')}</span>
                         </div>
                     `;
-                }
-                
-                if (r.message.invoice_error) {
-                    msg += `<p class="text-danger mt-2"><i class="fa fa-exclamation-triangle"></i> ${__('Invoice Error')}: ${r.message.invoice_error}</p>`;
                 }
                 
                 frappe.msgprint({ title: __('Payment Successful'), message: msg, indicator: 'green' });

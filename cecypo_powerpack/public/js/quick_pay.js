@@ -438,10 +438,6 @@ function process_all_payments(frm, dialog, outstanding) {
 					`;
 				}
 
-				if (r.message && r.message.invoice_error) {
-					msg += `<p class="text-danger mt-2"><i class="fa fa-exclamation-triangle"></i> ${__('Invoice Error')}: ${r.message.invoice_error}</p>`;
-				}
-
 				frappe.msgprint({ title: __('Payment Successful'), message: msg, indicator: 'green' });
 				frm.reload_doc();
 			}

@@ -6,6 +6,12 @@ from frappe.tests import UnitTestCase
 
 
 class TestGetPaymentModes(UnitTestCase):
+	def setUp(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay", 1)
+
+	def tearDown(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay", 0)
+
 	def test_returns_three_buckets(self):
 		from cecypo_powerpack.quick_pay.api import get_payment_modes
 
@@ -27,6 +33,12 @@ class TestGetPaymentModes(UnitTestCase):
 
 
 class TestProcessQuickPay(UnitTestCase):
+	def setUp(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay", 1)
+
+	def tearDown(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay", 0)
+
 	def test_full_payment_creates_pe_and_optional_invoice(self):
 		from cecypo_powerpack.quick_pay.api import process_quick_pay
 

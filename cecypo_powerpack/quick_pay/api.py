@@ -86,6 +86,11 @@ def process_quick_pay(
 		frappe.throw(_("No payments provided"))
 
 	so = frappe.get_doc("Sales Order", sales_order)
+	if so.docstatus != 1:
+		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
+	if so.status in ("Closed", "Cancelled"):
+		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
+
 	settings = get_powerpack_settings()
 	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
 
@@ -99,7 +104,8 @@ def process_quick_pay(
 	remaining = actual_outstanding
 
 	payment_entries: list[dict] = []
-	cash_amount = 0.0
+	cash_tendered = 0.0  # raw amount the customer hands over (may exceed outstanding)
+	cash_allocated = 0.0  # portion of cash actually applied to the balance
 	total_paid = 0.0
 
 	for p in payments:
@@ -115,10 +121,11 @@ def process_quick_pay(
 		if p_type in {"Bank Transfer", "Card"} and not p_ref:
 			frappe.throw(_("Reference number required for {0}").format(p_type))
 
-		if p_type == "Cash":
-			cash_amount = p_amount
-
 		allocated = validators.cap_allocation(p_amount, remaining, precision)
+
+		if p_type == "Cash":
+			cash_tendered += p_amount
+			cash_allocated += allocated
 		if allocated <= 0:
 			continue
 
@@ -145,9 +152,7 @@ def process_quick_pay(
 	if not payment_entries:
 		frappe.throw(_("No valid payments could be created"))
 
-	non_cash = total_paid - min(cash_amount, actual_outstanding)
-	cash_needed = actual_outstanding - non_cash
-	change_amount = max(0.0, cash_amount - cash_needed) if cash_amount > 0 else 0.0
+	change_amount = max(0.0, cash_tendered - cash_allocated)
 
 	result = {
 		"success": True,
@@ -258,6 +263,11 @@ def process_mpesa_quick_pay(
 		frappe.throw(_("No Mpesa payments selected"))
 
 	so = frappe.get_doc("Sales Order", sales_order)
+	if so.docstatus != 1:
+		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
+	if so.status in ("Closed", "Cancelled"):
+		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
+
 	settings = get_powerpack_settings()
 	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
 
@@ -306,7 +316,7 @@ def process_mpesa_quick_pay(
 		pe.submit()
 
 		# Now mark the Mpesa row as processed and link the PE.
-		mpesa.customer = customer
+		mpesa.customer = so.customer
 		mpesa.submit_payment = 0
 		mpesa.payment_entry = pe.name
 		mpesa.save(ignore_permissions=True)
@@ -374,6 +384,16 @@ def create_mpesa_payment_request(
 		frappe.throw(_("Missing required parameters"))
 
 	so = frappe.get_doc("Sales Order", sales_order)
+	if so.docstatus != 1:
+		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
+	if so.status in ("Closed", "Cancelled"):
+		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
+
+	precision = so.precision("grand_total")
+	outstanding = validators.compute_outstanding(so.grand_total, so.advance_paid, precision)
+	safe_amount = validators.cap_allocation(float(amount), outstanding, precision)
+	if safe_amount <= 0:
+		frappe.throw(_("No outstanding amount on this Sales Order"))
 
 	settings = frappe.get_all(
 		"Mpesa Settings",
@@ -409,12 +429,12 @@ def create_mpesa_payment_request(
 	pr.phone_number = phone_number
 	pr.company = so.company
 	pr.party_type = "Customer"
-	pr.party = customer
+	pr.party = so.customer
 	pr.reference_doctype = "Sales Order"
 	pr.reference_name = sales_order
-	pr.grand_total = float(amount)
+	pr.grand_total = safe_amount
 	pr.currency = so.currency
-	pr.outstanding_amount = float(amount)
+	pr.outstanding_amount = safe_amount
 	pr.payment_gateway_account = gateway_account.get("name")
 	pr.payment_gateway = gateway_account.get("payment_gateway") or gateway_name
 	pr.payment_account = gateway_account.get("payment_account")
