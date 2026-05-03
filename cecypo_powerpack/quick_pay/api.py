@@ -94,7 +94,7 @@ def process_quick_pay(
 	settings = get_powerpack_settings()
 	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
 
-	if create_invoice:
+	if create_invoice and update_stock:
 		issues = validators.preflight_stock_for_so(so)
 		if issues:
 			frappe.throw(_("Cannot create invoice — fix stock first:\n• ") + "\n• ".join(issues))
@@ -271,7 +271,7 @@ def process_mpesa_quick_pay(
 	settings = get_powerpack_settings()
 	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
 
-	if create_invoice:
+	if create_invoice and update_stock:
 		issues = validators.preflight_stock_for_so(so)
 		if issues:
 			frappe.throw(_("Cannot create invoice — fix stock first:\n• ") + "\n• ".join(issues))
