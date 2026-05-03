@@ -2,6 +2,7 @@ import frappe
 from frappe.tests import UnitTestCase
 
 from cecypo_powerpack.quick_pay.builders import build_payment_entry
+from cecypo_powerpack.quick_pay.builders import build_sales_invoice
 
 
 class TestBuildPaymentEntry(UnitTestCase):
@@ -45,3 +46,19 @@ class TestBuildPaymentEntry(UnitTestCase):
 		self.assertEqual(pe.payment_type, "Receive")
 		self.assertEqual(pe.party_type, "Customer")
 		self.assertEqual(pe.party, so.customer)
+
+
+class TestBuildSalesInvoice(UnitTestCase):
+	def test_si_built_via_official_mapper(self):
+		so_name = frappe.db.get_value("Sales Order", {"docstatus": 1, "per_billed": 0}, "name")
+		if not so_name:
+			self.skipTest("No unbilled submitted Sales Order to invoice against")
+		so = frappe.get_doc("Sales Order", so_name)
+
+		si = build_sales_invoice(so, update_stock=1)
+		# Mapper-style invariant: items inherit so_detail
+		self.assertTrue(all(it.so_detail for it in si.items))
+		# update_stock honored
+		self.assertEqual(si.update_stock, 1)
+		# Should still be unsaved
+		self.assertFalse(si.get("name") and frappe.db.exists("Sales Invoice", si.name))

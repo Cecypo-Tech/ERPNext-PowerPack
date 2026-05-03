@@ -87,3 +87,13 @@ def build_payment_entry(
 	})
 
 	return pe
+
+
+def build_sales_invoice(so_doc, *, update_stock: int = 0):
+	"""Build (but don't save) a Sales Invoice from a Sales Order using the
+	official ERPNext mapper. Caller is responsible for insert/submit.
+	"""
+	si = make_sales_invoice(so_doc.name, ignore_permissions=True)
+	si.update_stock = 1 if update_stock else 0
+	si.allocate_advances_automatically = 1
+	return si
