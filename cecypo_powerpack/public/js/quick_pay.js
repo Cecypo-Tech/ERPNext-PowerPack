@@ -122,7 +122,6 @@ function show_quick_pay_dialog(frm) {
 
 	dialog.$wrapper.find('.modal-dialog').css('max-width', '700px');
 	dialog.show();
-	inject_quick_pay_styles();
 
 	dialog.fields_dict.payments_container.$wrapper.html(
 		`<div class="text-center text-muted p-3"><i class="fa fa-spinner fa-spin"></i> ${__('Loading payment methods...')}</div>`
@@ -450,42 +449,5 @@ function process_all_payments(frm, dialog, outstanding) {
 	});
 }
 
-function inject_quick_pay_styles() {
-	if (document.getElementById('qp-styles')) return;
-	$(`<style id="qp-styles">
-		.quick-pay-header { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 10px; padding: 16px 20px; color: white; margin-bottom: 12px; }
-		.qp-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
-		.qp-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.15); }
-		.qp-outstanding { font-size: 1.25em; padding-top: 10px; }
-		.qp-outstanding strong { color: #fbbf24; }
-		.qp-add-payment-btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-		.qp-add-btn { display: flex; align-items: center; gap: 6px; }
-		.qp-payments-list { margin-bottom: 12px; }
-		.qp-payment-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px; background: var(--fg-color); }
-		.qp-payment-type { display: flex; align-items: center; gap: 8px; min-width: 110px; font-weight: 500; }
-		.qp-payment-type i { width: 18px; text-align: center; color: var(--primary); }
-		.qp-payment-fields { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-		.qp-payment-fields input { max-width: 130px; }
-		.qp-payment-fields select { max-width: 150px; }
-		.qp-mode-label { font-size: 12px; color: var(--text-muted); padding: 0 8px; }
-		.qp-payment-amount { min-width: 90px; text-align: right; }
-		.qp-change-display { font-size: 11px; margin-top: 2px; }
-		.qp-remove-btn { opacity: 0.5; }
-		.qp-payment-row:hover .qp-remove-btn { opacity: 1; }
-		.qp-totals-bar { display: flex; gap: 24px; padding: 14px 16px; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color); flex-wrap: wrap; }
-		.qp-totals-bar.qp-overpayment { border-color: var(--yellow-500); background: rgba(234, 179, 8, 0.05); }
-		.qp-total-item { display: flex; flex-direction: column; }
-		.qp-total-item span { font-size: 11px; color: var(--text-muted); }
-		.qp-total-item strong { font-size: 1.15em; }
-		.qp-change-total { margin-left: auto; padding: 6px 14px; background: rgba(34, 197, 94, 0.1); border-radius: 6px; }
-		.qp-empty-state { text-align: center; padding: 30px 20px; color: var(--text-muted); }
-		.qp-invoice-options { padding: 8px 0; }
-		.qp-invoice-check { padding: 6px 0; }
-		.qp-checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: normal; }
-		.qp-checkbox-label input[type="checkbox"] { width: 16px; height: 16px; }
-		.qp-submit-check { margin-left: 24px; }
-		.payment-status-header { display: flex; align-items: center; gap: 8px; }
-	</style>`).appendTo('head');
-}
 
 })();

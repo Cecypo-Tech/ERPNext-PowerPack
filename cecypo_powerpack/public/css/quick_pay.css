@@ -1,0 +1,220 @@
+/* Quick Pay (Cash/Bank/Card) styles */
+.quick-pay-header { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 10px; padding: 16px 20px; color: white; margin-bottom: 12px; }
+		.qp-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+		.qp-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.15); }
+		.qp-outstanding { font-size: 1.25em; padding-top: 10px; }
+		.qp-outstanding strong { color: #fbbf24; }
+		.qp-add-payment-btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+		.qp-add-btn { display: flex; align-items: center; gap: 6px; }
+		.qp-payments-list { margin-bottom: 12px; }
+		.qp-payment-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px; background: var(--fg-color); }
+		.qp-payment-type { display: flex; align-items: center; gap: 8px; min-width: 110px; font-weight: 500; }
+		.qp-payment-type i { width: 18px; text-align: center; color: var(--primary); }
+		.qp-payment-fields { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+		.qp-payment-fields input { max-width: 130px; }
+		.qp-payment-fields select { max-width: 150px; }
+		.qp-mode-label { font-size: 12px; color: var(--text-muted); padding: 0 8px; }
+		.qp-payment-amount { min-width: 90px; text-align: right; }
+		.qp-change-display { font-size: 11px; margin-top: 2px; }
+		.qp-remove-btn { opacity: 0.5; }
+		.qp-payment-row:hover .qp-remove-btn { opacity: 1; }
+		.qp-totals-bar { display: flex; gap: 24px; padding: 14px 16px; background: var(--bg-color); border-radius: 8px; border: 1px solid var(--border-color); flex-wrap: wrap; }
+		.qp-totals-bar.qp-overpayment { border-color: var(--yellow-500); background: rgba(234, 179, 8, 0.05); }
+		.qp-total-item { display: flex; flex-direction: column; }
+		.qp-total-item span { font-size: 11px; color: var(--text-muted); }
+		.qp-total-item strong { font-size: 1.15em; }
+		.qp-change-total { margin-left: auto; padding: 6px 14px; background: rgba(34, 197, 94, 0.1); border-radius: 6px; }
+		.qp-empty-state { text-align: center; padding: 30px 20px; color: var(--text-muted); }
+		.qp-invoice-options { padding: 8px 0; }
+		.qp-invoice-check { padding: 6px 0; }
+		.qp-checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: normal; }
+		.qp-checkbox-label input[type="checkbox"] { width: 16px; height: 16px; }
+		.qp-submit-check { margin-left: 24px; }
+		.payment-status-header { display: flex; align-items: center; gap: 8px; }
+
+/* Quick Pay - Mpesa styles */
+.mpesa-pay-header {
+            background: linear-gradient(135deg, #00a650 0%, #007a3d 100%);
+            border-radius: 10px;
+            padding: 16px 20px;
+            color: white;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .mpesa-header-icon { font-size: 2.5em; opacity: 0.9; }
+        .mpesa-header-info { flex: 1; }
+        .mpesa-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+        .mpesa-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.15); }
+        .mpesa-row .text-success { color: #a3e635 !important; }
+        .mpesa-outstanding { font-size: 1.15em; padding-top: 8px; }
+        .mpesa-outstanding strong { color: #fbbf24; }
+        
+        /* Search section - side by side */
+        .mpesa-search-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+        }
+        .mpesa-search-box {
+            flex: 1;
+            position: relative;
+        }
+        .mpesa-search-box input {
+            padding-left: 32px;
+            height: 36px;
+            font-size: 13px;
+            border-radius: 6px;
+            width: 100%;
+        }
+        .mpesa-search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+        .mpesa-count-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(0, 166, 80, 0.1);
+            border-radius: 6px;
+            color: #00a650;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .mpesa-count-badge i { font-size: 1.1em; }
+        
+        /* Results */
+        .mpesa-payments-list {
+            max-height: 280px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+        .mpesa-results-header {
+            padding: 8px 12px;
+            background: var(--bg-color);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .mpesa-select-all-label { font-weight: 500; font-size: 12px; }
+        
+        .mpesa-payment-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .mpesa-payment-item:last-child { border-bottom: none; }
+        .mpesa-payment-item:hover { background: var(--bg-color); }
+        .mpesa-payment-item.selected { background: rgba(0, 166, 80, 0.08); }
+        .mpesa-payment-item.exact-match { border-left: 3px solid #00a650; background: rgba(0, 166, 80, 0.05); }
+        .mpesa-payment-item.exact-match .mpesa-amount { position: relative; }
+        .mpesa-payment-item.exact-match .mpesa-exact-badge { 
+            display: inline-block; 
+            font-size: 9px; 
+            background: #00a650; 
+            color: white; 
+            padding: 1px 5px; 
+            border-radius: 3px; 
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .mpesa-payment-item.overpayment-warning { border-left: 3px solid var(--yellow-500); }
+        .mpesa-payment-item.overpayment-warning.selected { background: rgba(234, 179, 8, 0.08); }
+        
+        .mpesa-item-checkbox { flex-shrink: 0; }
+        .mpesa-item-checkbox input { width: 16px; height: 16px; accent-color: #00a650; }
+        .mpesa-item-info { flex: 1; min-width: 0; }
+        .mpesa-item-primary { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+        .mpesa-sender-name { font-weight: 600; font-size: 13px; }
+        .mpesa-amount { font-weight: 600; color: #00a650; font-size: 13px; }
+        .mpesa-amount.text-warning { color: #ca8a04; }
+        .mpesa-amount i { margin-left: 4px; font-size: 11px; }
+        .mpesa-item-secondary { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--text-muted); }
+        .mpesa-item-secondary i { margin-right: 3px; }
+        
+        /* Age indicator */
+        .mpesa-age-indicator {
+            flex-shrink: 0;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+        
+        /* Empty/prompt states */
+        .mpesa-empty-state, .mpesa-no-results, .mpesa-search-prompt {
+            text-align: center;
+            padding: 30px 20px;
+            color: var(--text-muted);
+        }
+        .mpesa-no-results, .mpesa-search-prompt { padding: 24px 20px; }
+        .mpesa-no-results i, .mpesa-search-prompt i { font-size: 1.8em; margin-bottom: 8px; display: block; }
+        .mpesa-empty-state i { font-size: 2.5em; margin-bottom: 10px; }
+        
+        /* Totals */
+        .mpesa-totals-bar {
+            display: flex;
+            gap: 20px;
+            padding: 12px 14px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .mpesa-totals-bar.mpesa-overpayment { border-color: var(--yellow-500); background: rgba(234, 179, 8, 0.05); }
+        .mpesa-total-item { display: flex; flex-direction: column; }
+        .mpesa-total-item span { font-size: 10px; color: var(--text-muted); }
+        .mpesa-total-item strong { font-size: 1.1em; }
+        .mpesa-excess-warning { padding: 4px 10px; background: rgba(234, 179, 8, 0.1); border-radius: 4px; }
+        .mpesa-overpay-note { width: 100%; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--yellow-500); font-size: 12px; }
+        
+        /* Checkbox */
+        .mpesa-checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; font-size: 12px; }
+        .mpesa-checkbox-label input[type="checkbox"] { width: 14px; height: 14px; accent-color: #00a650; }
+        .mpesa-checkbox-label input[type="checkbox"]:disabled { opacity: 0.7; }
+        
+        /* Invoice options - inline compact */
+        .mpesa-invoice-options {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 6px 0;
+        }
+        .mpesa-invoice-check { display: flex; align-items: center; }
+        
+        /* Request payment dialog */
+        .mpesa-request-info {
+            background: linear-gradient(135deg, #00a650 0%, #007a3d 100%);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: white;
+            margin-bottom: 12px;
+        }
+        .mpesa-req-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+        }
+        .mpesa-req-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.15); }
+        .mpesa-req-row .text-success { color: #a3e635 !important; }
