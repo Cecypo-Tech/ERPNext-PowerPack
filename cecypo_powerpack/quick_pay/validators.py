@@ -106,3 +106,27 @@ def preflight_stock_for_so(so_doc) -> list[str]:
 			issues.append(f"{row.item_code}: requires serial numbers but none set")
 
 	return issues
+
+
+# --- Feature toggle / permission gates -------------------------------------
+
+from cecypo_powerpack.utils import is_feature_enabled
+
+
+def assert_quick_pay_enabled(flow: str) -> None:
+	"""flow: 'cash' | 'mpesa'"""
+	flag = "enable_quick_pay" if flow == "cash" else "enable_quick_pay_mpesa"
+	if not is_feature_enabled(flag):
+		frappe.throw(f"Quick Pay ({flow}) is disabled in PowerPack Settings")
+
+
+def assert_can_create_payment_and_invoice(create_invoice: bool, submit_invoice: bool) -> None:
+	if not frappe.has_permission("Payment Entry", "create"):
+		frappe.throw("You do not have permission to create Payment Entry")
+	if not frappe.has_permission("Payment Entry", "submit"):
+		frappe.throw("You do not have permission to submit Payment Entry")
+	if create_invoice:
+		if not frappe.has_permission("Sales Invoice", "create"):
+			frappe.throw("You do not have permission to create Sales Invoice")
+		if submit_invoice and not frappe.has_permission("Sales Invoice", "submit"):
+			frappe.throw("You do not have permission to submit Sales Invoice")
