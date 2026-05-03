@@ -166,3 +166,64 @@ def process_quick_pay(
 		}
 
 	return result
+
+
+def _phone_mop_for_company(company: str) -> str | None:
+	rows = frappe.get_all(
+		"Mode of Payment",
+		filters={"type": "Phone", "enabled": 1},
+		fields=["name"],
+	)
+	for row in rows:
+		if frappe.db.exists("Mode of Payment Account", {"parent": row.name, "company": company}):
+			return row.name
+	return None
+
+
+def _mpesa_shortcode_for_company(company: str) -> str | None:
+	settings = frappe.get_all(
+		"Mpesa Settings",
+		filters={"company": company},
+		fields=["business_shortcode"],
+		limit=1,
+	)
+	if settings and settings[0].get("business_shortcode"):
+		return str(settings[0]["business_shortcode"])
+	return None
+
+
+@frappe.whitelist()
+def check_mpesa_available(company: str) -> dict:
+	validators.assert_quick_pay_enabled("mpesa")
+	return {
+		"available": bool(
+			_phone_mop_for_company(company) and _mpesa_shortcode_for_company(company)
+		)
+	}
+
+
+@frappe.whitelist()
+def list_pending_mpesa_payments(company: str, search: str = "") -> dict:
+	validators.assert_quick_pay_enabled("mpesa")
+	shortcode = _mpesa_shortcode_for_company(company)
+	if not shortcode:
+		return {"count": 0, "payments": []}
+
+	base_filters = {"docstatus": 0, "businessshortcode": shortcode}
+	total_count = frappe.db.count("Mpesa C2B Payment Register", base_filters)
+
+	payments: list[dict] = []
+	if len(search) >= 3:
+		all_payments = frappe.get_all(
+			"Mpesa C2B Payment Register",
+			filters=base_filters,
+			fields=["name", "full_name", "transamount", "transid", "msisdn",
+				"posting_date", "billrefnumber", "creation"],
+			order_by="creation desc",
+			limit_page_length=100,
+		)
+		s = search.lower()
+		for p in all_payments:
+			if any(s in (p.get(f) or "").lower() for f in ("full_name", "transid", "billrefnumber", "msisdn")):
+				payments.append(p)
+	return {"count": total_count, "payments": payments}
