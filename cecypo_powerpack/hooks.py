@@ -28,7 +28,8 @@ app_license = "mit"
 app_include_css = [
     "/assets/cecypo_powerpack/css/cecypo_powerpack.css",
     "/assets/cecypo_powerpack/css/point_of_sale_powerpack.css",
-    "/assets/cecypo_powerpack/css/sales_powerup.css"
+    "/assets/cecypo_powerpack/css/sales_powerup.css",
+    "/assets/cecypo_powerpack/css/quick_pay.css",
 ]
 app_include_js = [
     "/assets/cecypo_powerpack/js/cecypo_powerpack.js",
@@ -54,10 +55,12 @@ app_include_js = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
-# doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
+doctype_js = {
+    "Sales Order": [
+        "public/js/quick_pay.js",
+        "public/js/quick_pay_mpesa.js",
+    ]
+}
 
 # Svg Icons
 # ------------------
