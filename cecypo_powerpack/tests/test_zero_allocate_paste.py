@@ -4,7 +4,6 @@
 import json
 
 import frappe
-from erpnext.stock.doctype.item.test_item import make_item
 from frappe.tests.utils import FrappeTestCase
 
 
@@ -17,6 +16,7 @@ class TestResolveBillNumbersForCredit(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
+		from erpnext.stock.doctype.item.test_item import make_item
 		cls.company = frappe.db.get_value("Company", {"is_group": 0}, "name") \
 			or frappe.get_all("Company", filters={"is_group": 0}, limit=1)[0].name
 		cls.supplier = _ensure_supplier(TEST_SUPPLIER)
