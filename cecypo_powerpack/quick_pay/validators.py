@@ -29,3 +29,27 @@ def cap_allocation(amount, outstanding, precision: int = 2) -> float:
 	amount = flt(amount, precision)
 	outstanding = flt(outstanding, precision)
 	return min(amount, outstanding)
+
+
+# --- Idempotency -----------------------------------------------------------
+
+CACHE_PREFIX = "quick_pay:idem:"
+
+
+class IdempotencyError(frappe.ValidationError):
+	"""Raised when the same idempotency token is reused, or a token is missing."""
+
+
+def claim_idempotency_token(token: str, ttl_seconds: int = 120) -> None:
+	"""Atomically claim a one-shot token. Raises IdempotencyError if already used.
+
+	Tokens are scoped per user to keep the namespace reasonable.
+	"""
+	if not token or not isinstance(token, str) or len(token) < 8:
+		raise IdempotencyError("Missing or invalid idempotency token")
+
+	cache = frappe.cache()
+	key = CACHE_PREFIX + frappe.session.user + ":" + token
+	if cache.get_value(key) is not None:
+		raise IdempotencyError("Duplicate request: this payment has already been processed")
+	cache.set_value(key, "1", expires_in_sec=ttl_seconds)

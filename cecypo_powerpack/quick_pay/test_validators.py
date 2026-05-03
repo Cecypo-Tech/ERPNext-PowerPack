@@ -33,3 +33,26 @@ class TestPrecisionNormalization(UnitTestCase):
 	def test_cap_allocation_preserves_partial(self):
 		capped = cap_allocation(amount=50.00, outstanding=133.40, precision=2)
 		self.assertEqual(capped, 50.00)
+
+
+import uuid
+from cecypo_powerpack.quick_pay.validators import claim_idempotency_token, IdempotencyError
+
+
+class TestIdempotency(UnitTestCase):
+	def test_first_claim_succeeds(self):
+		token = "test-" + uuid.uuid4().hex
+		# Should not raise
+		claim_idempotency_token(token, ttl_seconds=60)
+
+	def test_second_claim_raises(self):
+		token = "test-" + uuid.uuid4().hex
+		claim_idempotency_token(token, ttl_seconds=60)
+		with self.assertRaises(IdempotencyError):
+			claim_idempotency_token(token, ttl_seconds=60)
+
+	def test_blank_token_raises(self):
+		with self.assertRaises(IdempotencyError):
+			claim_idempotency_token("", ttl_seconds=60)
+		with self.assertRaises(IdempotencyError):
+			claim_idempotency_token(None, ttl_seconds=60)
