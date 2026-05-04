@@ -98,4 +98,9 @@ def build_sales_invoice(so_doc, *, update_stock: int = 0):
 	si = make_sales_invoice(so_doc.name, ignore_permissions=True)
 	si.update_stock = 1 if update_stock else 0
 	si.allocate_advances_automatically = 1
+	# Pre-populate advances so validate_advance_entries (which runs before
+	# set_advances in ERPNext's validate sequence) doesn't fire a spurious
+	# "check if it should be pulled as advance" warning for PEs already
+	# allocated to the SO.
+	si.set_advances()
 	return si
