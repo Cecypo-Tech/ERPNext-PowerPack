@@ -11,11 +11,56 @@
 body.compact-theme {
     line-height: 1em !important;
     --input-height: 22px;
+    --btn-height: 22px;
+    --list-row-height: 22px;
 }
 
 body.compact-theme .grid-body .grid-static-col[data-fieldtype="Text Editor"] .ql-editor {
     line-height: 1 !important;
     font-size: 10px;
+}
+
+/* Filter row: shrink the match-type (=/like) button to match the compact input */
+body.compact-theme .match-type-dropdown-btn {
+    min-height: var(--input-height);
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1;
+}
+
+/* List header: shrink Filter / clear / sort-order / sort-field buttons to match input height */
+body.compact-theme .filter-section .btn-sm,
+body.compact-theme .sort-selector .btn-sm {
+    min-height: var(--input-height);
+    height: var(--input-height);
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* List view: tighten row padding so --list-row-height actually takes effect */
+body.compact-theme .list-row .level-left,
+body.compact-theme .list-row .level-right {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+/* List view: shrink row text to match the 22px row height (scoped to .list-row only;
+   never override --text-base globally — it cascades through the entire Desk) */
+body.compact-theme .list-row {
+    font-size: var(--text-xs);
+}
+
+/* Report View (frappe-datatable): font-only compact.
+   Row height is JS-driven via the `cellHeight` option and used for virtual-scroll
+   positioning (rows are absolutely-placed at top = N * cellHeight). Overriding
+   .dt-row { height } via CSS would desync positions and corrupt the layout, so
+   we only shrink the font here. Cascades into .dt-cell__content (header + body)
+   since neither sets its own font-size. */
+body.compact-theme .datatable {
+    font-size: var(--text-xs);
 }
 
 .cecypo-card {
