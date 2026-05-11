@@ -9,6 +9,7 @@ Provides zero-allocation reconciliation without affecting standard reconciliatio
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 from erpnext.accounts.doctype.payment_reconciliation.payment_reconciliation import PaymentReconciliation
 
 
