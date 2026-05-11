@@ -62,6 +62,24 @@ class CustomPaymentReconciliation(PaymentReconciliation):
         if not self.allocation:
             frappe.throw(_("No non-zero allocations to reconcile"))
 
+        # Validate that no row tries to allocate more than the payment outstanding stored on that row.
+        # (Standard reconcile() catches this via validate_allocation; we skip that but must still
+        # guard here, otherwise reconcile_dr_cr_note will create an imbalanced JE.)
+        for alloc in self.allocation:
+            if flt(alloc.allocated_amount) > flt(alloc.amount) + 0.005:
+                frappe.throw(
+                    _(
+                        "Row {0} ({1}): Allocated amount {2} exceeds the payment outstanding {3} "
+                        "stored on that row. Open the Allocation table, find the row where "
+                        "'Allocated Amount' > 'Amount', and reduce it."
+                    ).format(
+                        alloc.idx,
+                        alloc.reference_name or "",
+                        flt(alloc.allocated_amount),
+                        flt(alloc.amount),
+                    )
+                )
+
         # Perform reconciliation without "modified" check
         self._reconcile_without_validation()
 
@@ -113,7 +131,7 @@ class CustomPaymentReconciliation(PaymentReconciliation):
                     "exchange_rate": row.exchange_rate or 1,
                     "difference_amount": row.difference_amount or 0,
                     "difference_account": row.difference_account,
-                    "exchange_gain_loss": row.difference_amount or 0,
+                    "difference_posting_date": row.get("gain_loss_posting_date"),
                     "currency": row.currency,
                     "cost_center": row.get("cost_center"),
                     "debit_or_credit_note_posting_date": row.get("debit_or_credit_note_posting_date"),
