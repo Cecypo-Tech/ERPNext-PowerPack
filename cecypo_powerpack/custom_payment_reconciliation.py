@@ -13,11 +13,96 @@ from frappe.utils import flt
 from erpnext.accounts.doctype.payment_reconciliation.payment_reconciliation import PaymentReconciliation
 
 
+def _fixed_update_reference_in_journal_entry(d, journal_entry, do_not_save=False):
+    """
+    Drop-in replacement for erpnext.accounts.utils.update_reference_in_journal_entry.
+
+    The original uses d["unadjusted_amount"] (the pre-batch outstanding) to compute how
+    much of the JE row remains after each allocation. When N invoices are reconciled against
+    the same JE row in one batch, iterations 2..N receive the original total as
+    unadjusted_amount, causing them to reset the remaining balance to
+    (original_total - this_allocation) instead of (running_remaining - this_allocation).
+    Result: JE imbalance equal to (original_total - last_allocated_amount).
+
+    Fix: read the actual current balance from jv_detail.get(d["dr_or_cr"]) — the row was
+    correctly reduced by the previous iteration, so this value is always current.
+    """
+    from frappe.utils import cstr
+    from erpnext.accounts.utils import get_advance_payment_doctypes
+
+    jv_detail = journal_entry.get("accounts", {"name": d["voucher_detail_no"]})[0]
+
+    rev_dr_or_cr = (
+        "debit_in_account_currency"
+        if d["dr_or_cr"] == "credit_in_account_currency"
+        else "credit_in_account_currency"
+    )
+    if jv_detail.get(rev_dr_or_cr):
+        d["dr_or_cr"] = rev_dr_or_cr
+        d["allocated_amount"] = d["allocated_amount"] * -1
+        d["unadjusted_amount"] = d["unadjusted_amount"] * -1
+
+    current_balance = flt(jv_detail.get(d["dr_or_cr"]))
+    if current_balance - flt(d["allocated_amount"]) != 0:
+        amount_in_account_currency = current_balance - flt(d["allocated_amount"])
+        amount_in_company_currency = amount_in_account_currency * flt(jv_detail.exchange_rate)
+        jv_detail.set(d["dr_or_cr"], amount_in_account_currency)
+        jv_detail.set(
+            "debit" if d["dr_or_cr"] == "debit_in_account_currency" else "credit",
+            amount_in_company_currency,
+        )
+    else:
+        journal_entry.remove(jv_detail)
+
+    new_row = journal_entry.append("accounts")
+
+    [
+        new_row.set(field, jv_detail.get(field))
+        for field in frappe.get_meta("Journal Entry Account").get_fieldnames_with_value()
+    ]
+
+    new_row.set(d["dr_or_cr"], d["allocated_amount"])
+    new_row.set(
+        "debit" if d["dr_or_cr"] == "debit_in_account_currency" else "credit",
+        d["allocated_amount"] * flt(jv_detail.exchange_rate),
+    )
+    new_row.set(
+        "credit_in_account_currency"
+        if d["dr_or_cr"] == "debit_in_account_currency"
+        else "debit_in_account_currency",
+        0,
+    )
+    new_row.set("credit" if d["dr_or_cr"] == "debit_in_account_currency" else "debit", 0)
+
+    new_row.set("reference_type", d["against_voucher_type"])
+    new_row.set("reference_name", d["against_voucher"])
+
+    new_row.against_account = cstr(jv_detail.against_account)
+    new_row.is_advance = cstr(jv_detail.is_advance)
+    new_row.docstatus = 1
+
+    if jv_detail.get("reference_type") in get_advance_payment_doctypes():
+        new_row.advance_voucher_type = jv_detail.get("reference_type")
+        new_row.advance_voucher_no = jv_detail.get("reference_name")
+
+    journal_entry.flags.ignore_validate_update_after_submit = True
+    journal_entry.flags.ignore_reposting_on_reconciliation = True
+    if not do_not_save:
+        journal_entry.save(ignore_permissions=True)
+
+    return new_row
+
+
 class CustomPaymentReconciliation(PaymentReconciliation):
     """
     Extended Payment Reconciliation with zero allocation support via custom method.
     Standard reconciliation is not affected.
     """
+
+    def reconcile_allocations(self, skip_ref_details_update_for_pe=False):
+        import erpnext.accounts.utils as erpnext_utils
+        erpnext_utils.update_reference_in_journal_entry = _fixed_update_reference_in_journal_entry
+        super().reconcile_allocations(skip_ref_details_update_for_pe)
 
     @frappe.whitelist()
     def zero_reconcile(self):
@@ -98,15 +183,13 @@ class CustomPaymentReconciliation(PaymentReconciliation):
         from erpnext.accounts.doctype.payment_reconciliation.payment_reconciliation import reconcile_dr_cr_note
         import erpnext.accounts.utils
 
-        # Temporarily replace the validation function
         original_check = erpnext.accounts.utils.check_if_advance_entry_modified
+        erpnext.accounts.utils.update_reference_in_journal_entry = _fixed_update_reference_in_journal_entry
 
         def dummy_check(entry):
-            # Do nothing - skip validation
             pass
 
         try:
-            # Replace validation with dummy
             erpnext.accounts.utils.check_if_advance_entry_modified = dummy_check
 
             # Build entry list using parent class logic
@@ -167,5 +250,4 @@ class CustomPaymentReconciliation(PaymentReconciliation):
                 reconcile_dr_cr_note(dr_or_cr_notes, self.company, self.dimensions)
 
         finally:
-            # Always restore original validation function
             erpnext.accounts.utils.check_if_advance_entry_modified = original_check
