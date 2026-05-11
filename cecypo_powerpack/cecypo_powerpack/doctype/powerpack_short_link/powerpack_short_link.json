@@ -10,7 +10,8 @@
   "section_break_ref",
   "reference_doctype",
   "reference_docname",
-  "expires_on"
+  "expires_on",
+  "click_count"
  ],
  "fields": [
   {
@@ -49,11 +50,19 @@
    "fieldtype": "Date",
    "label": "Expires On",
    "in_list_view": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "click_count",
+   "fieldtype": "Int",
+   "label": "Clicks",
+   "in_list_view": 1,
+   "read_only": 1
   }
  ],
  "hide_toolbar": 0,
  "links": [],
- "modified": "2026-03-31 00:00:00.000000",
+ "modified": "2026-05-11 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Cecypo Powerpack",
  "name": "PowerPack Short Link",

@@ -31,6 +31,18 @@ def get_context(context):
 	if short_link.expires_on and str(short_link.expires_on) < frappe.utils.today():
 		frappe.throw("This link has expired.", frappe.PageDoesNotExistError)
 
+	# Atomic click counter — explicit commit needed before redirect exceptions
+	frappe.db.sql(
+		"UPDATE `tabPowerPack Short Link` SET click_count = COALESCE(click_count, 0) + 1 WHERE name = %s",
+		token,
+	)
+	frappe.db.commit()
+
+	# External links (no reference document) — just redirect directly
+	if not short_link.reference_doctype:
+		frappe.local.flags.redirect_location = short_link.target_url
+		raise frappe.Redirect
+
 	# If a Builder page route is configured, redirect there
 	public_link_page = frappe.db.get_single_value("PowerPack Settings", "public_link_page")
 	if public_link_page:
