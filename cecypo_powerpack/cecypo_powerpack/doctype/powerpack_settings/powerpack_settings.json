@@ -71,6 +71,9 @@
   "column_break_public_link_1",
   "public_link_header_content",
   "public_link_footer_content",
+  "lens_section",
+  "enable_lens",
+  "lens_description",
   "quick_pay_section",
   "enable_quick_pay",
   "enable_quick_pay_mpesa",
@@ -472,6 +475,23 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer Overdue Invoices:</strong> When selecting a customer on a Quotation, Sales Order, or Sales Invoice, shows a popup if the customer has outstanding overdue invoices — with a copy button for sending a payment reminder.</p>"
+  },
+  {
+   "fieldname": "lens_section",
+   "fieldtype": "Section Break",
+   "label": "Lens"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_lens",
+   "fieldtype": "Check",
+   "label": "Enable Lens"
+  },
+  {
+   "fieldname": "lens_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Shows a per-item insights dialog on Quotation, Sales Order, Sales Invoice, Purchase Order, Purchase Receipt, and Purchase Invoice. Click the magnifying glass icon at the end of any item row to see sales/purchase history, rates billed to other parties, and price lists with live margin calculation.</p>"
   },
   {
    "fieldname": "quick_pay_section",
