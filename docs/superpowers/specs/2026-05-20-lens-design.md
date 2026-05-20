@@ -2,6 +2,7 @@
 
 **Date:** 2026-05-20
 **App:** cecypo_powerpack
+**Frappe/ERPNext:** v16
 **Status:** Approved
 
 ---
