@@ -1,1 +1,281 @@
-/* lens_powerup */
+/* ── Lens icon button in grid rows ── */
+.lens-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	opacity: 0.55;
+	color: inherit;
+	vertical-align: middle;
+	flex-shrink: 0;
+	transition: opacity 0.15s;
+}
+
+.lens-icon-btn:hover,
+.lens-icon-btn:focus {
+	opacity: 1;
+	outline: none;
+}
+
+.lens-icon-btn svg {
+	width: 14px;
+	height: 14px;
+	stroke: currentColor;
+	fill: none;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* ── Dialog body ── */
+.lens-dialog-body {
+	font-size: 12px;
+	overflow-y: auto;
+	max-height: 65vh;
+}
+
+/* ── Item header strip ── */
+.lens-item-header {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 16px;
+	background: var(--bg-color, #fafafa);
+	border-bottom: 1px solid var(--border-color, #e8e8e8);
+}
+
+.lens-item-name {
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.lens-item-group-badge {
+	font-size: 10px;
+	padding: 1px 6px;
+	border-radius: 3px;
+	background: rgba(94, 100, 255, 0.1);
+	color: var(--text-muted, #6c757d);
+	border: 1px solid rgba(94, 100, 255, 0.2);
+}
+
+/* ── Stock chip + warehouse popover ── */
+.lens-stock-chip {
+	margin-left: auto;
+	position: relative;
+	cursor: default;
+	user-select: none;
+}
+
+.lens-stock-chip-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 8px;
+	font-size: 11px;
+	color: var(--text-muted, #6c757d);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 3px;
+	background: var(--control-bg, white);
+	transition: border-color 0.15s;
+}
+
+.lens-stock-chip-label svg {
+	width: 11px;
+	height: 11px;
+	stroke: currentColor;
+	fill: none;
+	stroke-width: 2;
+}
+
+.lens-stock-chip:hover .lens-stock-chip-label {
+	border-color: var(--primary, #5e64ff);
+}
+
+.lens-stock-popover {
+	display: none;
+	position: absolute;
+	right: 0;
+	top: calc(100% + 4px);
+	min-width: 210px;
+	background: var(--card-bg, white);
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 6px;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+	z-index: 1050;
+	overflow: hidden;
+}
+
+.lens-stock-chip:hover .lens-stock-popover {
+	display: block;
+}
+
+.lens-popover-title {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
+	color: var(--text-muted, #888);
+	padding: 6px 10px 4px;
+	border-bottom: 1px solid var(--border-color, #f0f0f0);
+}
+
+.lens-popover-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 4px 10px;
+	font-size: 11px;
+	border-bottom: 1px solid var(--border-color, #f7f7f7);
+	gap: 10px;
+}
+
+.lens-popover-row:last-child {
+	border-bottom: none;
+}
+
+.lens-popover-wh {
+	color: var(--text-muted, #555);
+	flex: 1;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.lens-popover-qty {
+	font-weight: 600;
+	text-align: right;
+}
+
+.lens-popover-qty.low-stock {
+	color: var(--red, #dc3545);
+}
+
+.lens-popover-total {
+	display: flex;
+	justify-content: space-between;
+	padding: 5px 10px;
+	font-size: 11px;
+	font-weight: 600;
+	background: var(--bg-color, #f4f5f6);
+	border-top: 1px solid var(--border-color, #e8e8e8);
+}
+
+/* ── Section headers ── */
+.lens-section-header {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
+	color: var(--text-muted, #888);
+	padding: 8px 16px 4px;
+	border-top: 1px solid var(--border-color, #eee);
+}
+
+/* ── History and price list tables ── */
+.lens-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 11px;
+}
+
+.lens-table th {
+	background: var(--bg-color, #f4f5f6);
+	font-weight: 600;
+	color: var(--text-muted, #6c757d);
+	padding: 4px 8px 4px 16px;
+	text-align: left;
+	border-bottom: 1px solid var(--border-color, #e8e8e8);
+	white-space: nowrap;
+}
+
+.lens-table th.right,
+.lens-table td.right {
+	text-align: right;
+	padding-right: 16px;
+}
+
+.lens-table td {
+	padding: 5px 8px 5px 16px;
+	border-bottom: 1px solid var(--border-color, #f0f0f0);
+	color: var(--text-color, #333);
+	vertical-align: middle;
+}
+
+.lens-table tr:last-child td {
+	border-bottom: none;
+}
+
+.lens-table .lens-doc-link {
+	color: var(--primary, #5e64ff);
+	text-decoration: none;
+	font-family: var(--font-monospace, monospace);
+	font-size: 10px;
+}
+
+.lens-table .lens-doc-link:hover {
+	text-decoration: underline;
+}
+
+.lens-empty-row td {
+	text-align: center;
+	color: var(--text-muted, #aaa);
+	font-style: italic;
+	padding: 10px 16px;
+}
+
+/* ── Status badges ── */
+.lens-badge {
+	display: inline-block;
+	font-size: 10px;
+	padding: 1px 5px;
+	border-radius: 2px;
+	white-space: nowrap;
+}
+
+.lens-badge-paid       { background: #d4edda; color: #155724; }
+.lens-badge-partly     { background: #fff3cd; color: #856404; }
+.lens-badge-unpaid     { background: #f8d7da; color: #721c24; }
+.lens-badge-overdue    { background: #f5c6cb; color: #721c24; }
+.lens-badge-draft      { background: #e2e3e5; color: #383d41; }
+.lens-badge-default    { background: #e2e3e5; color: #383d41; }
+
+/* ── Price list table ── */
+.lens-new-rate {
+	width: 80px;
+	padding: 2px 5px;
+	font-size: 11px;
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 3px;
+	text-align: right;
+	background: var(--control-bg, white);
+	color: var(--text-color, #333);
+}
+
+.lens-new-rate:focus {
+	outline: none;
+	border-color: var(--primary, #5e64ff);
+}
+
+.lens-new-margin {
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--green, #28a745);
+}
+
+.lens-new-margin.negative {
+	color: var(--red, #dc3545);
+}
+
+/* ── Dialog footer ── */
+.lens-dialog-footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 10px 16px;
+	border-top: 1px solid var(--border-color, #eee);
+}
