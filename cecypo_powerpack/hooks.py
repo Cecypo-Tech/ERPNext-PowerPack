@@ -30,6 +30,7 @@ app_include_css = [
     "/assets/cecypo_powerpack/css/point_of_sale_powerpack.css",
     "/assets/cecypo_powerpack/css/sales_powerup.css",
     "/assets/cecypo_powerpack/css/quick_pay.css",
+    "/assets/cecypo_powerpack/css/lens_powerup.css",
 ]
 app_include_js = [
     "/assets/cecypo_powerpack/js/cecypo_powerpack.js",
@@ -37,7 +38,8 @@ app_include_js = [
     "/assets/cecypo_powerpack/js/profit_calculator.js",
     "/assets/cecypo_powerpack/js/sales_powerup.js",
     "/assets/cecypo_powerpack/js/bulk_selection.js",
-    "/assets/cecypo_powerpack/js/payment_reconciliation_powerup.js"
+    "/assets/cecypo_powerpack/js/payment_reconciliation_powerup.js",
+    "/assets/cecypo_powerpack/js/lens_powerup.js",
 ]
 
 # include js, css files in header of web template
