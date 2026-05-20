@@ -1674,6 +1674,11 @@ def _fetch_purchase_history(result: dict, item_code: str) -> None:
 @frappe.whitelist()
 def update_item_prices(updates) -> dict:
     import json
+    from cecypo_powerpack.utils import is_feature_enabled
+
+    if not is_feature_enabled("enable_lens"):
+        return {}
+
     if isinstance(updates, str):
         updates = json.loads(updates)
 
@@ -1683,7 +1688,14 @@ def update_item_prices(updates) -> dict:
         new_rate = upd.get("new_rate")
         if not name or new_rate is None:
             continue
-        frappe.db.set_value("Item Price", name, "price_list_rate", float(new_rate))
+        try:
+            new_rate = float(new_rate)
+        except (ValueError, TypeError):
+            continue
+        doc = frappe.get_doc("Item Price", name)
+        doc.price_list_rate = new_rate
+        doc.save()
         updated.append(name)
 
+    frappe.db.commit()
     return {"updated": updated, "count": len(updated)}
