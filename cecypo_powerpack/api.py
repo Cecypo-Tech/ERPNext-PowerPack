@@ -1669,3 +1669,21 @@ def _fetch_purchase_history(result: dict, item_code: str) -> None:
         ORDER BY combined.posting_date DESC
         LIMIT 5
     """, (item_code, item_code, item_code), as_dict=True)
+
+
+@frappe.whitelist()
+def update_item_prices(updates) -> dict:
+    import json
+    if isinstance(updates, str):
+        updates = json.loads(updates)
+
+    updated = []
+    for upd in updates:
+        name = upd.get("item_price_name")
+        new_rate = upd.get("new_rate")
+        if not name or new_rate is None:
+            continue
+        frappe.db.set_value("Item Price", name, "price_list_rate", float(new_rate))
+        updated.append(name)
+
+    return {"updated": updated, "count": len(updated)}
