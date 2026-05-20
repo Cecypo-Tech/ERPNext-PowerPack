@@ -1537,3 +1537,135 @@ def resolve_bill_numbers_for_credit(company: str, supplier: str, bill_numbers: s
 			not_found.append(bill_no)
 
 	return {"matched": matched, "ambiguous": ambiguous, "not_found": not_found}
+
+
+@frappe.whitelist()
+def get_lens_data(item_code: str, customer: str = None, doctype: str = None) -> dict:
+    if not item_code:
+        return {}
+
+    from cecypo_powerpack.utils import is_feature_enabled
+    if not is_feature_enabled("enable_lens"):
+        return {}
+
+    item = frappe.db.get_value("Item", item_code, ["item_name", "item_group"], as_dict=True)
+    if not item:
+        return {}
+
+    result = {
+        "item_name": item.item_name,
+        "item_group": item.item_group,
+    }
+
+    # Stock totals and valuation rate
+    stock_rows = frappe.db.sql("""
+        SELECT warehouse, actual_qty, valuation_rate
+        FROM `tabBin`
+        WHERE item_code = %s AND actual_qty != 0
+        ORDER BY actual_qty DESC
+    """, (item_code,), as_dict=True)
+
+    result["total_stock"] = sum(r.actual_qty for r in stock_rows)
+
+    total_weighted = sum(r.actual_qty * (r.valuation_rate or 0) for r in stock_rows if r.actual_qty > 0)
+    total_positive_qty = sum(r.actual_qty for r in stock_rows if r.actual_qty > 0)
+    result["valuation_rate"] = (total_weighted / total_positive_qty) if total_positive_qty else 0
+
+    # Per-warehouse breakdown — only for users with Bin read permission
+    if frappe.has_permission("Bin", "read"):
+        result["stock_by_warehouse"] = [
+            {"warehouse": r.warehouse, "qty": r.actual_qty}
+            for r in stock_rows
+        ]
+
+    sales_doctypes = {"Quotation", "Sales Order", "Sales Invoice"}
+    purchase_doctypes = {"Purchase Order", "Purchase Receipt", "Purchase Invoice"}
+
+    if doctype in sales_doctypes:
+        _fetch_sales_history(result, item_code, customer)
+
+    elif doctype in purchase_doctypes:
+        _fetch_purchase_history(result, item_code)
+
+    # Price lists (selling, enabled) — always included
+    result["price_lists"] = frappe.db.sql("""
+        SELECT ip.name AS item_price_name, ip.price_list, ip.price_list_rate AS rate, ip.currency
+        FROM `tabItem Price` ip
+        INNER JOIN `tabPrice List` pl ON ip.price_list = pl.name
+        WHERE ip.item_code = %s AND pl.selling = 1 AND pl.enabled = 1
+        ORDER BY ip.price_list
+    """, (item_code,), as_dict=True)
+
+    return result
+
+
+def _fetch_sales_history(result: dict, item_code: str, customer: str) -> None:
+    if customer:
+        result["sales_to_customer"] = frappe.db.sql("""
+            SELECT combined.name, combined.posting_date, combined.qty,
+                   combined.rate, combined.status, combined.source_doctype
+            FROM (
+                SELECT si.name, si.posting_date, sii.qty, sii.rate,
+                       si.status, 'Sales Invoice' AS source_doctype
+                FROM `tabSales Invoice Item` sii
+                INNER JOIN `tabSales Invoice` si ON sii.parent = si.name
+                WHERE sii.item_code = %s AND si.customer = %s AND si.docstatus = 1
+                UNION ALL
+                SELECT so.name, so.transaction_date AS posting_date, soi.qty, soi.rate,
+                       so.status, 'Sales Order' AS source_doctype
+                FROM `tabSales Order Item` soi
+                INNER JOIN `tabSales Order` so ON soi.parent = so.name
+                WHERE soi.item_code = %s AND so.customer = %s AND so.docstatus = 1
+            ) combined
+            ORDER BY combined.posting_date DESC
+            LIMIT 5
+        """, (item_code, customer, item_code, customer), as_dict=True)
+    else:
+        result["sales_to_customer"] = []
+
+    if customer:
+        result["sales_to_others"] = frappe.db.sql("""
+            SELECT si.name, si.posting_date, sii.qty, sii.rate, si.customer
+            FROM `tabSales Invoice Item` sii
+            INNER JOIN `tabSales Invoice` si ON sii.parent = si.name
+            WHERE sii.item_code = %s AND si.customer != %s AND si.docstatus = 1
+            ORDER BY si.posting_date DESC
+            LIMIT 5
+        """, (item_code, customer), as_dict=True)
+    else:
+        result["sales_to_others"] = frappe.db.sql("""
+            SELECT si.name, si.posting_date, sii.qty, sii.rate, si.customer
+            FROM `tabSales Invoice Item` sii
+            INNER JOIN `tabSales Invoice` si ON sii.parent = si.name
+            WHERE sii.item_code = %s AND si.docstatus = 1
+            ORDER BY si.posting_date DESC
+            LIMIT 5
+        """, (item_code,), as_dict=True)
+
+
+def _fetch_purchase_history(result: dict, item_code: str) -> None:
+    result["purchase_history"] = frappe.db.sql("""
+        SELECT combined.name, combined.posting_date, combined.qty,
+               combined.rate, combined.supplier, combined.source_doctype
+        FROM (
+            SELECT po.name, po.transaction_date AS posting_date, poi.qty, poi.rate,
+                   po.supplier, 'Purchase Order' AS source_doctype
+            FROM `tabPurchase Order Item` poi
+            INNER JOIN `tabPurchase Order` po ON poi.parent = po.name
+            WHERE poi.item_code = %s AND po.docstatus = 1
+            UNION ALL
+            SELECT pr.name, pr.posting_date, pri.qty, pri.rate,
+                   pr.supplier, 'Purchase Receipt' AS source_doctype
+            FROM `tabPurchase Receipt Item` pri
+            INNER JOIN `tabPurchase Receipt` pr ON pri.parent = pr.name
+            WHERE pri.item_code = %s AND pr.docstatus = 1
+            UNION ALL
+            SELECT pi.name, pi.posting_date, pii.qty, pii.rate,
+                   pi.supplier, 'Purchase Invoice' AS source_doctype
+            FROM `tabPurchase Invoice Item` pii
+            INNER JOIN `tabPurchase Invoice` pi ON pii.parent = pi.name
+            WHERE pii.item_code = %s AND pi.docstatus = 1
+        ) combined
+        ORDER BY combined.posting_date DESC
+        LIMIT 5
+    """, (item_code, item_code, item_code), as_dict=True)
