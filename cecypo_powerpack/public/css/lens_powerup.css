@@ -13,6 +13,7 @@
 	color: inherit;
 	vertical-align: middle;
 	flex-shrink: 0;
+	align-self: center;
 	transition: opacity 0.15s;
 }
 
@@ -211,10 +212,14 @@
 }
 
 .lens-table .lens-doc-link {
-	color: var(--primary, #5e64ff);
+	color: #2490ef !important;
 	text-decoration: none;
 	font-family: var(--font-monospace, monospace);
 	font-size: 10px;
+}
+
+[data-theme="dark"] .lens-table .lens-doc-link {
+	color: #60a5fa !important;
 }
 
 .lens-table .lens-doc-link:hover {

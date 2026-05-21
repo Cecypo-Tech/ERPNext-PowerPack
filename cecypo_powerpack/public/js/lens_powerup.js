@@ -15,15 +15,20 @@ cecypo_powerpack.lens = {
 	init: function(frm) {
 		CecypoPowerPack.Settings.isEnabled('enable_lens', function(enabled) {
 			if (!enabled) return;
-			cecypo_powerpack.lens.inject_all(frm);
+			// Defer so Frappe has time to render grid rows into grid_rows_by_docname
+			setTimeout(function() {
+				cecypo_powerpack.lens.inject_all(frm);
+			}, 200);
 		});
 	},
 
 	inject_all: function(frm) {
-		if (!frm.doc.items || !frm.doc.items.length) return;
-		frm.doc.items.forEach(function(item) {
-			if (item.item_code) {
-				cecypo_powerpack.lens.inject_row(frm, item);
+		var grid = frm.fields_dict.items && frm.fields_dict.items.grid;
+		if (!grid) return;
+		(grid.grid_rows || []).forEach(function(grid_row) {
+			var item_doc = grid_row.doc;
+			if (item_doc && item_doc.item_code) {
+				cecypo_powerpack.lens.inject_row(frm, item_doc);
 			}
 		});
 	},
@@ -148,11 +153,13 @@ cecypo_powerpack.lens = {
 			html += self._render_purchase_history(data.purchase_history || []);
 		}
 
-		html += self._render_price_lists(data.price_lists || [], data.valuation_rate || 0);
+		// New Rate editing only on PR and PI (not sales docs or PO)
+		var show_new_rate = frappe.model.can_write('Item Price') &&
+			(doctype === 'Purchase Receipt' || doctype === 'Purchase Invoice');
+		html += self._render_price_lists(data.price_lists || [], data.valuation_rate || 0, show_new_rate);
 
-		// Save Prices footer (only if user can write Item Price)
-		var can_write = frappe.model.can_write('Item Price');
-		if (can_write) {
+		// Save Prices footer (only if show_new_rate)
+		if (show_new_rate) {
 			html += '<div class="lens-dialog-footer">';
 			html += '<button class="btn btn-sm btn-primary lens-save-prices-btn">' + __('Save Prices') + '</button>';
 			html += '</div>';
@@ -163,7 +170,7 @@ cecypo_powerpack.lens = {
 		self._wire_stock_popover(d, data.stock_by_warehouse);
 		self._wire_price_editing(d, data.price_lists || [], data.valuation_rate || 0);
 
-		if (can_write) {
+		if (show_new_rate) {
 			d.$body.find('.lens-save-prices-btn').on('click', function() {
 				self._save_prices(d, data.price_lists || []);
 			});
@@ -173,8 +180,8 @@ cecypo_powerpack.lens = {
 	_render_header: function(data) {
 		var wh_icon = cecypo_powerpack.lens.WH_SVG;
 		var html = '<div class="lens-item-header">';
-		html += '<div>';
-		html += '<div class="lens-item-name">' + frappe.utils.escape_html(data.item_name || '') + '</div>';
+		html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+		html += '<span class="lens-item-name">' + frappe.utils.escape_html(data.item_name || '') + '</span>';
 		if (data.item_group) {
 			html += '<span class="lens-item-group-badge">' + frappe.utils.escape_html(data.item_group) + '</span>';
 		}
@@ -277,18 +284,17 @@ cecypo_powerpack.lens = {
 		return html;
 	},
 
-	_render_price_lists: function(rows, valuation_rate) {
+	_render_price_lists: function(rows, valuation_rate, show_new_rate) {
 		var self = cecypo_powerpack.lens;
-		var can_write = frappe.model.can_write('Item Price');
 		var html = '<div class="lens-section-header">' + __('Price Lists') + '</div>';
 		html += '<table class="lens-table"><thead><tr>';
 		html += '<th>' + __('List') + '</th><th class="right">' + __('Rate') + '</th><th class="right">' + __('Margin') + '</th>';
-		if (can_write) {
+		if (show_new_rate) {
 			html += '<th class="right">' + __('New Rate') + '</th><th class="right">' + __('New Margin') + '</th>';
 		}
 		html += '</tr></thead><tbody>';
 		if (!rows.length) {
-			html += '<tr class="lens-empty-row"><td colspan="' + (can_write ? 5 : 3) + '">' + __('No price list entries found') + '</td></tr>';
+			html += '<tr class="lens-empty-row"><td colspan="' + (show_new_rate ? 5 : 3) + '">' + __('No price list entries found') + '</td></tr>';
 		} else {
 			rows.forEach(function(r) {
 				var margin = (valuation_rate && r.rate) ? ((r.rate - valuation_rate) / r.rate * 100) : null;
@@ -297,7 +303,7 @@ cecypo_powerpack.lens = {
 				html += '<td>' + frappe.utils.escape_html(r.price_list) + '</td>';
 				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
 				html += '<td class="right">' + margin_str + '</td>';
-				if (can_write) {
+				if (show_new_rate) {
 					html += '<td class="right"><input class="lens-new-rate" type="number" step="any"';
 					html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name) + '"';
 					html += ' data-current-rate="' + (r.rate || 0) + '"';

@@ -90,3 +90,9 @@ body.compact-theme .datatable {
     transform: translateY(-2px);
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
+
+body.compact-theme .grid-body .grid-static-col,
+body.compact-theme .grid-body .row-index {
+	height: unset !important;
+	max-height: 200px;
+}
