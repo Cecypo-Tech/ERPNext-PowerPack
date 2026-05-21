@@ -68,7 +68,7 @@ cecypo_powerpack.lens = {
 		}
 
 		var d = new frappe.ui.Dialog({
-			title: __('Lens') + ' — ' + (item_doc.item_name || item_doc.item_code),
+			title: __('Lens') + ' — ' + frappe.utils.escape_html(item_doc.item_name || item_doc.item_code),
 			size: 'large',
 		});
 		d.$body.html('<div style="padding:20px;text-align:center;color:var(--text-muted)">' + __('Loading...') + '</div>');
@@ -83,7 +83,11 @@ cecypo_powerpack.lens = {
 			},
 			callback: function(r) {
 				if (r.message) {
-					cecypo_powerpack.lens.render(d, r.message, doctype, customer, item_doc);
+					if (typeof cecypo_powerpack.lens.render === 'function') {
+						cecypo_powerpack.lens.render(d, r.message, doctype, customer, item_doc);
+					} else {
+						d.$body.html('<div style="padding:20px;text-align:center;color:var(--text-muted)">Render not yet implemented.</div>');
+					}
 				} else {
 					d.$body.html('<div style="padding:20px;text-align:center;color:var(--text-muted)">No data found.</div>');
 				}
@@ -114,7 +118,7 @@ cecypo_powerpack.lens = {
 		else if (s === 'unpaid') cls = 'lens-badge-unpaid';
 		else if (s === 'overdue') cls = 'lens-badge-overdue';
 		else if (s === 'draft') cls = 'lens-badge-draft';
-		return '<span class="lens-badge ' + cls + '">' + __(status) + '</span>';
+		return '<span class="lens-badge ' + cls + '">' + frappe.utils.escape_html(__(status)) + '</span>';
 	},
 
 	_doc_link: function(name, doctype) {
