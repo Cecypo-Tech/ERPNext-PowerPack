@@ -128,6 +128,244 @@ cecypo_powerpack.lens = {
 		return '<a class="lens-doc-link" href="' + url + '" target="_blank">' + frappe.utils.escape_html(name) + '</a>';
 	},
 
+	render: function(d, data, doctype, customer, item_doc) {
+		var self = cecypo_powerpack.lens;
+		var html = '';
+
+		html += self._render_header(data);
+
+		var is_sales = self.SALES_DOCTYPES.indexOf(doctype) !== -1;
+		var is_purchase = self.PURCHASE_DOCTYPES.indexOf(doctype) !== -1;
+
+		if (is_sales) {
+			if (customer) {
+				html += self._render_sales_to_customer(data.sales_to_customer || [], customer);
+			}
+			html += self._render_sales_to_others(data.sales_to_others || [], customer);
+		}
+
+		if (is_purchase) {
+			html += self._render_purchase_history(data.purchase_history || []);
+		}
+
+		html += self._render_price_lists(data.price_lists || [], data.valuation_rate || 0);
+
+		// Save Prices footer (only if user can write Item Price)
+		var can_write = frappe.model.can_write('Item Price');
+		if (can_write) {
+			html += '<div class="lens-dialog-footer">';
+			html += '<button class="btn btn-sm btn-primary lens-save-prices-btn">' + __('Save Prices') + '</button>';
+			html += '</div>';
+		}
+
+		d.$body.html('<div class="lens-dialog-body">' + html + '</div>');
+
+		self._wire_stock_popover(d, data.stock_by_warehouse);
+		self._wire_price_editing(d, data.price_lists || [], data.valuation_rate || 0);
+
+		if (can_write) {
+			d.$body.find('.lens-save-prices-btn').on('click', function() {
+				self._save_prices(d, data.price_lists || []);
+			});
+		}
+	},
+
+	_render_header: function(data) {
+		var wh_icon = cecypo_powerpack.lens.WH_SVG;
+		var html = '<div class="lens-item-header">';
+		html += '<div>';
+		html += '<div class="lens-item-name">' + frappe.utils.escape_html(data.item_name || '') + '</div>';
+		if (data.item_group) {
+			html += '<span class="lens-item-group-badge">' + frappe.utils.escape_html(data.item_group) + '</span>';
+		}
+		html += '</div>';
+
+		// Stock chip
+		var total = cecypo_powerpack.lens._fmt_num(data.total_stock || 0);
+		html += '<div class="lens-stock-chip" data-has-popover="' + (data.stock_by_warehouse ? '1' : '0') + '">';
+		html += '<div class="lens-stock-chip-label">' + wh_icon + ' ' + total + ' ' + __('units') + '</div>';
+		if (data.stock_by_warehouse && data.stock_by_warehouse.length) {
+			html += '<div class="lens-stock-popover">';
+			html += '<div class="lens-popover-title">' + __('Stock by warehouse') + '</div>';
+			data.stock_by_warehouse.forEach(function(row) {
+				var low = row.qty <= 5 ? ' low-stock' : '';
+				html += '<div class="lens-popover-row">';
+				html += '<span class="lens-popover-wh">' + frappe.utils.escape_html(row.warehouse) + '</span>';
+				html += '<span class="lens-popover-qty' + low + '">' + cecypo_powerpack.lens._fmt_num(row.qty) + '</span>';
+				html += '</div>';
+			});
+			html += '<div class="lens-popover-total">';
+			html += '<span>' + __('Total') + '</span><span>' + total + '</span>';
+			html += '</div>';
+			html += '</div>'; // .lens-stock-popover
+		}
+		html += '</div>'; // .lens-stock-chip
+		html += '</div>'; // .lens-item-header
+		return html;
+	},
+
+	_render_sales_to_customer: function(rows, customer) {
+		var self = cecypo_powerpack.lens;
+		var html = '<div class="lens-section-header">' + __('Sales to') + ' ' + frappe.utils.escape_html(customer) + ' — ' + __('this item') + '</div>';
+		html += '<table class="lens-table"><thead><tr>';
+		html += '<th>' + __('Doc') + '</th><th>' + __('Date') + '</th>';
+		html += '<th class="right">' + __('Qty') + '</th><th class="right">' + __('Rate') + '</th>';
+		html += '<th>' + __('Status') + '</th></tr></thead><tbody>';
+		if (!rows.length) {
+			html += '<tr class="lens-empty-row"><td colspan="5">' + __('No previous sales to this customer') + '</td></tr>';
+		} else {
+			rows.forEach(function(r) {
+				html += '<tr>';
+				html += '<td>' + self._doc_link(r.name, r.source_doctype || 'Sales Invoice') + '</td>';
+				html += '<td>' + self._fmt_date(r.posting_date) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.qty) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
+				html += '<td>' + self._status_badge(r.status) + '</td>';
+				html += '</tr>';
+			});
+		}
+		html += '</tbody></table>';
+		return html;
+	},
+
+	_render_sales_to_others: function(rows, current_customer) {
+		var self = cecypo_powerpack.lens;
+		var label = current_customer ? __('Sales to other customers — this item') : __('Sales history — this item');
+		var html = '<div class="lens-section-header">' + label + '</div>';
+		html += '<table class="lens-table"><thead><tr>';
+		html += '<th>' + __('Doc') + '</th><th>' + __('Customer') + '</th><th>' + __('Date') + '</th>';
+		html += '<th class="right">' + __('Qty') + '</th><th class="right">' + __('Rate') + '</th>';
+		html += '</tr></thead><tbody>';
+		if (!rows.length) {
+			html += '<tr class="lens-empty-row"><td colspan="5">' + __('No sales to other customers found') + '</td></tr>';
+		} else {
+			rows.forEach(function(r) {
+				html += '<tr>';
+				html += '<td>' + self._doc_link(r.name, 'Sales Invoice') + '</td>';
+				html += '<td>' + frappe.utils.escape_html(r.customer || '') + '</td>';
+				html += '<td>' + self._fmt_date(r.posting_date) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.qty) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
+				html += '</tr>';
+			});
+		}
+		html += '</tbody></table>';
+		return html;
+	},
+
+	_render_purchase_history: function(rows) {
+		var self = cecypo_powerpack.lens;
+		var html = '<div class="lens-section-header">' + __('Purchase history — this item') + '</div>';
+		html += '<table class="lens-table"><thead><tr>';
+		html += '<th>' + __('Doc') + '</th><th>' + __('Supplier') + '</th><th>' + __('Date') + '</th>';
+		html += '<th class="right">' + __('Qty') + '</th><th class="right">' + __('Rate') + '</th>';
+		html += '</tr></thead><tbody>';
+		if (!rows.length) {
+			html += '<tr class="lens-empty-row"><td colspan="5">' + __('No purchase history found') + '</td></tr>';
+		} else {
+			rows.forEach(function(r) {
+				html += '<tr>';
+				html += '<td>' + self._doc_link(r.name, r.source_doctype || 'Purchase Invoice') + '</td>';
+				html += '<td>' + frappe.utils.escape_html(r.supplier || '') + '</td>';
+				html += '<td>' + self._fmt_date(r.posting_date) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.qty) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
+				html += '</tr>';
+			});
+		}
+		html += '</tbody></table>';
+		return html;
+	},
+
+	_render_price_lists: function(rows, valuation_rate) {
+		var self = cecypo_powerpack.lens;
+		var can_write = frappe.model.can_write('Item Price');
+		var html = '<div class="lens-section-header">' + __('Price Lists') + '</div>';
+		html += '<table class="lens-table"><thead><tr>';
+		html += '<th>' + __('List') + '</th><th class="right">' + __('Rate') + '</th><th class="right">' + __('Margin') + '</th>';
+		if (can_write) {
+			html += '<th class="right">' + __('New Rate') + '</th><th class="right">' + __('New Margin') + '</th>';
+		}
+		html += '</tr></thead><tbody>';
+		if (!rows.length) {
+			html += '<tr class="lens-empty-row"><td colspan="' + (can_write ? 5 : 3) + '">' + __('No price list entries found') + '</td></tr>';
+		} else {
+			rows.forEach(function(r) {
+				var margin = (valuation_rate && r.rate) ? ((r.rate - valuation_rate) / r.rate * 100) : null;
+				var margin_str = (margin !== null) ? margin.toFixed(1) + '%' : '—';
+				html += '<tr>';
+				html += '<td>' + frappe.utils.escape_html(r.price_list) + '</td>';
+				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
+				html += '<td class="right">' + margin_str + '</td>';
+				if (can_write) {
+					html += '<td class="right"><input class="lens-new-rate" type="number" step="any"';
+					html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name) + '"';
+					html += ' data-current-rate="' + (r.rate || 0) + '"';
+					html += ' value="' + (r.rate || '') + '"></td>';
+					html += '<td class="right"><span class="lens-new-margin" data-valuation="' + valuation_rate + '">' + margin_str + '</span></td>';
+				}
+				html += '</tr>';
+			});
+		}
+		html += '</tbody></table>';
+		return html;
+	},
+
+	_wire_stock_popover: function(d, warehouse_data) {
+		// CSS :hover handles the popover display — no JS wiring needed.
+	},
+
+	_wire_price_editing: function(d, price_lists, valuation_rate) {
+		d.$body.find('.lens-new-rate').on('input', function() {
+			var new_rate = parseFloat($(this).val()) || 0;
+			var margin_el = $(this).closest('tr').find('.lens-new-margin');
+			if (valuation_rate && new_rate) {
+				var new_margin = (new_rate - valuation_rate) / new_rate * 100;
+				margin_el.text(new_margin.toFixed(1) + '%');
+				margin_el.toggleClass('negative', new_margin < 0);
+			} else {
+				margin_el.text('—');
+			}
+		});
+	},
+
+	_save_prices: function(d, price_lists) {
+		var updates = [];
+		d.$body.find('.lens-new-rate').each(function() {
+			var new_rate = parseFloat($(this).val());
+			var current_rate = parseFloat($(this).data('current-rate'));
+			var name = $(this).data('item-price-name');
+			if (name && !isNaN(new_rate) && new_rate !== current_rate) {
+				updates.push({item_price_name: name, new_rate: new_rate});
+			}
+		});
+
+		if (!updates.length) {
+			frappe.show_alert({message: __('No prices changed'), indicator: 'blue'});
+			return;
+		}
+
+		frappe.call({
+			method: 'cecypo_powerpack.api.update_item_prices',
+			args: {updates: JSON.stringify(updates)},
+			callback: function(r) {
+				if (r.message && r.message.count) {
+					frappe.show_alert({
+						message: __('Updated {0} price(s)', [r.message.count]),
+						indicator: 'green'
+					});
+					// Refresh current-rate data attributes so next save is accurate
+					d.$body.find('.lens-new-rate').each(function() {
+						$(this).data('current-rate', $(this).val());
+					});
+				}
+			},
+			error: function() {
+				frappe.show_alert({message: __('Failed to save prices'), indicator: 'red'});
+			}
+		});
+	},
+
 };
 
 // ── Register on all target doctypes ──────────────────────────────────────
