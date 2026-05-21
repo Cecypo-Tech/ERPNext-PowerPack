@@ -56,7 +56,7 @@
 }
 
 .lens-item-group-badge {
-	font-size: 10px;
+	font-size: 11px;
 	padding: 1px 6px;
 	border-radius: 3px;
 	background: rgba(94, 100, 255, 0.1);
@@ -77,7 +77,7 @@
 	align-items: center;
 	gap: 5px;
 	padding: 2px 8px;
-	font-size: 11px;
+	font-size: 12px;
 	color: var(--text-muted, #6c757d);
 	border: 1px solid var(--border-color, #d1d8dd);
 	border-radius: 3px;
@@ -116,7 +116,7 @@
 }
 
 .lens-popover-title {
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: 700;
 	letter-spacing: 0.07em;
 	text-transform: uppercase;
@@ -130,7 +130,7 @@
 	justify-content: space-between;
 	align-items: center;
 	padding: 4px 10px;
-	font-size: 11px;
+	font-size: 12px;
 	border-bottom: 1px solid var(--border-color, #f7f7f7);
 	gap: 10px;
 }
@@ -160,7 +160,7 @@
 	display: flex;
 	justify-content: space-between;
 	padding: 5px 10px;
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 600;
 	background: var(--bg-color, #f4f5f6);
 	border-top: 1px solid var(--border-color, #e8e8e8);
@@ -168,7 +168,7 @@
 
 /* ── Section headers ── */
 .lens-section-header {
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: 700;
 	letter-spacing: 0.07em;
 	text-transform: uppercase;
@@ -181,7 +181,7 @@
 .lens-table {
 	width: 100%;
 	border-collapse: collapse;
-	font-size: 11px;
+	font-size: 12px;
 }
 
 .lens-table th {
@@ -215,7 +215,7 @@
 	color: #2490ef !important;
 	text-decoration: none;
 	font-family: var(--font-monospace, monospace);
-	font-size: 10px;
+	font-size: 11px;
 }
 
 [data-theme="dark"] .lens-table .lens-doc-link {
@@ -236,7 +236,7 @@
 /* ── Status badges ── */
 .lens-badge {
 	display: inline-block;
-	font-size: 10px;
+	font-size: 11px;
 	padding: 1px 5px;
 	border-radius: 2px;
 	white-space: nowrap;
@@ -253,7 +253,7 @@
 .lens-new-rate {
 	width: 80px;
 	padding: 2px 5px;
-	font-size: 11px;
+	font-size: 12px;
 	border: 1px solid var(--border-color, #d1d8dd);
 	border-radius: 3px;
 	text-align: right;
@@ -267,7 +267,7 @@
 }
 
 .lens-new-margin {
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: 600;
 	color: var(--green, #28a745);
 }
