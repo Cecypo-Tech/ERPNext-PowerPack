@@ -60,6 +60,7 @@ claude_logs/
 claude_history.json
 claude_session*
 tmpclaude*
+.playwright-mcp/
 
 # Superpowers brainstorm/state artifacts
 .superpowers/

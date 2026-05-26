@@ -15,7 +15,22 @@ cecypo_powerpack.lens = {
 	init: function(frm) {
 		CecypoPowerPack.Settings.isEnabled('enable_lens', function(enabled) {
 			if (!enabled) return;
-			// Defer so Frappe has time to render grid rows into grid_rows_by_docname
+			var grid = frm.fields_dict.items && frm.fields_dict.items.grid;
+			if (!grid) return;
+
+			// Patch grid.refresh once so icons survive every subsequent grid re-render
+			// (Frappe calls grid.refresh() after the initial form load for existing docs,
+			// which wipes any buttons injected by a one-shot setTimeout)
+			if (!grid._lens_patched) {
+				grid._lens_patched = true;
+				var _orig_refresh = grid.refresh.bind(grid);
+				grid.refresh = function() {
+					_orig_refresh.apply(this, arguments);
+					cecypo_powerpack.lens.inject_all(frm);
+				};
+			}
+
+			// Also inject for the current render pass
 			setTimeout(function() {
 				cecypo_powerpack.lens.inject_all(frm);
 			}, 200);
@@ -49,15 +64,22 @@ cecypo_powerpack.lens = {
 			cecypo_powerpack.lens.open(frm, item_doc);
 		});
 
-		// Insert before the delete button; fall back to appending to data-row
-		var del_btn = grid_row.wrapper.find('.grid-delete-row').first();
-		if (del_btn.length) {
-			btn.insertBefore(del_btn);
-		} else {
-			var data_row = grid_row.wrapper.find('.data-row').first();
-			if (data_row.length) {
-				data_row.append(btn);
+		// Sit next to Frappe's .link-btn inside the item_name/item_code cell
+		var data_row = grid_row.wrapper.find('.data-row').first();
+		var target = data_row.find('[data-fieldname="item_name"]').first();
+		if (!target.length) target = data_row.find('[data-fieldname="item_code"]').first();
+		if (target.length) {
+			var link_btn = target.find('.link-btn').first();
+			if (link_btn.length) {
+				btn.insertBefore(link_btn);
+			} else {
+				target.css('position', 'relative');
+				target.append(btn);
 			}
+		} else {
+			// Fallback: after edit button
+			var open_btn = grid_row.wrapper.find('.btn-open-row').first();
+			if (open_btn.length) btn.insertAfter(open_btn);
 		}
 	},
 
@@ -286,29 +308,35 @@ cecypo_powerpack.lens = {
 
 	_render_price_lists: function(rows, valuation_rate, show_new_rate) {
 		var self = cecypo_powerpack.lens;
+		var show_margin = valuation_rate > 0;
+		var col_count = 2 + (show_margin ? 1 : 0) + (show_new_rate ? 1 : 0) + (show_new_rate && show_margin ? 1 : 0);
 		var html = '<div class="lens-section-header">' + __('Price Lists') + '</div>';
 		html += '<table class="lens-table"><thead><tr>';
-		html += '<th>' + __('List') + '</th><th class="right">' + __('Rate') + '</th><th class="right">' + __('Margin') + '</th>';
+		html += '<th>' + __('List') + '</th><th class="right">' + __('Rate') + '</th>';
+		if (show_margin) html += '<th class="right">' + __('Margin') + '</th>';
 		if (show_new_rate) {
-			html += '<th class="right">' + __('New Rate') + '</th><th class="right">' + __('New Margin') + '</th>';
+			html += '<th class="right">' + __('New Rate') + '</th>';
+			if (show_margin) html += '<th class="right">' + __('New Margin') + '</th>';
 		}
 		html += '</tr></thead><tbody>';
 		if (!rows.length) {
-			html += '<tr class="lens-empty-row"><td colspan="' + (show_new_rate ? 5 : 3) + '">' + __('No price list entries found') + '</td></tr>';
+			html += '<tr class="lens-empty-row"><td colspan="' + col_count + '">' + __('No price list entries found') + '</td></tr>';
 		} else {
 			rows.forEach(function(r) {
-				var margin = (valuation_rate && r.rate) ? ((r.rate - valuation_rate) / r.rate * 100) : null;
+				var margin = (show_margin && r.rate) ? ((r.rate - valuation_rate) / r.rate * 100) : null;
 				var margin_str = (margin !== null) ? margin.toFixed(1) + '%' : '—';
 				html += '<tr>';
 				html += '<td>' + frappe.utils.escape_html(r.price_list) + '</td>';
 				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
-				html += '<td class="right">' + margin_str + '</td>';
+				if (show_margin) html += '<td class="right">' + margin_str + '</td>';
 				if (show_new_rate) {
 					html += '<td class="right"><input class="lens-new-rate" type="number" step="any"';
 					html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name) + '"';
 					html += ' data-current-rate="' + (r.rate || 0) + '"';
 					html += ' value="' + (r.rate || '') + '"></td>';
-					html += '<td class="right"><span class="lens-new-margin" data-valuation="' + valuation_rate + '">' + margin_str + '</span></td>';
+					if (show_margin) {
+						html += '<td class="right"><span class="lens-new-margin" data-valuation="' + valuation_rate + '">' + margin_str + '</span></td>';
+					}
 				}
 				html += '</tr>';
 			});
