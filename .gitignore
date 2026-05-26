@@ -63,3 +63,6 @@ tmpclaude*
 
 # Superpowers brainstorm/state artifacts
 .superpowers/
+
+# Superpowers plans/specs (local developer docs)
+docs/
