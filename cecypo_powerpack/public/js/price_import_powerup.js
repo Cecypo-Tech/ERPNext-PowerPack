@@ -58,6 +58,7 @@ function wire_upload(dialog, state) {
 
 	dialog.$wrapper.on("change", ".pip-file-input", function (e) {
 		const file = e.target.files[0];
+		e.target.value = "";  // allow re-selecting the same file
 		if (file) read_and_preview(file, dialog, state);
 	});
 
@@ -84,6 +85,9 @@ function read_and_preview(file, dialog, state) {
 	dialog.get_primary_btn().prop("disabled", true);
 
 	const reader = new FileReader();
+	reader.onerror = function () {
+		$review.html(`<p style="color:#dc2626;padding:12px;">${__("Could not read file.")}</p>`);
+	};
 	reader.onload = function (e) {
 		const base64 = e.target.result.split(",")[1];
 		frappe.call({
@@ -114,8 +118,9 @@ function change_badge(row) {
 		return `<span style="background:#e0f2fe;color:#0369a1;border-radius:3px;padding:2px 7px;font-size:11px;">&#10022; ${__("new price")}</span>`;
 	}
 	const existing = parseFloat(row.existing_rate) || 0;
-	const diff = parseFloat((row.rate - existing).toFixed(2));
-	const pct = existing ? parseFloat(((row.rate - existing) / existing * 100).toFixed(1)) : 0;
+	const rate = parseFloat(row.rate) || 0;
+	const diff = parseFloat((rate - existing).toFixed(2));
+	const pct = existing ? parseFloat(((rate - existing) / existing * 100).toFixed(1)) : 0;
 
 	if (diff === 0) {
 		return `<span style="background:#f3f4f6;color:#9ca3af;border-radius:3px;padding:2px 7px;font-size:11px;">0.00 (0%)</span>`;
@@ -151,7 +156,8 @@ function row_style(status) {
 }
 
 function format_num(n) {
-	return parseFloat(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+	const v = parseFloat(n);
+	return isNaN(v) ? "—" : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function render_review(dialog, state) {
@@ -215,7 +221,7 @@ function render_review(dialog, state) {
 // ─── Apply ────────────────────────────────────────────────────────────────────
 
 function apply_changes(dialog, state) {
-	const n_action = state.rows.filter(r => r.status !== "missing").length;
+	const n_action = state.rows.filter(r => r.status === "update" || r.status === "new").length;
 	if (!n_action) return;
 
 	dialog.get_primary_btn().prop("disabled", true);
@@ -229,7 +235,7 @@ function apply_changes(dialog, state) {
 				dialog.get_primary_btn().prop("disabled", false);
 				return;
 			}
-			const { updated, created, skipped } = r.message;
+			const { updated = 0, created = 0, skipped = 0 } = r.message || {};
 			dialog.hide();
 			const parts = [];
 			if (updated) parts.push(__("Updated {0} prices", [updated]));
