@@ -1567,9 +1567,12 @@ def get_lens_data(item_code: str, customer: str = None, doctype: str = None) -> 
 
     result["total_stock"] = sum(r.actual_qty for r in stock_rows)
 
-    total_weighted = sum(r.actual_qty * (r.valuation_rate or 0) for r in stock_rows if r.actual_qty > 0)
-    total_positive_qty = sum(r.actual_qty for r in stock_rows if r.actual_qty > 0)
-    result["valuation_rate"] = (total_weighted / total_positive_qty) if total_positive_qty else 0
+    if frappe.has_permission("Stock Ledger Entry", "read"):
+        total_weighted = sum(r.actual_qty * (r.valuation_rate or 0) for r in stock_rows if r.actual_qty > 0)
+        total_positive_qty = sum(r.actual_qty for r in stock_rows if r.actual_qty > 0)
+        result["valuation_rate"] = (total_weighted / total_positive_qty) if total_positive_qty else 0
+    else:
+        result["valuation_rate"] = 0
 
     # Per-warehouse breakdown — only for users with Bin read permission
     if frappe.has_permission("Bin", "read"):
@@ -1699,3 +1702,138 @@ def update_item_prices(updates) -> dict:
 
     frappe.db.commit()
     return {"updated": updated, "count": len(updated)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PRICE IMPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@frappe.whitelist()
+def preview_price_import(file_content: str, file_name: str) -> list:
+    frappe.has_permission("Item Price", "read", throw=True)
+
+    import base64
+
+    raw = base64.b64decode(file_content)
+    rows = _parse_price_file(raw, file_name)
+
+    if not rows:
+        return []
+
+    all_item_codes = list({r["item_code"] for r in rows})
+
+    existing_items = set(
+        frappe.db.get_all("Item", filters=[["name", "in", all_item_codes]], pluck="name")
+    )
+
+    ip_rows = frappe.db.get_all(
+        "Item Price",
+        filters=[["item_code", "in", all_item_codes]],
+        fields=["name", "item_code", "price_list", "price_list_rate"],
+    )
+    item_price_map = {}
+    for ip in ip_rows:
+        key = (ip["item_code"], ip["price_list"])
+        if key not in item_price_map:  # first record wins if duplicates exist
+            item_price_map[key] = ip
+
+    enriched = []
+    for row in rows:
+        item_code = row["item_code"]
+        price_list = row["price_list"]
+        rate = row["rate"]
+
+        if item_code not in existing_items:
+            enriched.append({
+                "item_code": item_code,
+                "price_list": price_list,
+                "rate": rate,
+                "existing_rate": None,
+                "item_price_name": None,
+                "status": "missing",
+            })
+            continue
+
+        ip = item_price_map.get((item_code, price_list))
+        if ip:
+            enriched.append({
+                "item_code": item_code,
+                "price_list": price_list,
+                "rate": rate,
+                "existing_rate": ip["price_list_rate"],
+                "item_price_name": ip["name"],
+                "status": "update",
+            })
+        else:
+            enriched.append({
+                "item_code": item_code,
+                "price_list": price_list,
+                "rate": rate,
+                "existing_rate": None,
+                "item_price_name": None,
+                "status": "new",
+            })
+
+    return enriched
+
+
+def _parse_price_file(raw: bytes, file_name: str) -> list:
+    name_lower = (file_name or "").lower()
+    if name_lower.endswith(".xlsx"):
+        return _parse_xlsx(raw)
+    if name_lower.endswith(".csv"):
+        return _parse_csv(raw)
+    frappe.throw(_("Unsupported file type. Please upload a .xlsx or .csv file."))
+    return []  # unreachable — frappe.throw raises; satisfies type checkers
+
+
+def _parse_csv(raw: bytes) -> list:
+    import csv
+    import io
+
+    text = raw.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = []
+    for raw_row in reader:
+        row = {k.strip().lower(): v for k, v in raw_row.items() if k}
+        rows.append(row)
+    return _extract_validated_rows(rows)
+
+
+def _parse_xlsx(raw: bytes) -> list:
+    import io
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    try:
+        ws = wb.active
+        headers = None
+        rows = []
+        for sheet_row in ws.iter_rows(values_only=True):
+            if headers is None:
+                headers = [str(c).strip().lower() if c is not None else "" for c in sheet_row]
+                continue
+            if not any(c is not None for c in sheet_row):
+                continue
+            rows.append(dict(zip(headers, sheet_row)))
+        return _extract_validated_rows(rows)
+    finally:
+        wb.close()
+
+
+def _extract_validated_rows(rows: list) -> list:
+    result = []
+    for row in rows:
+        item_code = str(row.get("item_code") or "").strip()
+        price_list = str(row.get("price_list") or "").strip()
+        rate_raw = row.get("rate")
+
+        if not item_code or not price_list or rate_raw is None or str(rate_raw).strip() == "":
+            continue
+        try:
+            rate = float(str(rate_raw).replace(",", ""))
+        except (ValueError, TypeError):
+            continue
+
+        result.append({"item_code": item_code, "price_list": price_list, "rate": rate})
+    return result
