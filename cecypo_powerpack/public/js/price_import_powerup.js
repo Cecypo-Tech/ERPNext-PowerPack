@@ -37,7 +37,7 @@ function open_price_import_dialog() {
 						<input type="file" accept=".xlsx,.csv" class="pip-file-input" style="display:none;">
 					</div>`,
 			},
-			{ fieldname: "review", fieldtype: "HTML", options: "" },
+			{ fieldname: "review", fieldtype: "HTML", options: '<div class="pip-review-area" style="display:none;"></div>' },
 		],
 		primary_action_label: __("Apply Changes"),
 		primary_action() { apply_changes(dialog, state); },
@@ -79,8 +79,8 @@ function wire_upload(dialog, state) {
 // ─── File read + server call ──────────────────────────────────────────────────
 
 function read_and_preview(file, dialog, state) {
-	const $review = dialog.fields_dict.review.$wrapper;
-	$review.html(`<div style="text-align:center;padding:20px;color:var(--text-muted);">${__("Parsing file…")}</div>`);
+	const $review = dialog.fields_dict.review.$wrapper.find(".pip-review-area");
+	$review.show().html(`<div style="text-align:center;padding:20px;color:var(--text-muted);">${__("Parsing file…")}</div>`);
 	dialog.get_primary_btn().prop("disabled", true);
 
 	const reader = new FileReader();
@@ -156,7 +156,8 @@ function format_num(n) {
 
 function render_review(dialog, state) {
 	const rows = state.rows;
-	const $review = dialog.fields_dict.review.$wrapper;
+	const $review = dialog.fields_dict.review.$wrapper.find(".pip-review-area");
+	$review.show();
 
 	if (!rows.length) {
 		$review.html(`<p style="text-align:center;color:var(--text-muted);padding:16px;">${__("No rows found in file. Check that columns item_code, price_list, and rate are present.")}</p>`);
@@ -179,7 +180,7 @@ function render_review(dialog, state) {
 
 	const tbody = rows.map(row => `
 		<tr style="${row_style(row.status)}border-bottom:1px solid #f3f4f6;">
-			<td style="padding:5px 10px;font-family:monospace;font-size:11px;">${frappe.utils.escape_html(row.item_code)}</td>
+			<td style="padding:5px 10px;font-family:monospace;font-size:11px;${row.status === "missing" ? "color:#92400e;font-weight:700;" : ""}">${frappe.utils.escape_html(row.item_code)}</td>
 			<td style="padding:5px 10px;font-size:11px;color:#6b7280;">${frappe.utils.escape_html(row.price_list)}</td>
 			<td style="padding:5px 10px;text-align:right;font-size:11px;">
 				${row.existing_rate != null ? format_num(row.existing_rate) : '<span style="color:#9ca3af;">—</span>'}
@@ -217,20 +218,24 @@ function apply_changes(dialog, state) {
 	const n_action = state.rows.filter(r => r.status !== "missing").length;
 	if (!n_action) return;
 
+	dialog.get_primary_btn().prop("disabled", true);
 	frappe.call({
 		method: "cecypo_powerpack.api.apply_price_import",
 		args: { rows: JSON.stringify(state.rows) },
 		freeze: true,
 		freeze_message: __("Applying price changes…"),
 		callback(r) {
-			if (r.exc) return;
+			if (r.exc) {
+				dialog.get_primary_btn().prop("disabled", false);
+				return;
+			}
 			const { updated, created, skipped } = r.message;
 			dialog.hide();
 			const parts = [];
-			if (updated) parts.push(__("{0} prices updated", [updated]));
-			if (created) parts.push(__("{0} new prices created", [created]));
-			if (skipped) parts.push(__("{0} items not found skipped", [skipped]));
-			frappe.show_alert({ message: parts.join(", ") + ".", indicator: "green" });
+			if (updated) parts.push(__("Updated {0} prices", [updated]));
+			if (created) parts.push(__("created {0} new", [created]));
+			const skipped_msg = skipped ? __(". {0} items not found were skipped.", [skipped]) : ".";
+			frappe.show_alert({ message: parts.join(", ") + skipped_msg, indicator: "green" });
 		},
 	});
 }
