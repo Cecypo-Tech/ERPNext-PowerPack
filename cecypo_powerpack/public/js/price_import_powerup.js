@@ -10,7 +10,7 @@
 
 	function _pip_onload(listview) {
 		if (_base_onload) _base_onload.call(this, listview);
-		listview.page.add_menu_item(__("Import Prices (PowerPack)"), open_price_import_dialog);
+		listview.page.add_action_item(__("Import Prices (PowerPack)"), open_price_import_dialog);
 	}
 
 	const _store = Object.assign({}, frappe.listview_settings["Item Price"] || {}, { onload: _pip_onload });
