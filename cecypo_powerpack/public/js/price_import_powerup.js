@@ -1,13 +1,31 @@
 (function () {
 
 // ─── List view hook ───────────────────────────────────────────────────────────
+// ERPNext's item_price_list.js does a plain assignment that wipes any onload we
+// set here (it lazy-loads when the user first visits the list). We intercept
+// that assignment with Object.defineProperty so our onload survives the overwrite.
 
-frappe.listview_settings["Item Price"] = frappe.listview_settings["Item Price"] || {};
-const _orig_onload = frappe.listview_settings["Item Price"].onload;
-frappe.listview_settings["Item Price"].onload = function (listview) {
-	if (_orig_onload) _orig_onload.call(this, listview);
-	listview.page.add_menu_item(__("Import Prices (PowerPack)"), open_price_import_dialog);
-};
+(function () {
+	let _base_onload = null;
+
+	function _pip_onload(listview) {
+		if (_base_onload) _base_onload.call(this, listview);
+		listview.page.add_menu_item(__("Import Prices (PowerPack)"), open_price_import_dialog);
+	}
+
+	const _store = Object.assign({}, frappe.listview_settings["Item Price"] || {}, { onload: _pip_onload });
+
+	Object.defineProperty(frappe.listview_settings, "Item Price", {
+		configurable: true,
+		enumerable: true,
+		get() { return _store; },
+		set(v) {
+			_base_onload = (v && v.onload) || null;
+			Object.assign(_store, v);
+			_store.onload = _pip_onload;
+		},
+	});
+})();
 
 // ─── Dialog ───────────────────────────────────────────────────────────────────
 
