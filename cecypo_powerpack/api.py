@@ -1837,3 +1837,51 @@ def _extract_validated_rows(rows: list) -> list:
 
         result.append({"item_code": item_code, "price_list": price_list, "rate": rate})
     return result
+
+
+@frappe.whitelist()
+def apply_price_import(rows: str) -> dict:
+    frappe.has_permission("Item Price", "write", throw=True)
+
+    rows = frappe.parse_json(rows)
+
+    has_new = any(r.get("status") == "new" for r in rows)
+    if has_new:
+        frappe.has_permission("Item Price", "create", throw=True)
+
+    updated = 0
+    created = 0
+    skipped = 0
+
+    for row in rows:
+        status = row.get("status")
+        if status == "missing":
+            skipped += 1
+            continue
+
+        item_code = row.get("item_code")
+        price_list = row.get("price_list")
+        rate = frappe.utils.flt(row.get("rate", 0))
+
+        if status == "update":
+            ip_name = row.get("item_price_name")
+            if ip_name:
+                frappe.db.set_value("Item Price", ip_name, "price_list_rate", rate)
+                updated += 1
+            else:
+                skipped += 1
+
+        elif status == "new":
+            try:
+                frappe.get_doc({
+                    "doctype": "Item Price",
+                    "item_code": item_code,
+                    "price_list": price_list,
+                    "price_list_rate": rate,
+                }).insert()
+                created += 1
+            except frappe.exceptions.DuplicateEntryError:
+                frappe.db.rollback()
+                skipped += 1
+
+    return {"updated": updated, "created": created, "skipped": skipped}
