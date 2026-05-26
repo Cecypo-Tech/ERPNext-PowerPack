@@ -40,6 +40,7 @@ app_include_js = [
     "/assets/cecypo_powerpack/js/bulk_selection.js",
     "/assets/cecypo_powerpack/js/payment_reconciliation_powerup.js",
     "/assets/cecypo_powerpack/js/lens_powerup.js",
+    "/assets/cecypo_powerpack/js/price_import_powerup.js",
 ]
 
 # include js, css files in header of web template
