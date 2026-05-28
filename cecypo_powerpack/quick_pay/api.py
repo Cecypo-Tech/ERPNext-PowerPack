@@ -317,6 +317,8 @@ def process_mpesa_quick_pay(
 
 		# Now mark the Mpesa row as processed and link the PE.
 		mpesa.customer = so.customer
+		mpesa.company = so.company
+		mpesa.mode_of_payment = phone_mop
 		mpesa.submit_payment = 0
 		mpesa.payment_entry = pe.name
 		mpesa.save(ignore_permissions=True)
