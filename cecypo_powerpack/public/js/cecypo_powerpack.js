@@ -12,40 +12,39 @@ $(document).ready(function () {
     CecypoPowerPack.Settings.isEnabled('enable_compact_theme', function (enabled) {
         $('body').toggleClass('compact-theme', enabled);
     });
-
-    // Apply company border indicator
-    CecypoPowerPack.CompanyBorder.apply();
 });
 
 /**
  * Company Border Indicator
- * Renders fixed top/bottom colored bars based on the user's default company.
+ * Renders fixed top/bottom colored bars based on the company of the document
+ * currently open in a form view. Hidden on lists, reports, the workspace, and
+ * doctypes that have no company field.
  */
 CecypoPowerPack.CompanyBorder = {
     _TOP_ID: 'pp-border-top',
     _BOT_ID: 'pp-border-bottom',
 
-    apply: function () {
+    // Resolve the accent from a form: use its document's company, if any.
+    applyFromForm: function (frm) {
+        var company = (frm && frm.doc) ? frm.doc.company : null;
+        CecypoPowerPack.CompanyBorder.applyForCompany(company);
+    },
+
+    // Render the accent for a given company, or remove it if none/unconfigured.
+    applyForCompany: function (company) {
+        var self = CecypoPowerPack.CompanyBorder;
+        if (!company) {
+            self._remove();
+            return;
+        }
         CecypoPowerPack.Settings.get(function (settings) {
-            const rows = settings.company_borders || [];
-            if (!rows.length) {
-                CecypoPowerPack.CompanyBorder._remove();
-                return;
-            }
-
-            const company = frappe.defaults.get_default('company');
-            if (!company) {
-                CecypoPowerPack.CompanyBorder._remove();
-                return;
-            }
-
-            const row = rows.find(function (r) { return r.company === company; });
+            var rows = settings.company_borders || [];
+            var row = rows.find(function (r) { return r.company === company; });
             if (!row || !row.color) {
-                CecypoPowerPack.CompanyBorder._remove();
+                self._remove();
                 return;
             }
-
-            CecypoPowerPack.CompanyBorder._render(row.color, row.top_border || 0, row.bottom_border || 0);
+            self._render(row.color, row.top_border || 0, row.bottom_border || 0);
         });
     },
 
@@ -80,6 +79,21 @@ CecypoPowerPack.CompanyBorder = {
         $('#' + this._TOP_ID + ', #' + this._BOT_ID).remove();
     }
 };
+
+// React to the document's company on every doctype's form, live on field change.
+frappe.ui.form.on('*', {
+    refresh: function (frm) { CecypoPowerPack.CompanyBorder.applyFromForm(frm); },
+    company: function (frm) { CecypoPowerPack.CompanyBorder.applyFromForm(frm); }
+});
+
+// Clear the accent when navigating to a non-form route. Form destinations are
+// handled by the wildcard refresh above (which always sets the correct state for
+// the new form, including removal), so only non-form routes need clearing here.
+frappe.router.on('change', function () {
+    if ((frappe.get_route() || [])[0] !== 'Form') {
+        CecypoPowerPack.CompanyBorder._remove();
+    }
+});
 
 /**
  * Show system health status
@@ -186,7 +200,7 @@ CecypoPowerPack.ItemListPowerup = {
 frappe.ui.form.on('PowerPack Settings', {
     after_save: function(frm) {
         CecypoPowerPack.Settings.clearCache();
-        CecypoPowerPack.CompanyBorder.apply();
+        CecypoPowerPack.CompanyBorder.applyFromForm(frm);
         frappe.show_alert({
             message: __('PowerPack Settings cache cleared'),
             indicator: 'green'
