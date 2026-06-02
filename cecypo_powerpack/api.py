@@ -18,7 +18,21 @@ def get_settings_for_client() -> dict:
     # Singleton load that bypasses User Permissions. The child table company_borders
     # can reference companies a given user lacks access to, which would otherwise
     # abort the load and break every PowerPack feature gated by Settings.get.
-    return frappe.get_doc("PowerPack Settings", "PowerPack Settings").as_dict()
+    data = frappe.get_doc("PowerPack Settings", "PowerPack Settings").as_dict()
+
+    # Restrict company_borders to companies this user is permitted to see, so a
+    # single-company user never receives another company's accent config. Reading
+    # User Permissions only inspects them (never enforces), so an inaccessible
+    # company cannot raise here.
+    perms = frappe.permissions.get_user_permissions(frappe.session.user)
+    company_perms = perms.get("Company")  # falsy => unrestricted (admin / no User Permission)
+    if company_perms:
+        allowed = {p.get("doc") for p in company_perms}
+        data["company_borders"] = [
+            r for r in (data.get("company_borders") or []) if r.get("company") in allowed
+        ]
+
+    return data
 
 
 @frappe.whitelist()
