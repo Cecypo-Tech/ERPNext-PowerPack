@@ -36,6 +36,7 @@
   "show_last_purchase",
   "show_last_sale",
   "show_last_sale_to_customer",
+  "sales_powerup_shown_by_default",
   "bulk_selection_section",
   "enable_quotation_bulk_selection",
   "enable_sales_order_bulk_selection",
@@ -273,6 +274,14 @@
    "fieldtype": "Check",
    "label": "Show Last Sale to Customer",
    "description": "Display last sale price and date to this specific customer"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_quotation_powerup || doc.enable_sales_order_powerup || doc.enable_sales_invoice_powerup || doc.enable_pos_invoice_powerup",
+   "fieldname": "sales_powerup_shown_by_default",
+   "fieldtype": "Check",
+   "label": "Shown by Default",
+   "description": "If checked, profit metrics show automatically on load. If unchecked, click the PowerUp button to reveal them."
   },
   {
    "fieldname": "bulk_selection_section",

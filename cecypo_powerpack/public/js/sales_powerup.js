@@ -27,9 +27,11 @@ cecypo_powerpack.sales_powerup = {
 		return field_name && settings[field_name] === 1;
 	},
 
-	check_and_setup: function(frm) {
-		// Clear valuation cache for fresh data
-		cecypo_powerpack.sales_powerup._valuation_cache = {};
+	check_and_setup: function(frm, from_item_change) {
+		// Clear valuation cache only on a full form load (not when triggered by item changes)
+		if (!from_item_change) {
+			cecypo_powerpack.sales_powerup._valuation_cache = {};
+		}
 
 		// Fetch settings first
 		frappe.call({
@@ -42,6 +44,13 @@ cecypo_powerpack.sales_powerup = {
 				if (r.message) {
 					cecypo_powerpack.sales_powerup.settings = r.message;
 					cecypo_powerpack.sales_powerup.enabled = cecypo_powerpack.sales_powerup.is_enabled_for_doctype(frm.doctype);
+
+					// On first load, initialise visibility from the setting.
+					// Subsequent calls within the same session preserve the user's toggle choice.
+					if (frm._powerpack_visible === undefined) {
+						frm._powerpack_visible = r.message.sales_powerup_shown_by_default !== 0;
+						cecypo_powerpack.sales_powerup.update_button_state(frm);
+					}
 
 					if (cecypo_powerpack.sales_powerup.enabled) {
 						cecypo_powerpack.sales_powerup.setup_all_items(frm);
@@ -56,10 +65,7 @@ cecypo_powerpack.sales_powerup = {
 			return;
 		}
 
-		// Check if PowerPack is enabled
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-
-		if (!powerpack_enabled) {
+		if (!frm._powerpack_visible) {
 			return;
 		}
 
@@ -173,45 +179,27 @@ cecypo_powerpack.sales_powerup = {
 		// Remove existing button
 		frm.page.remove_inner_button('PowerUp');
 
-		// Get current state
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-
-		// Add PowerUp button (standalone, not in a group)
 		frm.add_custom_button(__('PowerUp'), function() {
-			// Toggle the state
-			powerpack_enabled = !powerpack_enabled;
+			frm._powerpack_visible = !frm._powerpack_visible;
 
-			// Save state
-			localStorage.setItem('powerpack_enabled', powerpack_enabled);
-
-			// Apply changes immediately
-			if (powerpack_enabled) {
-				// Enable: Refresh to show all features
-				cecypo_powerpack.sales_powerup.check_and_setup(frm);
-				frappe.show_alert({
-					message: __('PowerPack Enabled'),
-					indicator: 'green'
-				});
+			if (frm._powerpack_visible) {
+				cecypo_powerpack.sales_powerup.check_and_setup(frm, true);
+				frappe.show_alert({message: __('PowerPack Enabled'), indicator: 'green'});
 			} else {
-				// Disable: Hide all features
 				$('.sales-item-info').remove();
 				$('.profit-metrics-section').remove();
-				frappe.show_alert({
-					message: __('PowerPack Disabled'),
-					indicator: 'orange'
-				});
+				frappe.show_alert({message: __('PowerPack Disabled'), indicator: 'orange'});
 			}
 
-			// Update button appearance
-			cecypo_powerpack.sales_powerup.update_button_state(frm, powerpack_enabled);
+			cecypo_powerpack.sales_powerup.update_button_state(frm);
 		});
 
-		// Set initial button state
-		cecypo_powerpack.sales_powerup.update_button_state(frm, powerpack_enabled);
+		// State not yet initialised at button-add time; defer to after settings load
+		cecypo_powerpack.sales_powerup.update_button_state(frm);
 	},
 
-	update_button_state: function(frm, enabled) {
-		// Find the PowerUp button and update its appearance
+	update_button_state: function(frm) {
+		const enabled = !!frm._powerpack_visible;
 		const button = frm.page.btn_secondary.find('.btn:contains("PowerUp")');
 		if (button.length > 0) {
 			if (enabled) {
@@ -553,10 +541,9 @@ frappe.ui.form.on('Quotation', {
 
 	// Update profit metrics when taxes change
 	total_taxes_and_charges: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
@@ -564,10 +551,9 @@ frappe.ui.form.on('Quotation', {
 	},
 
 	grand_total: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
@@ -578,8 +564,7 @@ frappe.ui.form.on('Quotation', {
 // Also trigger when items are added or changed
 frappe.ui.form.on('Quotation Item', {
 	item_code: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -593,8 +578,7 @@ frappe.ui.form.on('Quotation Item', {
 	},
 
 	items_add: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -610,8 +594,7 @@ frappe.ui.form.on('Quotation Item', {
 	},
 
 	items_remove: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				// Update profit metrics after removal
@@ -623,8 +606,7 @@ frappe.ui.form.on('Quotation Item', {
 	},
 
 	warehouse: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -640,10 +622,9 @@ frappe.ui.form.on('Quotation Item', {
 	},
 
 	qty: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
@@ -651,10 +632,9 @@ frappe.ui.form.on('Quotation Item', {
 	},
 
 	rate: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 
 			// Update profit indicator for this specific item
@@ -686,18 +666,16 @@ frappe.ui.form.on('Sales Order', {
 		}, 500);
 	},
 	total_taxes_and_charges: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
 		}
 	},
 	grand_total: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
@@ -707,8 +685,7 @@ frappe.ui.form.on('Sales Order', {
 
 frappe.ui.form.on('Sales Order Item', {
 	item_code: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -720,8 +697,7 @@ frappe.ui.form.on('Sales Order Item', {
 		}
 	},
 	items_add: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -735,8 +711,7 @@ frappe.ui.form.on('Sales Order Item', {
 		}
 	},
 	items_remove: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				if (frappe.user.has_role(visible_role)) {
@@ -746,8 +721,7 @@ frappe.ui.form.on('Sales Order Item', {
 		}
 	},
 	warehouse: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -761,18 +735,16 @@ frappe.ui.form.on('Sales Order Item', {
 		}
 	},
 	qty: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
 		}
 	},
 	rate: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
 			if (frappe.user.has_role(visible_role)) {
@@ -800,18 +772,16 @@ frappe.ui.form.on('Sales Invoice', {
 		}, 500);
 	},
 	total_taxes_and_charges: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
 		}
 	},
 	grand_total: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
@@ -821,8 +791,7 @@ frappe.ui.form.on('Sales Invoice', {
 
 frappe.ui.form.on('Sales Invoice Item', {
 	item_code: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -834,8 +803,7 @@ frappe.ui.form.on('Sales Invoice Item', {
 		}
 	},
 	items_add: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -849,8 +817,7 @@ frappe.ui.form.on('Sales Invoice Item', {
 		}
 	},
 	items_remove: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				if (frappe.user.has_role(visible_role)) {
@@ -860,8 +827,7 @@ frappe.ui.form.on('Sales Invoice Item', {
 		}
 	},
 	warehouse: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -875,18 +841,16 @@ frappe.ui.form.on('Sales Invoice Item', {
 		}
 	},
 	qty: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
 		}
 	},
 	rate: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
 			if (frappe.user.has_role(visible_role)) {
@@ -914,18 +878,16 @@ frappe.ui.form.on('POS Invoice', {
 		}, 500);
 	},
 	total_taxes_and_charges: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
 		}
 	},
 	grand_total: function(frm) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
@@ -935,8 +897,7 @@ frappe.ui.form.on('POS Invoice', {
 
 frappe.ui.form.on('POS Invoice Item', {
 	item_code: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -948,8 +909,7 @@ frappe.ui.form.on('POS Invoice Item', {
 		}
 	},
 	items_add: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -963,8 +923,7 @@ frappe.ui.form.on('POS Invoice Item', {
 		}
 	},
 	items_remove: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
 				if (frappe.user.has_role(visible_role)) {
@@ -974,8 +933,7 @@ frappe.ui.form.on('POS Invoice Item', {
 		}
 	},
 	warehouse: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
@@ -989,18 +947,16 @@ frappe.ui.form.on('POS Invoice Item', {
 		}
 	},
 	qty: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled && frappe.user.has_role(visible_role)) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
 			setTimeout(function() {
 				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 			}, 300);
 		}
 	},
 	rate: function(frm, cdt, cdn) {
-		let powerpack_enabled = localStorage.getItem('powerpack_enabled') !== 'false';
 		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && powerpack_enabled) {
+		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
 			const item = locals[cdt][cdn];
 			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
 			if (frappe.user.has_role(visible_role)) {
