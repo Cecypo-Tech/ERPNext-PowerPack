@@ -1604,14 +1604,26 @@ def get_lens_data(item_code: str, customer: str = None, doctype: str = None) -> 
     elif doctype in purchase_doctypes:
         _fetch_purchase_history(result, item_code)
 
-    # Price lists (selling, enabled) — always included
-    result["price_lists"] = frappe.db.sql("""
-        SELECT ip.name AS item_price_name, ip.price_list, ip.price_list_rate AS rate, ip.currency
-        FROM `tabItem Price` ip
-        INNER JOIN `tabPrice List` pl ON ip.price_list = pl.name
-        WHERE ip.item_code = %s AND pl.selling = 1 AND pl.enabled = 1
-        ORDER BY ip.price_list
-    """, (item_code,), as_dict=True)
+    # Price lists: for PR/PI show all enabled lists (LEFT JOIN) so new items can have prices set;
+    # for all other doctypes show only existing selling-price-list entries.
+    if doctype in {"Purchase Receipt", "Purchase Invoice"}:
+        result["price_lists"] = frappe.db.sql("""
+            SELECT ip.name AS item_price_name, pl.name AS price_list,
+                   IFNULL(ip.price_list_rate, 0) AS rate,
+                   IFNULL(ip.currency, pl.currency) AS currency
+            FROM `tabPrice List` pl
+            LEFT JOIN `tabItem Price` ip ON ip.price_list = pl.name AND ip.item_code = %s
+            WHERE pl.enabled = 1
+            ORDER BY pl.name
+        """, (item_code,), as_dict=True)
+    else:
+        result["price_lists"] = frappe.db.sql("""
+            SELECT ip.name AS item_price_name, ip.price_list, ip.price_list_rate AS rate, ip.currency
+            FROM `tabItem Price` ip
+            INNER JOIN `tabPrice List` pl ON ip.price_list = pl.name
+            WHERE ip.item_code = %s AND pl.selling = 1 AND pl.enabled = 1
+            ORDER BY ip.price_list
+        """, (item_code,), as_dict=True)
 
     return result
 
@@ -1703,16 +1715,36 @@ def update_item_prices(updates) -> dict:
     for upd in updates:
         name = upd.get("item_price_name")
         new_rate = upd.get("new_rate")
-        if not name or new_rate is None:
+        item_code = upd.get("item_code")
+        price_list = upd.get("price_list")
+
+        if new_rate is None:
             continue
         try:
             new_rate = float(new_rate)
         except (ValueError, TypeError):
             continue
-        doc = frappe.get_doc("Item Price", name)
-        doc.price_list_rate = new_rate
-        doc.save()
-        updated.append(name)
+        if new_rate <= 0:
+            continue
+
+        if name:
+            doc = frappe.get_doc("Item Price", name)
+            doc.price_list_rate = new_rate
+            doc.save()
+            updated.append(name)
+        elif item_code and price_list:
+            frappe.has_permission("Item Price", "create", throw=True)
+            currency = frappe.db.get_value("Price List", price_list, "currency") or \
+                frappe.defaults.get_defaults().get("currency")
+            doc = frappe.get_doc({
+                "doctype": "Item Price",
+                "item_code": item_code,
+                "price_list": price_list,
+                "price_list_rate": new_rate,
+                "currency": currency,
+            })
+            doc.insert()
+            updated.append(doc.name)
 
     frappe.db.commit()
     return {"updated": updated, "count": len(updated)}

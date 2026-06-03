@@ -188,6 +188,7 @@ cecypo_powerpack.lens = {
 		}
 
 		d.$body.html('<div class="lens-dialog-body">' + html + '</div>');
+		d._lens_item_code = item_doc.item_code;
 
 		self._wire_stock_popover(d, data.stock_by_warehouse);
 		self._wire_price_editing(d, data.price_lists || [], data.valuation_rate || 0);
@@ -330,10 +331,12 @@ cecypo_powerpack.lens = {
 				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
 				if (show_margin) html += '<td class="right">' + margin_str + '</td>';
 				if (show_new_rate) {
+					var has_entry = !!r.item_price_name;
 					html += '<td class="right"><input class="lens-new-rate" type="number" step="any"';
-					html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name) + '"';
+					html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name || '') + '"';
+					html += ' data-price-list="' + frappe.utils.escape_html(r.price_list) + '"';
 					html += ' data-current-rate="' + (r.rate || 0) + '"';
-					html += ' value="' + (r.rate || '') + '"></td>';
+					html += ' value="' + (has_entry && r.rate ? r.rate : '') + '"></td>';
 					if (show_margin) {
 						html += '<td class="right"><span class="lens-new-margin" data-valuation="' + valuation_rate + '">' + margin_str + '</span></td>';
 					}
@@ -365,12 +368,19 @@ cecypo_powerpack.lens = {
 
 	_save_prices: function(d, price_lists) {
 		var updates = [];
+		var item_code = d._lens_item_code;
 		d.$body.find('.lens-new-rate').each(function() {
 			var new_rate = parseFloat($(this).val());
-			var current_rate = parseFloat($(this).data('current-rate'));
+			if (isNaN(new_rate) || new_rate <= 0) return;
+			var current_rate = parseFloat($(this).data('current-rate')) || 0;
 			var name = $(this).data('item-price-name');
-			if (name && !isNaN(new_rate) && new_rate !== current_rate) {
-				updates.push({item_price_name: name, new_rate: new_rate});
+			var price_list = $(this).data('price-list');
+			if (name) {
+				if (new_rate !== current_rate) {
+					updates.push({item_price_name: name, new_rate: new_rate});
+				}
+			} else if (price_list && item_code) {
+				updates.push({item_code: item_code, price_list: price_list, new_rate: new_rate});
 			}
 		});
 
