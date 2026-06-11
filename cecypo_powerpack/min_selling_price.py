@@ -92,28 +92,23 @@ def validate_min_selling_price(doc, method=None):
 			continue
 		floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
 		if flt(item.base_net_rate) < floor:
-			_handle_violation(item, item_group, basis, percent, floor, override_role, can_override)
+			_handle_violation(item, floor, can_override)
 
 
-def _handle_violation(item, item_group, basis, percent, floor, override_role, can_override):
-	message = _(
-		"Row #{0}: Selling rate for item {1} is below the minimum for item group {2} "
-		"({3}, {4}%). Net selling rate should be at least {5}."
-	).format(
-		item.idx,
-		frappe.bold(item.item_name or item.item_code),
-		frappe.bold(item_group),
-		basis,
-		f"{flt(percent):+g}",
-		frappe.bold(floor),
-	)
+def _handle_violation(item, floor, can_override):
+	# Deliberately does NOT reveal the basis (valuation/last purchase) or the margin %,
+	# so staff cannot back-calculate cost from the message. Only the floor is shown.
+	title = _("Powerpack Restrictions")
 	if can_override:
 		frappe.msgprint(
-			message + " " + _("Allowed because you have the {0} role.").format(frappe.bold(override_role)),
-			title=_("Below Minimum Selling Price"),
+			_("Row #{0}: Net selling rate is below {1} — allowed by your role.").format(
+				item.idx, frappe.bold(floor)
+			),
+			title=title,
 			indicator="orange",
 		)
 		return
-	if override_role:
-		message += "<br><br>" + _("Users with the {0} role can override this.").format(frappe.bold(override_role))
-	frappe.throw(message, title=_("Below Minimum Selling Price"))
+	frappe.throw(
+		_("Row #{0}: Net selling rate should be at least {1}.").format(item.idx, frappe.bold(floor)),
+		title=title,
+	)
