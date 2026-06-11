@@ -250,3 +250,38 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
 		dn = create_delivery_note(item_code="_MSP Item", qty=1, rate=105, do_not_save=True)
 		self.assertRaises(frappe.ValidationError, dn.save)
+
+
+class TestPowerPackSettingsTabs(FrappeTestCase):
+	EXPECTED_TABS = ["appearance_tab", "sales_pos_tab", "items_tab", "system_tab"]
+
+	def test_four_tabs_present_in_order(self):
+		meta = frappe.get_meta("PowerPack Settings")
+		tab_order = [df.fieldname for df in meta.fields if df.fieldtype == "Tab Break"]
+		self.assertEqual(tab_order, self.EXPECTED_TABS)
+
+	def test_no_fields_lost_and_new_section_in_sales_tab(self):
+		import json
+		import os
+
+		import cecypo_powerpack
+
+		path = os.path.join(
+			os.path.dirname(cecypo_powerpack.__file__),
+			"cecypo_powerpack", "doctype", "powerpack_settings", "powerpack_settings.json",
+		)
+		d = json.load(open(path))
+		fo = d["field_order"]
+		# No duplicates; field_order matches fields set.
+		self.assertEqual(len(fo), len(set(fo)))
+		self.assertEqual(set(fo), {f["fieldname"] for f in d["fields"]})
+		# A representative field from every original section still present.
+		for fn in ("enable_compact_theme", "enable_pos_powerup", "enable_quick_pay",
+				   "enable_min_selling_price", "enable_lens", "enable_item_list_powerup",
+				   "enable_payment_reconciliation_powerup", "prevent_etr_invoice_cancellation"):
+			self.assertIn(fn, fo)
+		# Min Selling Price section sits between the Sales & POS tab and the Items tab.
+		i_sales = fo.index("sales_pos_tab")
+		i_items = fo.index("items_tab")
+		self.assertLess(i_sales, fo.index("min_selling_price_section"))
+		self.assertLess(fo.index("min_selling_price_section"), i_items)
