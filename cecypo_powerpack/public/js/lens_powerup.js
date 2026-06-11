@@ -64,23 +64,9 @@ cecypo_powerpack.lens = {
 			cecypo_powerpack.lens.open(frm, item_doc);
 		});
 
-		// Sit next to Frappe's .link-btn inside the item_name/item_code cell
-		var data_row = grid_row.wrapper.find('.data-row').first();
-		var target = data_row.find('[data-fieldname="item_name"]').first();
-		if (!target.length) target = data_row.find('[data-fieldname="item_code"]').first();
-		if (target.length) {
-			var link_btn = target.find('.link-btn').first();
-			if (link_btn.length) {
-				btn.insertBefore(link_btn);
-			} else {
-				target.css('position', 'relative');
-				target.append(btn);
-			}
-		} else {
-			// Fallback: after edit button
-			var open_btn = grid_row.wrapper.find('.btn-open-row').first();
-			if (open_btn.length) btn.insertAfter(open_btn);
-		}
+		// Sit just left of the pencil edit button in the last column
+		var open_btn = grid_row.wrapper.find('.btn-open-row').first();
+		if (open_btn.length) btn.insertBefore(open_btn);
 	},
 
 	open: function(frm, item_doc) {

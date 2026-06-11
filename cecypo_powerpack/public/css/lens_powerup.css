@@ -1,22 +1,20 @@
-/* ── Lens icon button — sits just left of Frappe's .link-btn, same hover reveal ── */
+/* ── Lens icon button — sits just left of the pencil edit button, same hover reveal ── */
 .lens-icon-btn {
-	position: absolute;
-	right: 22px;   /* link-btn sits at right:0 and is ~20px wide */
-	top: 50%;
-	transform: translateY(-50%);
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	width: 20px;
 	height: 20px;
 	padding: 0;
+	margin-right: 2px;
 	background: transparent;
 	border: none;
 	cursor: pointer;
 	opacity: 0;
 	color: var(--text-muted, #888);
-	z-index: 2;
 	transition: opacity 0.15s;
+	vertical-align: middle;
+	flex-shrink: 0;
 }
 
 .grid-row:hover .lens-icon-btn {
