@@ -43,3 +43,46 @@ class TestMinSellingPriceSettings(FrappeTestCase):
 		s.save()
 		frappe.clear_cache(doctype="PowerPack Settings")
 		self.assertFalse(is_feature_enabled("enable_min_selling_price"))
+
+
+class TestMinSellingPriceLogic(FrappeTestCase):
+	def test_compute_floor_positive(self):
+		from cecypo_powerpack.min_selling_price import compute_floor
+
+		self.assertEqual(compute_floor(100, 10, 2), 110.0)
+
+	def test_compute_floor_negative(self):
+		from cecypo_powerpack.min_selling_price import compute_floor
+
+		self.assertEqual(compute_floor(100, -10, 2), 90.0)
+
+	def test_pick_rule_exact_match(self):
+		from cecypo_powerpack.min_selling_price import pick_rule
+
+		rules = {"Phones": ("Valuation Rate", 10.0)}
+		chain = ["Phones", "Electronics", "All Item Groups"]
+		self.assertEqual(pick_rule(chain, rules, "Valuation Rate", 0), ("Valuation Rate", 10.0))
+
+	def test_pick_rule_inherits_from_ancestor(self):
+		from cecypo_powerpack.min_selling_price import pick_rule
+
+		rules = {"Electronics": ("Last Purchase Rate", -5.0)}
+		chain = ["Phones", "Electronics", "All Item Groups"]
+		self.assertEqual(pick_rule(chain, rules, "Valuation Rate", 0), ("Last Purchase Rate", -5.0))
+
+	def test_pick_rule_most_specific_wins(self):
+		from cecypo_powerpack.min_selling_price import pick_rule
+
+		rules = {"Phones": ("Valuation Rate", 10.0), "Electronics": ("Valuation Rate", 99.0)}
+		chain = ["Phones", "Electronics", "All Item Groups"]
+		self.assertEqual(pick_rule(chain, rules, "Valuation Rate", 0), ("Valuation Rate", 10.0))
+
+	def test_pick_rule_falls_back_to_default(self):
+		from cecypo_powerpack.min_selling_price import pick_rule
+
+		self.assertEqual(pick_rule(["Toys"], {}, "Valuation Rate", 8), ("Valuation Rate", 8.0))
+
+	def test_pick_rule_zero_default_defers(self):
+		from cecypo_powerpack.min_selling_price import pick_rule
+
+		self.assertIsNone(pick_rule(["Toys"], {}, "Valuation Rate", 0))
