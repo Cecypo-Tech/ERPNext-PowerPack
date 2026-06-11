@@ -1,4 +1,6 @@
-# cecypo_powerpack/tests/test_email_group_powerup.py
+# Copyright (c) 2026, Cecypo.Tech and contributors
+# For license information, please see license.txt
+
 import unittest
 from unittest.mock import MagicMock, patch
 
