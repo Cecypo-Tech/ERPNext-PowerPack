@@ -86,3 +86,64 @@ class TestMinSellingPriceLogic(FrappeTestCase):
 		from cecypo_powerpack.min_selling_price import pick_rule
 
 		self.assertIsNone(pick_rule(["Toys"], {}, "Valuation Rate", 0))
+
+
+class TestMinSellingPriceValidation(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		# Item Group tree: _MSP Parent (group) > _MSP Child (leaf, holds items)
+		for name, parent, is_group in (("_MSP Parent", "All Item Groups", 1), ("_MSP Child", "_MSP Parent", 0)):
+			if not frappe.db.exists("Item Group", name):
+				frappe.get_doc({
+					"doctype": "Item Group",
+					"item_group_name": name,
+					"parent_item_group": parent,
+					"is_group": is_group,
+				}).insert()
+
+		from erpnext.stock.doctype.item.test_item import make_item
+
+		make_item("_MSP Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
+		# Set cost fields directly so they persist regardless of field read-only rules.
+		frappe.db.set_value("Item", "_MSP Item", {"valuation_rate": 100, "last_purchase_rate": 100})
+		frappe.clear_cache(doctype="Item")
+
+	def setUp(self):
+		# Isolate from native ERPNext check so our feature is the sole authority.
+		frappe.db.set_single_value("Selling Settings", "validate_selling_price", 0)
+
+	def _configure(self, enable=1, default_basis="Valuation Rate", default_pct=0,
+					override_role=None, rules=None):
+		s = frappe.get_single("PowerPack Settings")
+		s.enable_min_selling_price = enable
+		s.min_selling_price_default_basis = default_basis
+		s.min_selling_price_default_percent = default_pct
+		s.min_selling_price_override_role = override_role
+		s.set("min_selling_price_rules", [])
+		for row in (rules or []):
+			s.append("min_selling_price_rules", row)
+		s.save()
+		frappe.clear_cache(doctype="PowerPack Settings")
+
+	def _make_so(self, rate):
+		from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
+
+		return make_sales_order(item_code="_MSP Item", qty=1, rate=rate, do_not_save=True)
+
+	def test_positive_floor_blocks_below(self):
+		# +10% of valuation 100 -> floor 110; rate 105 must be blocked.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		self.assertRaises(frappe.ValidationError, self._make_so(105).save)
+
+	def test_positive_floor_allows_at_or_above(self):
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		so = self._make_so(115)
+		so.save()  # must not raise
+		self.assertTrue(so.name)
+
+	def test_disabled_feature_does_not_block(self):
+		self._configure(enable=0, rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		so = self._make_so(1)
+		so.save()  # must not raise
+		self.assertTrue(so.name)

@@ -199,11 +199,22 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"Quotation": {
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+	},
+	"Sales Order": {
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+	},
 	"Sales Invoice": {
-		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation"
+		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation",
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
 	},
 	"POS Invoice": {
-		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation"
+		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation",
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+	},
+	"Delivery Note": {
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
 	},
 	"Payment Reconciliation": {
 		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
