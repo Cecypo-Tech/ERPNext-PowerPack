@@ -147,3 +147,106 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		so = self._make_so(1)
 		so.save()  # must not raise
 		self.assertTrue(so.name)
+
+	def test_negative_floor_allows_below_cost_within_tolerance(self):
+		# -10% of valuation 100 -> floor 90; rate 95 is below cost but allowed.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -10}])
+		so = self._make_so(95)
+		so.save()  # must not raise
+		self.assertTrue(so.name)
+
+	def test_negative_floor_blocks_below_tolerance(self):
+		# -10% -> floor 90; rate 85 is below the floor and must be blocked.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -10}])
+		self.assertRaises(frappe.ValidationError, self._make_so(85).save)
+
+	def test_zero_percent_rule_defers(self):
+		# 0% rule is ignored -> with native off, nothing blocks even at rate 1.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 0}])
+		so = self._make_so(1)
+		so.save()
+		self.assertTrue(so.name)
+
+	def test_tree_inheritance_from_parent(self):
+		# Rule on parent group applies to item in child group.
+		self._configure(rules=[{"item_group": "_MSP Parent", "basis": "Valuation Rate", "floor_percent": 10}])
+		self.assertRaises(frappe.ValidationError, self._make_so(105).save)
+
+	def test_child_rule_overrides_parent(self):
+		# Parent +50% (floor 150) but child -10% (floor 90); rate 95 allowed.
+		self._configure(rules=[
+			{"item_group": "_MSP Parent", "basis": "Valuation Rate", "floor_percent": 50},
+			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -10},
+		])
+		so = self._make_so(95)
+		so.save()
+		self.assertTrue(so.name)
+
+	def test_global_default_applies_without_rule(self):
+		self._configure(default_basis="Valuation Rate", default_pct=10, rules=[])
+		self.assertRaises(frappe.ValidationError, self._make_so(105).save)
+
+	def test_last_purchase_rate_basis(self):
+		# last_purchase_rate 100, +10% -> floor 110; rate 105 blocked.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Last Purchase Rate", "floor_percent": 10}])
+		self.assertRaises(frappe.ValidationError, self._make_so(105).save)
+
+	def test_override_role_allows_save(self):
+		role = "_MSP Override Role"
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role}).insert()
+		test_user = "msp_override@example.com"
+		if not frappe.db.exists("User", test_user):
+			user = frappe.get_doc({
+				"doctype": "User", "email": test_user, "first_name": "MSP",
+				"roles": [{"role": role}, {"role": "Sales User"}, {"role": "System Manager"}],
+			})
+			user.insert()
+		self._configure(override_role=role,
+						rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		frappe.set_user(test_user)
+		try:
+			so = self._make_so(105)
+			so.save()  # below floor, but override role -> allowed
+			self.assertTrue(so.name)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_free_item_skipped(self):
+		# Direct call with a free-item line: our validation must skip it (no raise).
+		from cecypo_powerpack.min_selling_price import validate_min_selling_price
+
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		item = frappe._dict({
+			"item_code": "_MSP Item", "item_name": "_MSP Item", "item_group": "_MSP Child",
+			"idx": 1, "is_free_item": 1, "base_net_rate": 0, "conversion_factor": 1,
+		})
+		validate_min_selling_price(frappe._dict({"doctype": "Sales Order", "items": [item]}))
+
+	def test_returns_and_internal_customers_skipped(self):
+		# Both flags make the validation return early before touching any line.
+		from cecypo_powerpack.min_selling_price import validate_min_selling_price
+
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		item = frappe._dict({
+			"item_code": "_MSP Item", "item_name": "_MSP Item", "item_group": "_MSP Child",
+			"idx": 1, "base_net_rate": 1, "conversion_factor": 1,
+		})
+		validate_min_selling_price(frappe._dict({"doctype": "Sales Invoice", "is_return": 1, "items": [item]}))
+		validate_min_selling_price(frappe._dict({"doctype": "Sales Invoice", "is_internal_customer": 1, "items": [item]}))
+
+	def test_all_target_doctypes_wired(self):
+		from cecypo_powerpack.min_selling_price import TARGET_DOCTYPES
+
+		handler = "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+		doc_events = frappe.get_hooks("doc_events")
+		for dt in TARGET_DOCTYPES:
+			validators = (doc_events.get(dt) or {}).get("validate") or []
+			self.assertIn(handler, validators, f"{dt} not wired")
+
+	def test_delivery_note_enforced(self):
+		from erpnext.stock.doctype.delivery_note.test_delivery_note import create_delivery_note
+
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		dn = create_delivery_note(item_code="_MSP Item", qty=1, rate=105, do_not_save=True)
+		self.assertRaises(frappe.ValidationError, dn.save)
