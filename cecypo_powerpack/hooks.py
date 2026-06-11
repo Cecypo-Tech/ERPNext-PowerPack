@@ -62,7 +62,10 @@ doctype_js = {
     "Sales Order": [
         "public/js/quick_pay.js",
         "public/js/quick_pay_mpesa.js",
-    ]
+    ],
+    "Email Group": [
+        "public/js/email_group_powerup.js",
+    ],
 }
 
 # Svg Icons
