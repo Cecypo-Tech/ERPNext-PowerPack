@@ -582,7 +582,7 @@
    "description": "Applied to item groups without an override. + = margin, \u2212 = allowed below cost, 0/blank = defer to ERPNext.",
    "fieldname": "min_selling_price_default_percent",
    "fieldtype": "Float",
-   "label": "Global Default Floor % (signed)"
+   "label": "Global Default Floor %"
   },
   {
    "fieldname": "min_selling_price_override_role",

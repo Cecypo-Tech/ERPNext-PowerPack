@@ -30,7 +30,7 @@
    "fieldname": "floor_percent",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Floor % (signed)"
+   "label": "Floor %"
   }
  ],
  "index_web_pages_for_search": 1,
