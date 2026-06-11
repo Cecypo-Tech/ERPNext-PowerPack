@@ -104,3 +104,29 @@ def build_sales_invoice(so_doc, *, update_stock: int = 0):
 	# allocated to the SO.
 	si.set_advances()
 	return si
+
+
+def sync_so_party_fields(si_doc, so_doc) -> None:
+	"""Restore SO's tax_id / customer_name into the SI right after insert.
+
+	ERPNext's set_missing_values → get_party_details resets these two fields
+	from the Customer master during every validate() call (which runs inside
+	both insert and submit).  Any values deliberately set on the SO by a
+	"Before Submit" server script (e.g. copying custom_pin_cash → tax_id) are
+	therefore lost before the SI ever hits the database.
+
+	Site-level "Before Submit" scripts on Sales Invoice will re-apply the same
+	logic from the SI's own custom fields when the invoice is eventually
+	submitted, so the submitted copy stays correct.  This function ensures the
+	*draft* SI also reflects the SO's intent immediately after Quick Pay
+	creates it, without waiting for submission.
+	"""
+	updates: dict = {}
+	if so_doc.tax_id and so_doc.tax_id != (si_doc.tax_id or ""):
+		updates["tax_id"] = so_doc.tax_id
+		si_doc.tax_id = so_doc.tax_id
+	if so_doc.customer_name and so_doc.customer_name != (si_doc.customer_name or ""):
+		updates["customer_name"] = so_doc.customer_name
+		si_doc.customer_name = so_doc.customer_name
+	if updates:
+		frappe.db.set_value("Sales Invoice", si_doc.name, updates, update_modified=False)

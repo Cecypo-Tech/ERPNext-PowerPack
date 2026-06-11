@@ -61,6 +61,65 @@ def get_payment_modes(company: str) -> dict:
 
 
 @frappe.whitelist()
+def get_unallocated_payments(customer: str, company: str) -> list[dict]:
+	"""Return submitted Payment Entries for the customer that have unallocated amounts."""
+	validators.assert_quick_pay_enabled("cash")
+	if not customer or not company:
+		return []
+	return frappe.get_all(
+		"Payment Entry",
+		filters={
+			"party_type": "Customer",
+			"party": customer,
+			"docstatus": 1,
+			"payment_type": "Receive",
+			"unallocated_amount": [">", 0],
+			"company": company,
+		},
+		fields=["name", "posting_date", "mode_of_payment", "paid_amount", "unallocated_amount", "remarks"],
+		order_by="posting_date asc",
+	)
+
+
+def _apply_credit_to_so(pe_name: str, so_doc, amount: float, precision: int) -> dict | None:
+	"""Cancel+amend an unallocated Payment Entry to add an allocation to the Sales Order."""
+	pe = frappe.get_doc("Payment Entry", pe_name)
+	if pe.docstatus != 1:
+		frappe.throw(_("Payment Entry {0} is not submitted").format(pe_name))
+	if pe.party_type != "Customer" or pe.party != so_doc.customer:
+		frappe.throw(_("Payment Entry {0} does not belong to this customer").format(pe_name))
+
+	unalloc = float(pe.unallocated_amount or 0)
+	if unalloc <= 0:
+		return None
+
+	allocated = validators.cap_allocation(amount, unalloc, precision)
+	if allocated <= 0:
+		return None
+
+	pe.cancel()
+
+	amended = frappe.copy_doc(pe)
+	amended.docstatus = 0
+	amended.amended_from = pe.name
+	amended.append(
+		"references",
+		{
+			"reference_doctype": "Sales Order",
+			"reference_name": so_doc.name,
+			"allocated_amount": allocated,
+			"due_date": so_doc.delivery_date or frappe.utils.nowdate(),
+			"total_amount": float(so_doc.grand_total),
+			"outstanding_amount": float(so_doc.grand_total) - float(so_doc.advance_paid),
+		},
+	)
+	amended.insert(ignore_permissions=True)
+	amended.submit()
+
+	return {"original_pe": pe_name, "amended_pe": amended.name, "amount": allocated}
+
+
+@frappe.whitelist()
 def process_quick_pay(
 	sales_order: str,
 	customer: str,
@@ -69,6 +128,7 @@ def process_quick_pay(
 	create_invoice: int = 0,
 	submit_invoice: int = 0,
 	idempotency_token: str = "",
+	credits_json: str = "",
 ) -> dict:
 	"""Process Cash/Bank/Card payments against a Sales Order, optionally
 	creating + submitting a Sales Invoice afterwards."""
@@ -104,9 +164,26 @@ def process_quick_pay(
 	remaining = actual_outstanding
 
 	payment_entries: list[dict] = []
+	credits_applied: list[dict] = []
 	cash_tendered = 0.0  # raw amount the customer hands over (may exceed outstanding)
 	cash_allocated = 0.0  # portion of cash actually applied to the balance
 	total_paid = 0.0
+
+	# Apply unallocated payments (credits) first, before processing new payments.
+	if credits_json:
+		credits = _json.loads(credits_json)
+		for c in credits:
+			c_pe = c.get("pe_name")
+			c_amt = float(c.get("amount") or 0)
+			if not c_pe or c_amt <= 0 or remaining <= 0:
+				continue
+			result = _apply_credit_to_so(c_pe, so, min(c_amt, remaining), precision)
+			if result:
+				credits_applied.append(result)
+				total_paid += result["amount"]
+				remaining = validators.normalize_amount(remaining - result["amount"], precision)
+		if credits_applied:
+			so.reload()
 
 	for p in payments:
 		p_type = p.get("type")
@@ -149,7 +226,7 @@ def process_quick_pay(
 		total_paid += allocated
 		remaining = validators.normalize_amount(remaining - allocated, precision)
 
-	if not payment_entries:
+	if not payment_entries and not credits_applied:
 		frappe.throw(_("No valid payments could be created"))
 
 	change_amount = max(0.0, cash_tendered - cash_allocated)
@@ -157,6 +234,7 @@ def process_quick_pay(
 	result = {
 		"success": True,
 		"payment_entries": payment_entries,
+		"credits_applied": credits_applied,
 		"total_paid": total_paid,
 		"change_amount": change_amount,
 	}
@@ -165,6 +243,7 @@ def process_quick_pay(
 		so.reload()
 		si = builders.build_sales_invoice(so, update_stock=update_stock)
 		si.insert(ignore_permissions=True)
+		builders.sync_so_party_fields(si, so)
 		if submit_invoice:
 			si.submit()
 		result["sales_invoice"] = {
@@ -349,6 +428,7 @@ def process_mpesa_quick_pay(
 		so.reload()
 		si = builders.build_sales_invoice(so, update_stock=update_stock)
 		si.insert(ignore_permissions=True)
+		builders.sync_so_party_fields(si, so)
 		if submit_invoice:
 			si.submit()
 		result["sales_invoice"] = {"name": si.name, "submitted": si.docstatus == 1}

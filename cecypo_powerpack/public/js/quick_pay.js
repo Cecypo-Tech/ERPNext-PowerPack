@@ -91,6 +91,7 @@ function show_quick_pay_dialog(frm) {
 		size: 'large',
 		fields: [
 			{ fieldtype: 'HTML', fieldname: 'payment_summary', options: get_summary_html(frm, outstanding) },
+			{ fieldtype: 'HTML', fieldname: 'credits_container' },
 			{ fieldtype: 'Section Break', label: __('Payments') },
 			{ fieldtype: 'HTML', fieldname: 'payments_container' },
 			{ fieldtype: 'Section Break' },
@@ -105,6 +106,7 @@ function show_quick_pay_dialog(frm) {
 	});
 
 	dialog.payments = [];
+	dialog.credits = [];
 	dialog.outstanding = outstanding;
 	dialog.currency = frm.doc.currency;
 	dialog.company = frm.doc.company;
@@ -124,16 +126,34 @@ function show_quick_pay_dialog(frm) {
 	dialog.show();
 
 	dialog.fields_dict.payments_container.$wrapper.html(
-		`<div class="text-center text-muted p-3"><i class="fa fa-spinner fa-spin"></i> ${__('Loading payment methods...')}</div>`
+		`<div class="text-center text-muted p-3"><i class="fa fa-spinner fa-spin"></i> ${__('Loading...')}</div>`
 	);
+
+	// Load payment modes and unallocated credits in parallel.
+	let modes_loaded = false, credits_loaded = false;
+	function on_data_ready() {
+		if (!modes_loaded || !credits_loaded) return;
+		render_payments_container(dialog, frm);
+		update_payment_totals(dialog);
+	}
 
 	frappe.call({
 		method: 'cecypo_powerpack.quick_pay.api.get_payment_modes',
 		args: { company: frm.doc.company },
 		callback(r) {
 			dialog.available_modes = r.message || {};
-			render_payments_container(dialog, frm);
-			update_payment_totals(dialog);
+			modes_loaded = true;
+			on_data_ready();
+		}
+	});
+
+	frappe.call({
+		method: 'cecypo_powerpack.quick_pay.api.get_unallocated_payments',
+		args: { customer: frm.doc.customer, company: frm.doc.company },
+		callback(r) {
+			render_credits_container(dialog, frm, r.message || []);
+			credits_loaded = true;
+			on_data_ready();
 		}
 	});
 }
@@ -199,6 +219,81 @@ function render_payments_container(dialog, frm) {
 	wrapper.find('.qp-add-btn').on('click', function() {
 		add_payment_row(dialog, $(this).data('type'), frm);
 	});
+}
+
+function render_credits_container(dialog, frm, raw_credits) {
+	const wrapper = dialog.fields_dict.credits_container.$wrapper;
+
+	if (!raw_credits || !raw_credits.length) {
+		wrapper.html('');
+		return;
+	}
+
+	// Auto-fill apply_amount: oldest first, cap to remaining outstanding.
+	let need = dialog.outstanding;
+	dialog.credits = raw_credits.map(c => {
+		const avail = flt(c.unallocated_amount);
+		const apply = Math.min(avail, need);
+		need = Math.max(0, need - apply);
+		return {
+			pe_name: c.name,
+			posting_date: c.posting_date,
+			mode_of_payment: c.mode_of_payment || '',
+			remarks: c.remarks || '',
+			available_amount: avail,
+			apply_amount: apply,
+			checked: apply > 0,
+		};
+	});
+
+	const rows_html = dialog.credits.map(c => `
+		<div class="qp-credit-row" data-credit="${c.pe_name}">
+			<input type="checkbox" class="qp-credit-check" ${c.checked ? 'checked' : ''} style="flex-shrink:0;width:15px;height:15px;margin-top:1px;">
+			<div class="qp-credit-info">
+				<div class="qp-credit-name">
+					<a href="/app/payment-entry/${c.pe_name}" target="_blank">${c.pe_name}</a>
+					<span class="text-muted"> · ${c.mode_of_payment}</span>
+				</div>
+				<div class="qp-credit-meta">${frappe.datetime.str_to_user(c.posting_date)}${c.remarks ? ' · ' + c.remarks.substring(0, 60) : ''}</div>
+			</div>
+			<div class="qp-credit-amount-col">
+				<input type="number" class="form-control qp-credit-apply-input"
+					value="${c.apply_amount}" min="0" max="${c.available_amount}" step="0.01"
+					${c.checked ? '' : 'disabled'}>
+				<div class="qp-credit-avail">${__('of')} ${format_currency(c.available_amount, dialog.currency)} ${__('available')}</div>
+			</div>
+		</div>
+	`).join('');
+
+	wrapper.html(`
+		<div class="qp-credits-section">
+			<div class="qp-credit-header">
+				<i class="fa fa-check-circle"></i>
+				<span>${__('Available Credits')}</span>
+				<small class="text-muted">&nbsp;— ${__('unallocated payments for this customer')}</small>
+			</div>
+			${rows_html}
+		</div>
+	`);
+
+	// Wire up events.
+	dialog.credits.forEach(c => {
+		const $row = wrapper.find(`[data-credit="${c.pe_name}"]`);
+		$row.find('.qp-credit-check').on('change', function () {
+			c.checked = $(this).is(':checked');
+			$row.find('.qp-credit-apply-input').prop('disabled', !c.checked);
+			update_payment_totals(dialog);
+		});
+		$row.find('.qp-credit-apply-input').on('input change', function () {
+			c.apply_amount = Math.min(flt($(this).val()), c.available_amount);
+			update_payment_totals(dialog);
+		});
+	});
+}
+
+function get_credits_applied_total(dialog) {
+	if (!dialog.credits || !dialog.credits.length) return 0;
+	return dialog.credits.filter(c => c.checked).reduce((sum, c) => sum + flt(c.apply_amount), 0);
 }
 
 function add_payment_row(dialog, type, frm) {
@@ -312,15 +407,17 @@ function update_cash_change($row, cash_amount, dialog) {
 
 function update_payment_totals(dialog) {
 	const wrapper = dialog.fields_dict.payment_totals.$wrapper;
-	const total_allocated = dialog.payments.reduce((sum, p) => sum + flt(p.amount), 0);
-	const remaining = dialog.outstanding - total_allocated;
+	const credits_total = get_credits_applied_total(dialog);
+	const new_payments_total = dialog.payments.reduce((sum, p) => sum + flt(p.amount), 0);
+	const total_covered = credits_total + new_payments_total;
+	const remaining = dialog.outstanding - total_covered;
 
 	const cash_payment = dialog.payments.find(p => p.type === 'Cash');
 	const non_cash_total = dialog.payments.filter(p => p.type !== 'Cash').reduce((sum, p) => sum + flt(p.amount), 0);
-	const cash_needed = dialog.outstanding - non_cash_total;
+	const cash_needed = Math.max(0, dialog.outstanding - credits_total - non_cash_total);
 	const change = cash_payment ? Math.max(0, flt(cash_payment.amount) - cash_needed) : 0;
 
-	const overpayment = total_allocated > dialog.outstanding && !cash_payment;
+	const overpayment = new_payments_total > (dialog.outstanding - credits_total) && !cash_payment && credits_total < dialog.outstanding;
 	const fully_paid = remaining <= 0;
 
 	if (dialog.create_invoice && fully_paid) {
@@ -330,11 +427,16 @@ function update_payment_totals(dialog) {
 		dialog.set_df_property('invoice_section', 'hidden', 1);
 	}
 
+	const credits_item = credits_total > 0
+		? `<div class="qp-total-item"><span>${__('Credits Applied')}</span><strong class="text-success">${format_currency(credits_total, dialog.currency)}</strong></div>`
+		: '';
+
 	wrapper.html(`
 		<div class="qp-totals-bar ${overpayment ? 'qp-overpayment' : ''}">
+			${credits_item}
 			<div class="qp-total-item">
-				<span>${__('Total Allocated')}</span>
-				<strong class="${total_allocated >= dialog.outstanding ? 'text-success' : ''}">${format_currency(Math.min(total_allocated, dialog.outstanding), dialog.currency)}</strong>
+				<span>${__('Total Covered')}</span>
+				<strong class="${total_covered >= dialog.outstanding ? 'text-success' : ''}">${format_currency(Math.min(total_covered, dialog.outstanding), dialog.currency)}</strong>
 			</div>
 			<div class="qp-total-item">
 				<span>${__('Remaining')}</span>
@@ -375,12 +477,17 @@ function render_invoice_options(dialog) {
 }
 
 function get_remaining_balance(dialog) {
-	return Math.max(0, dialog.outstanding - dialog.payments.reduce((sum, p) => sum + flt(p.amount), 0));
+	const credits = get_credits_applied_total(dialog);
+	return Math.max(0, dialog.outstanding - credits - dialog.payments.reduce((sum, p) => sum + flt(p.amount), 0));
 }
 
 function process_all_payments(frm, dialog, outstanding) {
-	if (!dialog.payments.length) {
-		frappe.msgprint(__('Please add at least one payment'));
+	const active_credits = (dialog.credits || []).filter(c => c.checked && flt(c.apply_amount) > 0);
+	const credits_total = get_credits_applied_total(dialog);
+	const remaining_after_credits = Math.max(0, outstanding - credits_total);
+
+	if (!dialog.payments.length && !active_credits.length) {
+		frappe.msgprint(__('Please add at least one payment or apply a credit'));
 		return;
 	}
 
@@ -406,6 +513,10 @@ function process_all_payments(frm, dialog, outstanding) {
 				mode_of_payment: p.mode_of_payment || p.type,
 				reference: p.reference || ''
 			}))),
+			credits_json: JSON.stringify(active_credits.map(c => ({
+				pe_name: c.pe_name,
+				amount: c.apply_amount,
+			}))),
 			outstanding_amount: outstanding,
 			create_invoice: dialog.create_invoice ? 1 : 0,
 			submit_invoice: dialog.submit_invoice ? 1 : 0,
@@ -417,11 +528,25 @@ function process_all_payments(frm, dialog, outstanding) {
 			if (r.message && r.message.success) {
 				dialog.hide();
 
-				let msg = `<p><strong>${__('Payments Processed Successfully')}</strong></p><ul>`;
-				for (const pe of (r.message.payment_entries || [])) {
-					msg += `<li>${pe.type}: ${format_currency(pe.amount, frm.doc.currency)} - <a href="/app/payment-entry/${pe.name}" target="_blank">${pe.name}</a></li>`;
+				let msg = '';
+
+				const credits_applied = r.message.credits_applied || [];
+				if (credits_applied.length) {
+					msg += `<p><strong>${__('Credits Applied')}</strong></p><ul>`;
+					for (const c of credits_applied) {
+						msg += `<li>${format_currency(c.amount, frm.doc.currency)} — <a href="/app/payment-entry/${c.amended_pe}" target="_blank">${c.amended_pe}</a></li>`;
+					}
+					msg += `</ul>`;
 				}
-				msg += `</ul>`;
+
+				const payment_entries = r.message.payment_entries || [];
+				if (payment_entries.length) {
+					msg += `<p><strong>${__('New Payments')}</strong></p><ul>`;
+					for (const pe of payment_entries) {
+						msg += `<li>${pe.type}: ${format_currency(pe.amount, frm.doc.currency)} — <a href="/app/payment-entry/${pe.name}" target="_blank">${pe.name}</a></li>`;
+					}
+					msg += `</ul>`;
+				}
 
 				if (r.message.change_amount > 0) {
 					msg += `<p class="mt-3"><strong style="font-size:1.3em;color:#22c55e;">${__('Change Due')}: ${format_currency(r.message.change_amount, frm.doc.currency)}</strong></p>`;
