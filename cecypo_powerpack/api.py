@@ -1673,31 +1673,67 @@ def _fetch_sales_history(result: dict, item_code: str, customer: str) -> None:
 
 
 def _fetch_purchase_history(result: dict, item_code: str) -> None:
-    result["purchase_history"] = frappe.db.sql("""
-        SELECT combined.name, combined.posting_date, combined.qty,
-               combined.rate, combined.supplier, combined.source_doctype
-        FROM (
-            SELECT po.name, po.transaction_date AS posting_date, poi.qty, poi.rate,
-                   po.supplier, 'Purchase Order' AS source_doctype
-            FROM `tabPurchase Order Item` poi
-            INNER JOIN `tabPurchase Order` po ON poi.parent = po.name
-            WHERE poi.item_code = %s AND po.docstatus = 1
-            UNION ALL
-            SELECT pr.name, pr.posting_date, pri.qty, pri.rate,
-                   pr.supplier, 'Purchase Receipt' AS source_doctype
-            FROM `tabPurchase Receipt Item` pri
-            INNER JOIN `tabPurchase Receipt` pr ON pri.parent = pr.name
-            WHERE pri.item_code = %s AND pr.docstatus = 1
-            UNION ALL
-            SELECT pi.name, pi.posting_date, pii.qty, pii.rate,
-                   pi.supplier, 'Purchase Invoice' AS source_doctype
-            FROM `tabPurchase Invoice Item` pii
-            INNER JOIN `tabPurchase Invoice` pi ON pii.parent = pi.name
-            WHERE pii.item_code = %s AND pi.docstatus = 1
-        ) combined
-        ORDER BY combined.posting_date DESC
-        LIMIT 5
-    """, (item_code, item_code, item_code), as_dict=True)
+    # Fetch each doctype separately so we can deduplicate: if a PI exists for a
+    # given PO/PR, the upstream docs add no new information and are suppressed.
+    pi_rows = frappe.db.sql("""
+        SELECT pi.name, pi.posting_date, pii.qty, pii.rate, pi.supplier,
+               'Purchase Invoice' AS source_doctype,
+               pii.purchase_receipt AS linked_pr,
+               pii.purchase_order   AS linked_po
+        FROM `tabPurchase Invoice Item` pii
+        INNER JOIN `tabPurchase Invoice` pi ON pii.parent = pi.name
+        WHERE pii.item_code = %s AND pi.docstatus = 1
+        ORDER BY pi.posting_date DESC
+        LIMIT 20
+    """, (item_code,), as_dict=True)
+
+    pi_linked_prs = {r.linked_pr for r in pi_rows if r.linked_pr}
+    pi_linked_pos = {r.linked_po for r in pi_rows if r.linked_po}
+
+    pr_rows = frappe.db.sql("""
+        SELECT pr.name, pr.posting_date, pri.qty, pri.rate, pr.supplier,
+               'Purchase Receipt' AS source_doctype,
+               pri.purchase_order AS linked_po
+        FROM `tabPurchase Receipt Item` pri
+        INNER JOIN `tabPurchase Receipt` pr ON pri.parent = pr.name
+        WHERE pri.item_code = %s AND pr.docstatus = 1
+        ORDER BY pr.posting_date DESC
+        LIMIT 20
+    """, (item_code,), as_dict=True)
+
+    # Keep only PRs not already represented by a PI
+    pr_rows = [r for r in pr_rows if r.name not in pi_linked_prs]
+    pr_linked_pos = {r.linked_po for r in pr_rows if r.linked_po}
+
+    excluded_pos = pi_linked_pos | pr_linked_pos
+
+    po_rows = frappe.db.sql("""
+        SELECT po.name, po.transaction_date AS posting_date, poi.qty, poi.rate, po.supplier,
+               'Purchase Order' AS source_doctype
+        FROM `tabPurchase Order Item` poi
+        INNER JOIN `tabPurchase Order` po ON poi.parent = po.name
+        WHERE poi.item_code = %s AND po.docstatus = 1
+        ORDER BY po.transaction_date DESC
+        LIMIT 20
+    """, (item_code,), as_dict=True)
+
+    # Keep only POs not already represented by a PI or an included PR
+    po_rows = [r for r in po_rows if r.name not in excluded_pos]
+
+    combined = []
+    for rows in (pi_rows, pr_rows, po_rows):
+        for r in rows:
+            combined.append({
+                "name": r.name,
+                "posting_date": r.posting_date,
+                "qty": r.qty,
+                "rate": r.rate,
+                "supplier": r.supplier,
+                "source_doctype": r.source_doctype,
+            })
+
+    combined.sort(key=lambda r: r["posting_date"] or "", reverse=True)
+    result["purchase_history"] = combined[:10]
 
 
 @frappe.whitelist()
@@ -1931,3 +1967,61 @@ def apply_price_import(rows: str) -> dict:
                 skipped += 1
 
     return {"updated": updated, "created": created, "skipped": skipped}
+
+
+@frappe.whitelist()
+def import_email_group_subscribers_by_item(email_group, filter_type, filter_value):
+	import contextlib
+
+	if not frappe.has_permission("Email Group", "write", email_group):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	if filter_type == "Item":
+		rows = frappe.db.sql(
+			"""
+			SELECT DISTINCT c.email_id
+			FROM `tabSales Invoice Item` sii
+			JOIN `tabSales Invoice` si ON si.name = sii.parent
+			JOIN `tabCustomer` c ON c.name = si.customer
+			WHERE si.docstatus = 1
+			  AND sii.item_code = %(filter_value)s
+			  AND c.email_id IS NOT NULL AND c.email_id != ''
+			""",
+			{"filter_value": filter_value},
+			as_dict=True,
+		)
+	elif filter_type == "Item Group":
+		rows = frappe.db.sql(
+			"""
+			SELECT DISTINCT c.email_id
+			FROM `tabSales Invoice Item` sii
+			JOIN `tabSales Invoice` si ON si.name = sii.parent
+			JOIN `tabCustomer` c ON c.name = si.customer
+			WHERE si.docstatus = 1
+			  AND sii.item_code IN (
+				  SELECT name FROM `tabItem` WHERE item_group = %(filter_value)s
+			  )
+			  AND c.email_id IS NOT NULL AND c.email_id != ''
+			""",
+			{"filter_value": filter_value},
+			as_dict=True,
+		)
+	else:
+		frappe.throw(_("filter_type must be 'Item' or 'Item Group'"))
+
+	added = 0
+	for row in rows:
+		with contextlib.suppress(frappe.UniqueValidationError, frappe.InvalidEmailAddressError):
+			frappe.get_doc(
+				{
+					"doctype": "Email Group Member",
+					"email_group": email_group,
+					"email": row.email_id,
+				}
+			).insert(ignore_permissions=True)
+			added += 1
+
+	eg = frappe.get_doc("Email Group", email_group)
+	total = eg.update_total_subscribers()
+
+	return {"added": added, "total": total}
