@@ -81,7 +81,14 @@
   "qp_column_break",
   "qp_auto_create_invoice",
   "qp_auto_submit_invoice",
-  "qp_update_stock_on_invoice"
+  "qp_update_stock_on_invoice",
+  "min_selling_price_section",
+  "enable_min_selling_price",
+  "min_selling_price_description",
+  "min_selling_price_default_basis",
+  "min_selling_price_default_percent",
+  "min_selling_price_override_role",
+  "min_selling_price_rules"
  ],
  "fields": [
   {
@@ -377,7 +384,7 @@
    "fieldname": "payment_reconciliation_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">Enables all Payment Reconciliation enhancements:<br><strong>Zero Allocate</strong> — create allocation rows with zero amounts for manual distribution without FIFO.<br><strong>Zero Reconcile</strong> — reconcile allocations, skipping zero-amount rows.<br><strong>2% Allocate</strong> (Supplier only) — set each allocation to 2% of the invoice net total (Kenya VAT withholding).<br><strong>Load Additional Doc Info</strong> — inline ETR numbers, supplier bill numbers, VAT withholding details, and credit note indicators.</p>"
+   "options": "<p class=\"text-muted\">Enables all Payment Reconciliation enhancements:<br><strong>Zero Allocate</strong> \u2014 create allocation rows with zero amounts for manual distribution without FIFO.<br><strong>Zero Reconcile</strong> \u2014 reconcile allocations, skipping zero-amount rows.<br><strong>2% Allocate</strong> (Supplier only) \u2014 set each allocation to 2% of the invoice net total (Kenya VAT withholding).<br><strong>Load Additional Doc Info</strong> \u2014 inline ETR numbers, supplier bill numbers, VAT withholding details, and credit note indicators.</p>"
   },
   {
    "fieldname": "validation_section",
@@ -483,7 +490,7 @@
    "fieldname": "warnings_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer Overdue Invoices:</strong> When selecting a customer on a Quotation, Sales Order, or Sales Invoice, shows a popup if the customer has outstanding overdue invoices — with a copy button for sending a payment reminder.</p>"
+   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer Overdue Invoices:</strong> When selecting a customer on a Quotation, Sales Order, or Sales Invoice, shows a popup if the customer has outstanding overdue invoices \u2014 with a copy button for sending a payment reminder.</p>"
   },
   {
    "fieldname": "lens_section",
@@ -543,6 +550,47 @@
    "fieldname": "qp_update_stock_on_invoice",
    "fieldtype": "Check",
    "label": "Update stock on auto-created invoice"
+  },
+  {
+   "fieldname": "min_selling_price_section",
+   "fieldtype": "Section Break",
+   "label": "Minimum Selling Price"
+  },
+  {
+   "fieldname": "enable_min_selling_price",
+   "fieldtype": "Check",
+   "label": "Enable Minimum Selling Price Validation"
+  },
+  {
+   "fieldname": "min_selling_price_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<div class=\"text-muted small\">Enforce a minimum net selling price per <b>Item Group</b>, as a signed % of the valuation or last purchase rate. Positive % requires margin (e.g. +10 = cost\u00d71.10); negative % permits selling below cost for groups with expected supplier rebates (e.g. \u221210 = cost\u00d70.90). A blank/0 rule defers to ERPNext's native behavior.<br><b>Important:</b> turn OFF <i>Selling Settings \u2192 Validate Selling Price for Item</i> when using negative floors \u2014 the native check hard-blocks any sale below cost and overrides them.</div>"
+  },
+  {
+   "default": "Valuation Rate",
+   "fieldname": "min_selling_price_default_basis",
+   "fieldtype": "Select",
+   "label": "Global Default Basis",
+   "options": "Valuation Rate\nLast Purchase Rate"
+  },
+  {
+   "description": "Applied to item groups without an override. + = margin, \u2212 = allowed below cost, 0/blank = defer to ERPNext.",
+   "fieldname": "min_selling_price_default_percent",
+   "fieldtype": "Float",
+   "label": "Global Default Floor % (signed)"
+  },
+  {
+   "fieldname": "min_selling_price_override_role",
+   "fieldtype": "Link",
+   "label": "Role Allowed to Override",
+   "options": "Role"
+  },
+  {
+   "fieldname": "min_selling_price_rules",
+   "fieldtype": "Table",
+   "label": "Per-Item-Group Overrides",
+   "options": "Minimum Selling Price Rule"
   }
  ],
  "issingle": 1,
