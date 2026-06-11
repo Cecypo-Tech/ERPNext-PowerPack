@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "creation": "2026-06-10 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["item_group", "basis", "floor_percent"],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Group",
+   "options": "Item Group",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "default": "Valuation Rate",
+   "fieldname": "basis",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Basis",
+   "options": "Valuation Rate\nLast Purchase Rate"
+  },
+  {
+   "columns": 3,
+   "description": "+ = margin above cost; − = allowed below cost; 0 = ignore (defer to ERPNext)",
+   "fieldname": "floor_percent",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Floor % (signed)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-10 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cecypo PowerPack",
+ "name": "Minimum Selling Price Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
