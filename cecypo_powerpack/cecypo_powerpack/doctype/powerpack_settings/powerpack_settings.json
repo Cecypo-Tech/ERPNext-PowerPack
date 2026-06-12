@@ -53,17 +53,18 @@
   "qp_column_break",
   "qp_auto_create_invoice",
   "qp_auto_submit_invoice",
-  "qp_update_stock_on_invoice",
+  "lens_section",
+  "enable_lens",
+  "lens_description",
+  "pricing_tab",
   "min_selling_price_section",
   "enable_min_selling_price",
   "min_selling_price_description",
   "min_selling_price_default_basis",
   "min_selling_price_default_percent",
   "min_selling_price_override_role",
+  "min_selling_price_skip_if_pricing_rule",
   "min_selling_price_rules",
-  "lens_section",
-  "enable_lens",
-  "lens_description",
   "items_tab",
   "item_search_powerup_section",
   "enable_item_search_powerup",
@@ -549,13 +550,6 @@
    "label": "Auto-submit invoice immediately"
   },
   {
-   "default": "1",
-   "depends_on": "eval:doc.qp_auto_create_invoice",
-   "fieldname": "qp_update_stock_on_invoice",
-   "fieldtype": "Check",
-   "label": "Update stock on auto-created invoice"
-  },
-  {
    "fieldname": "min_selling_price_section",
    "fieldtype": "Section Break",
    "label": "Minimum Selling Price"
@@ -569,7 +563,7 @@
    "fieldname": "min_selling_price_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<div class=\"text-muted small\">Enforce a minimum net selling price per <b>Item Group</b>, as a signed % of the valuation or last purchase rate. Positive % requires margin (e.g. +10 = cost\u00d71.10); negative % permits selling below cost for groups with expected supplier rebates (e.g. \u221210 = cost\u00d70.90). A blank/0 rule defers to ERPNext's native behavior.<br><b>Important:</b> turn OFF <i>Selling Settings \u2192 Validate Selling Price for Item</i> when using negative floors \u2014 the native check hard-blocks any sale below cost and overrides them.</div>"
+   "options": "<div class=\"text-muted small\">Sets the minimum selling price as a %age of the item's cost (Valuation Rate or Last Purchase Rate).<br>+ve % = margin above cost (e.g. 10 \u2192 cost \u00d7 1.10)<br>-ve % = below cost (e.g. -10 \u2192 cost \u00d7 0.90)<br>0 or blank = default ERPNext pricing rules<br><b>Note:</b> If using negative values, disable <i>Selling Settings \u2192 Validate Selling Price for Item</i>, as it blocks all below-cost sales.</div>"
   },
   {
    "default": "Valuation Rate",
@@ -591,6 +585,13 @@
    "options": "Role"
   },
   {
+   "default": "0",
+   "description": "Skip minimum price validation for items where an ERPNext Pricing Rule has been applied.",
+   "fieldname": "min_selling_price_skip_if_pricing_rule",
+   "fieldtype": "Check",
+   "label": "Skip Validation When Pricing Rule Applied"
+  },
+  {
    "fieldname": "min_selling_price_rules",
    "fieldtype": "Table",
    "label": "Per-Item-Group Overrides",
@@ -605,6 +606,11 @@
    "fieldname": "sales_pos_tab",
    "fieldtype": "Tab Break",
    "label": "Sales & POS"
+  },
+  {
+   "fieldname": "pricing_tab",
+   "fieldtype": "Tab Break",
+   "label": "Pricing"
   },
   {
    "fieldname": "items_tab",

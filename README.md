@@ -20,6 +20,7 @@ All features are toggled individually via **PowerPack Settings**.
 | **Warnings** | Future bill-date alert on Purchase Invoice; overdue invoice popup when selecting a customer on sales documents |
 | **Price List Importer** | Bulk-update item prices via CSV/Excel directly from the Item Price list view |
 | **Lens** | One-click item insights panel on every item row — recent sales to the current customer and to others, purchase history, all price lists, and live stock count with per-warehouse breakdown on hover. On Purchase Receipt and Purchase Invoice, update price list values directly from the panel |
+| **Minimum Selling Price** | Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group! |
 
 ##### Centralized Settings to enable/disable features
 ![](https://i.imgur.com/Y9JD8fX.png)
@@ -36,6 +37,9 @@ All features are toggled individually via **PowerPack Settings**.
 ##### Price List Importer
 A custom and simple price list updater. Simply select any item(s) on `/desk/item-price/`, so the **ACTION** dropdown displays and select **"Import Prices (PowerPack)"**. Required columns: `item_code`, `price_list`, `rate`. That's it — no ID's!
 ![](https://i.imgur.com/KA8X1v0.png)
+##### Minimum Selling Price
+Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
+![](https://i.imgur.com/mBs8uZc.png)
 ##### Lens
 Look for the lens icon next to each item. In Sales, shows the last few sales with the item's price for the current customer, and sales to other customers. Also shows all price lists for the item. In one click, know your item! In Purchase Receipt and Purchase Invoice, if allowed, lets you set new price list values directly. Stock count is shown in the top-right, and hovering over it shows stock for other warehouses!
 ![](https://i.imgur.com/U6cYOFr.png)
