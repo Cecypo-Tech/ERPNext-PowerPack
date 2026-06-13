@@ -218,7 +218,8 @@ function render_mpesa_list(dialog) {
             const is_selected = dialog.selected_mpesa.some(x => x.name === p.name);
             const is_overpayment = amount > dialog.outstanding;
             const is_exact_match = Math.abs(amount - dialog.outstanding) < 0.01;
-            
+            const is_partial = !is_exact_match && !is_overpayment;
+
             let item_class = is_selected ? 'selected' : '';
             if (is_exact_match) {
                 item_class += ' exact-match';
@@ -234,7 +235,7 @@ function render_mpesa_list(dialog) {
                     <div class="mpesa-item-info">
                         <div class="mpesa-item-primary">
                             <span class="mpesa-sender-name">${name || __('Unknown')}</span>
-                            <span class="mpesa-amount ${is_overpayment && !is_exact_match ? 'text-warning' : ''}">${format_currency(amount, dialog.currency)}${is_exact_match ? '<span class="mpesa-exact-badge">' + __('EXACT') + '</span>' : ''}${is_overpayment && !is_exact_match ? ' <i class="fa fa-exclamation-triangle" title="' + __('Exceeds outstanding amount') + '"></i>' : ''}</span>
+                            <span class="mpesa-amount ${is_overpayment && !is_exact_match ? 'mpesa-amt-over' : (is_partial ? 'mpesa-amt-partial' : '')}">${format_currency(amount, dialog.currency)}${is_exact_match ? '<span class="mpesa-exact-badge">' + __('EXACT') + '</span>' : ''}${is_overpayment && !is_exact_match ? ' <i class="fa fa-exclamation-triangle" title="' + __('Exceeds outstanding amount') + '"></i>' : ''}</span>
                         </div>
                         <div class="mpesa-item-secondary">
                             <span class="mpesa-phone"><i class="fa fa-phone"></i> ${phone}</span>
@@ -273,12 +274,18 @@ function render_mpesa_list(dialog) {
         wrapper.find('.mpesa-item-check').prop('checked', checked).trigger('change');
     });
     
+    // Click anywhere on the row toggles the checkbox.
+    wrapper.find('.mpesa-payment-item').on('click', function(e) {
+        if ($(e.target).is('input[type="checkbox"]')) return;
+        $(this).find('.mpesa-item-check').prop('checked', function(_, v) { return !v; }).trigger('change');
+    });
+
     // Individual item handler
     wrapper.find('.mpesa-item-check').on('change', function() {
         const name = $(this).data('name');
         const amount = flt($(this).data('amount'));
         const checked = $(this).is(':checked');
-        
+
         if (checked) {
             if (!dialog.selected_mpesa.find(x => x.name === name)) {
                 dialog.selected_mpesa.push({ name, amount });
@@ -286,7 +293,7 @@ function render_mpesa_list(dialog) {
         } else {
             dialog.selected_mpesa = dialog.selected_mpesa.filter(x => x.name !== name);
         }
-        
+
         $(this).closest('.mpesa-payment-item').toggleClass('selected', checked);
         update_mpesa_totals(dialog);
     });
@@ -364,7 +371,7 @@ function update_mpesa_totals(dialog) {
     const has_single_overpayment = dialog.selected_mpesa.some(p => flt(p.amount) > dialog.outstanding);
     
     // Show/hide invoice options
-    if (dialog.create_invoice && fully_paid) {
+    if (fully_paid) {
         dialog.set_df_property('invoice_section', 'hidden', 0);
         render_mpesa_invoice_options(dialog);
     } else {
@@ -400,23 +407,27 @@ function update_mpesa_totals(dialog) {
 
 function render_mpesa_invoice_options(dialog) {
     const wrapper = dialog.fields_dict.invoice_options_html.$wrapper;
-    
+    const c = dialog.create_invoice, s = dialog.create_invoice && dialog.submit_invoice;
     wrapper.html(`
-        <div class="mpesa-invoice-options">
-            <div class="mpesa-invoice-check">
-                <label class="mpesa-checkbox-label">
-                    <input type="checkbox" id="mpesa-create-invoice" ${dialog.create_invoice ? 'checked' : ''} disabled>
-                    <span>${__('Create Sales Invoice')}</span>
-                </label>
-            </div>
-            <div class="mpesa-invoice-check">
-                <label class="mpesa-checkbox-label">
-                    <input type="checkbox" id="mpesa-submit-invoice" ${dialog.submit_invoice ? 'checked' : ''} disabled>
-                    <span>${__('Submit immediately')}</span>
-                </label>
-            </div>
+        <div class="qp-invoice-toggles">
+            <button class="qp-toggle-btn ${c ? 'qp-toggle-active' : ''}" data-action="create">
+                <i class="fa fa-file-text-o"></i> ${__('Invoice')}
+            </button>
+            <button class="qp-toggle-btn ${s ? 'qp-toggle-active' : ''} ${!c ? 'qp-toggle-muted' : ''}" data-action="submit">
+                <i class="fa fa-check"></i> ${__('Auto-submit')}
+            </button>
         </div>
     `);
+    wrapper.find('[data-action="create"]').on('click', function() {
+        dialog.create_invoice = !dialog.create_invoice;
+        if (!dialog.create_invoice) dialog.submit_invoice = false;
+        render_mpesa_invoice_options(dialog);
+    });
+    wrapper.find('[data-action="submit"]').on('click', function() {
+        if (!dialog.create_invoice) return;
+        dialog.submit_invoice = !dialog.submit_invoice;
+        render_mpesa_invoice_options(dialog);
+    });
 }
 
 function process_mpesa_payments(frm, dialog, outstanding) {

@@ -76,7 +76,7 @@ def get_unallocated_payments(customer: str, company: str) -> list[dict]:
 			"unallocated_amount": [">", 0],
 			"company": company,
 		},
-		fields=["name", "posting_date", "mode_of_payment", "paid_amount", "unallocated_amount", "remarks"],
+		fields=["name", "posting_date", "mode_of_payment", "paid_amount", "unallocated_amount", "reference_no"],
 		order_by="posting_date asc",
 	)
 
@@ -150,14 +150,6 @@ def process_quick_pay(
 		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
 	if so.status in ("Closed", "Cancelled"):
 		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
-
-	settings = get_powerpack_settings()
-	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
-
-	if create_invoice and update_stock:
-		issues = validators.preflight_stock_for_so(so)
-		if issues:
-			frappe.throw(_("Cannot create invoice — fix stock first:\n• ") + "\n• ".join(issues))
 
 	precision = so.precision("grand_total")
 	actual_outstanding = validators.compute_outstanding(so.grand_total, so.advance_paid, precision)
@@ -241,7 +233,7 @@ def process_quick_pay(
 
 	if create_invoice and remaining <= 0:
 		so.reload()
-		si = builders.build_sales_invoice(so, update_stock=update_stock)
+		si = builders.build_sales_invoice(so)
 		si.insert(ignore_permissions=True)
 		builders.sync_so_party_fields(si, so)
 		if submit_invoice:
@@ -296,9 +288,16 @@ def list_pending_mpesa_payments(company: str, search: str = "") -> dict:
 
 	payments: list[dict] = []
 	if len(search) >= 3:
-		all_payments = frappe.get_all(
+		s = f"%{search}%"
+		payments = frappe.get_all(
 			"Mpesa C2B Payment Register",
 			filters=base_filters,
+			or_filters=[
+				["full_name", "like", s],
+				["transid", "like", s],
+				["billrefnumber", "like", s],
+				["msisdn", "like", s],
+			],
 			fields=[
 				"name",
 				"full_name",
@@ -312,12 +311,6 @@ def list_pending_mpesa_payments(company: str, search: str = "") -> dict:
 			order_by="creation desc",
 			limit_page_length=100,
 		)
-		s = search.lower()
-		for p in all_payments:
-			if any(
-				s in (p.get(f) or "").lower() for f in ("full_name", "transid", "billrefnumber", "msisdn")
-			):
-				payments.append(p)
 	return {"count": total_count, "payments": payments}
 
 
@@ -346,14 +339,6 @@ def process_mpesa_quick_pay(
 		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
 	if so.status in ("Closed", "Cancelled"):
 		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
-
-	settings = get_powerpack_settings()
-	update_stock = 1 if settings.get("qp_update_stock_on_invoice") else 0
-
-	if create_invoice and update_stock:
-		issues = validators.preflight_stock_for_so(so)
-		if issues:
-			frappe.throw(_("Cannot create invoice — fix stock first:\n• ") + "\n• ".join(issues))
 
 	phone_mop = _phone_mop_for_company(so.company)
 	if not phone_mop:
@@ -426,7 +411,7 @@ def process_mpesa_quick_pay(
 
 	if create_invoice and remaining <= 0:
 		so.reload()
-		si = builders.build_sales_invoice(so, update_stock=update_stock)
+		si = builders.build_sales_invoice(so)
 		si.insert(ignore_permissions=True)
 		builders.sync_so_party_fields(si, so)
 		if submit_invoice:

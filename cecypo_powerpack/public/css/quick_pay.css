@@ -1,24 +1,49 @@
 /* Quick Pay (Cash/Bank/Card) styles */
 /* Credits / Unallocated Payments */
-.qp-credits-section { background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.25); border-radius: 8px; padding: 12px 14px; margin: 8px 0 12px; }
-.qp-credit-header { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; color: #16a34a; margin-bottom: 10px; }
+.qp-credits-section { background: rgba(34,197,94,0.05); border: 1px solid rgba(34,197,94,0.22); border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; }
+.qp-credit-header { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; color: #16a34a; margin-bottom: 6px; }
 .qp-credit-header .fa { color: #16a34a; }
 [data-theme="dark"] .qp-credit-header { color: #4ade80; }
 [data-theme="dark"] .qp-credit-header .fa { color: #4ade80; }
-.qp-credit-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; }
-.qp-credit-row + .qp-credit-row { border-top: 1px solid rgba(34,197,94,0.15); }
-.qp-credit-info { flex: 1; min-width: 0; }
-.qp-credit-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.qp-credit-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-.qp-credit-amount-col { text-align: right; flex-shrink: 0; }
-.qp-credit-amount-col input { width: 110px; text-align: right; }
-.qp-credit-avail { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.qp-credits-scroll { max-height: 190px; overflow-y: auto; }
+.qp-credit-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; cursor: pointer; }
+.qp-credit-row + .qp-credit-row { border-top: 1px solid rgba(34,197,94,0.12); }
+.qp-credit-row:hover { background: rgba(34,197,94,0.05); border-radius: 5px; }
+.qp-credit-check { flex-shrink: 0; width: 15px; height: 15px; accent-color: #16a34a; cursor: pointer; }
+.qp-credit-body { flex: 1; min-width: 0; }
+.qp-credit-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+.qp-credit-id { font-size: 12px; font-weight: 600; color: var(--primary); text-decoration: none; }
+.qp-credit-id:hover { text-decoration: underline; }
+[data-theme="dark"] .qp-credit-id { color: #a5b4fc; }
+/* Amount colours: exact=green, partial(under)=light green, over=yellow */
+.qp-credit-total { font-size: 12px; font-weight: 700; color: #16a34a; white-space: nowrap; margin-left: 8px; }
+[data-theme="dark"] .qp-credit-total { color: #4ade80; }
+.qp-credit-total.qp-credit-partial { color: #4ade80; }
+[data-theme="dark"] .qp-credit-total.qp-credit-partial { color: #86efac; }
+.qp-credit-total.qp-credit-over { color: #b45309; }
+[data-theme="dark"] .qp-credit-total.qp-credit-over { color: #fbbf24; }
+.qp-credit-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.qp-pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 500; background: rgba(0,0,0,0.06); color: var(--text-muted); white-space: nowrap; }
+[data-theme="dark"] .qp-pill { background: rgba(255,255,255,0.1); }
+.qp-pill .fa { font-size: 9px; }
+.qp-credit-apply-col { flex-shrink: 0; }
+.qp-credit-apply-col input { width: 88px; text-align: right; font-size: 12px; }
 
-.quick-pay-header { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 10px; padding: 16px 20px; color: white; margin-bottom: 12px; }
-		.qp-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
-		.qp-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.15); }
-		.qp-outstanding { font-size: 1.25em; padding-top: 10px; }
-		.qp-outstanding strong { color: #fbbf24; }
+/* Invoice toggle buttons (shared Quick Pay + Mpesa) */
+.qp-invoice-toggles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0; }
+.qp-toggle-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; border: 1px solid var(--border-color); background: var(--fg-color); color: var(--text-muted); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; user-select: none; line-height: 1.5; }
+.qp-toggle-btn .fa { font-size: 11px; }
+.qp-toggle-btn.qp-toggle-active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.qp-toggle-btn.qp-toggle-muted { opacity: 0.38; cursor: default; }
+
+.quick-pay-header { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 10px; padding: 16px 20px; color: white; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; }
+.qp-header-icon { font-size: 2.5em; opacity: 0.9; flex-shrink: 0; }
+.qp-header-info { flex: 1; }
+.quick-pay-header .text-success { color: #a3e635 !important; }
+.qp-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+.qp-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.15); }
+.qp-outstanding { font-size: 1.15em; padding-top: 8px; }
+.qp-outstanding strong { color: #fbbf24; }
 		.qp-add-payment-btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 		.qp-add-btn { display: flex; align-items: center; gap: 6px; }
 		.qp-payments-list { margin-bottom: 12px; }
@@ -159,7 +184,11 @@
         .mpesa-item-primary { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
         .mpesa-sender-name { font-weight: 600; font-size: 13px; }
         .mpesa-amount { font-weight: 600; color: #00a650; font-size: 13px; }
-        .mpesa-amount.text-warning { color: #ca8a04; }
+        [data-theme="dark"] .mpesa-amount { color: #4ade80; }
+        .mpesa-amount.mpesa-amt-over { color: #b45309; }
+        [data-theme="dark"] .mpesa-amount.mpesa-amt-over { color: #fbbf24; }
+        .mpesa-amount.mpesa-amt-partial { color: #4ade80; }
+        [data-theme="dark"] .mpesa-amount.mpesa-amt-partial { color: #86efac; }
         .mpesa-amount i { margin-left: 4px; font-size: 11px; }
         .mpesa-item-secondary { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--text-muted); }
         .mpesa-item-secondary i { margin-right: 3px; }
@@ -208,14 +237,7 @@
         .mpesa-checkbox-label input[type="checkbox"] { width: 14px; height: 14px; accent-color: #00a650; }
         .mpesa-checkbox-label input[type="checkbox"]:disabled { opacity: 0.7; }
         
-        /* Invoice options - inline compact */
-        .mpesa-invoice-options {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            padding: 6px 0;
-        }
-        .mpesa-invoice-check { display: flex; align-items: center; }
+        /* Invoice toggle buttons reuse .qp-invoice-toggles / .qp-toggle-btn from above */
         
         /* Request payment dialog */
         .mpesa-request-info {

@@ -165,21 +165,26 @@ function get_summary_html(frm, outstanding) {
 
 	return `
 		<div class="quick-pay-header">
-			<div class="qp-row">
-				<span>${__('Customer')}</span>
-				<strong>${frm.doc.customer_name || frm.doc.customer}</strong>
+			<div class="qp-header-icon">
+				<i class="fa fa-credit-card"></i>
 			</div>
-			<div class="qp-row">
-				<span>${__('Grand Total')}</span>
-				<strong>${format_currency(total, frm.doc.currency)}</strong>
-			</div>
-			<div class="qp-row">
-				<span>${__('Already Paid')}</span>
-				<strong class="text-success">${format_currency(paid, frm.doc.currency)} <small>(${percent}%)</small></strong>
-			</div>
-			<div class="qp-row qp-outstanding">
-				<span>${__('Outstanding')}</span>
-				<strong>${format_currency(outstanding, frm.doc.currency)}</strong>
+			<div class="qp-header-info">
+				<div class="qp-row">
+					<span>${__('Customer')}</span>
+					<strong>${frm.doc.customer_name || frm.doc.customer}</strong>
+				</div>
+				<div class="qp-row">
+					<span>${__('Grand Total')}</span>
+					<strong>${format_currency(total, frm.doc.currency)}</strong>
+				</div>
+				<div class="qp-row">
+					<span>${__('Already Paid')}</span>
+					<strong class="text-success">${format_currency(paid, frm.doc.currency)} <small>(${percent}%)</small></strong>
+				</div>
+				<div class="qp-row qp-outstanding">
+					<span>${__('Outstanding')}</span>
+					<strong>${format_currency(outstanding, frm.doc.currency)}</strong>
+				</div>
 			</div>
 		</div>
 	`;
@@ -229,38 +234,43 @@ function render_credits_container(dialog, frm, raw_credits) {
 		return;
 	}
 
-	// Auto-fill apply_amount: oldest first, cap to remaining outstanding.
-	let need = dialog.outstanding;
+	let remaining = dialog.outstanding;
 	dialog.credits = raw_credits.map(c => {
 		const avail = flt(c.unallocated_amount);
-		const apply = Math.min(avail, need);
-		need = Math.max(0, need - apply);
+		const apply = Math.min(avail, remaining);
+		const diff = avail - remaining;
+		const amount_cls = Math.abs(diff) < 0.01 ? '' : (diff > 0 ? 'qp-credit-over' : 'qp-credit-partial');
+		remaining = Math.max(0, remaining - apply);
 		return {
 			pe_name: c.name,
 			posting_date: c.posting_date,
 			mode_of_payment: c.mode_of_payment || '',
-			remarks: c.remarks || '',
+			reference_no: c.reference_no || '',
 			available_amount: avail,
 			apply_amount: apply,
 			checked: apply > 0,
+			amount_cls,
 		};
 	});
 
 	const rows_html = dialog.credits.map(c => `
 		<div class="qp-credit-row" data-credit="${c.pe_name}">
-			<input type="checkbox" class="qp-credit-check" ${c.checked ? 'checked' : ''} style="flex-shrink:0;width:15px;height:15px;margin-top:1px;">
-			<div class="qp-credit-info">
-				<div class="qp-credit-name">
-					<a href="/app/payment-entry/${c.pe_name}" target="_blank">${c.pe_name}</a>
-					<span class="text-muted"> · ${c.mode_of_payment}</span>
+			<input type="checkbox" class="qp-credit-check" ${c.checked ? 'checked' : ''}>
+			<div class="qp-credit-body">
+				<div class="qp-credit-top">
+					<a href="/app/payment-entry/${c.pe_name}" target="_blank" class="qp-credit-id">${c.pe_name}</a>
+					<span class="qp-credit-total ${c.amount_cls}">${format_currency(c.available_amount, dialog.currency)}</span>
 				</div>
-				<div class="qp-credit-meta">${frappe.datetime.str_to_user(c.posting_date)}${c.remarks ? ' · ' + c.remarks.substring(0, 60) : ''}</div>
+				<div class="qp-credit-pills">
+					<span class="qp-pill"><i class="fa fa-calendar"></i> ${frappe.datetime.str_to_user(c.posting_date)}</span>
+					${c.mode_of_payment ? `<span class="qp-pill"><i class="fa fa-credit-card"></i> ${c.mode_of_payment}</span>` : ''}
+					${c.reference_no ? `<span class="qp-pill"><i class="fa fa-hashtag"></i> ${c.reference_no}</span>` : ''}
+				</div>
 			</div>
-			<div class="qp-credit-amount-col">
+			<div class="qp-credit-apply-col">
 				<input type="number" class="form-control qp-credit-apply-input"
 					value="${c.apply_amount}" min="0" max="${c.available_amount}" step="0.01"
 					${c.checked ? '' : 'disabled'}>
-				<div class="qp-credit-avail">${__('of')} ${format_currency(c.available_amount, dialog.currency)} ${__('available')}</div>
 			</div>
 		</div>
 	`).join('');
@@ -269,16 +279,22 @@ function render_credits_container(dialog, frm, raw_credits) {
 		<div class="qp-credits-section">
 			<div class="qp-credit-header">
 				<i class="fa fa-check-circle"></i>
-				<span>${__('Available Credits')}</span>
-				<small class="text-muted">&nbsp;— ${__('unallocated payments for this customer')}</small>
+				<span>${__('Credits')} (${dialog.credits.length})</span>
 			</div>
-			${rows_html}
+			<div class="qp-credits-scroll">
+				${rows_html}
+			</div>
 		</div>
 	`);
 
-	// Wire up events.
 	dialog.credits.forEach(c => {
 		const $row = wrapper.find(`[data-credit="${c.pe_name}"]`);
+
+		$row.on('click', function (e) {
+			if ($(e.target).is('input, a')) return;
+			$row.find('.qp-credit-check').prop('checked', function (_, v) { return !v; }).trigger('change');
+		});
+
 		$row.find('.qp-credit-check').on('change', function () {
 			c.checked = $(this).is(':checked');
 			$row.find('.qp-credit-apply-input').prop('disabled', !c.checked);
@@ -420,7 +436,7 @@ function update_payment_totals(dialog) {
 	const overpayment = new_payments_total > (dialog.outstanding - credits_total) && !cash_payment && credits_total < dialog.outstanding;
 	const fully_paid = remaining <= 0;
 
-	if (dialog.create_invoice && fully_paid) {
+	if (fully_paid) {
 		dialog.set_df_property('invoice_section', 'hidden', 0);
 		render_invoice_options(dialog);
 	} else {
@@ -450,29 +466,26 @@ function update_payment_totals(dialog) {
 
 function render_invoice_options(dialog) {
 	const wrapper = dialog.fields_dict.invoice_options_html.$wrapper;
+	const c = dialog.create_invoice, s = dialog.create_invoice && dialog.submit_invoice;
 	wrapper.html(`
-		<div class="qp-invoice-options">
-			<div class="qp-invoice-check">
-				<label class="qp-checkbox-label">
-					<input type="checkbox" id="qp-create-invoice" ${dialog.create_invoice ? 'checked' : ''}>
-					<span>${__('Create Sales Invoice after payment')}</span>
-				</label>
-			</div>
-			<div class="qp-invoice-check qp-submit-check" ${dialog.create_invoice ? '' : 'style="display:none"'}>
-				<label class="qp-checkbox-label">
-					<input type="checkbox" id="qp-submit-invoice" ${dialog.submit_invoice ? 'checked' : ''}>
-					<span>${__('Submit invoice immediately')}</span>
-				</label>
-			</div>
+		<div class="qp-invoice-toggles">
+			<button class="qp-toggle-btn ${c ? 'qp-toggle-active' : ''}" data-action="create">
+				<i class="fa fa-file-text-o"></i> ${__('Invoice')}
+			</button>
+			<button class="qp-toggle-btn ${s ? 'qp-toggle-active' : ''} ${!c ? 'qp-toggle-muted' : ''}" data-action="submit">
+				<i class="fa fa-check"></i> ${__('Auto-submit')}
+			</button>
 		</div>
 	`);
-
-	wrapper.find('#qp-create-invoice').on('change', function() {
-		dialog.create_invoice = $(this).is(':checked');
-		wrapper.find('.qp-submit-check').toggle(dialog.create_invoice);
+	wrapper.find('[data-action="create"]').on('click', function() {
+		dialog.create_invoice = !dialog.create_invoice;
+		if (!dialog.create_invoice) dialog.submit_invoice = false;
+		render_invoice_options(dialog);
 	});
-	wrapper.find('#qp-submit-invoice').on('change', function() {
-		dialog.submit_invoice = $(this).is(':checked');
+	wrapper.find('[data-action="submit"]').on('click', function() {
+		if (!dialog.create_invoice) return;
+		dialog.submit_invoice = !dialog.submit_invoice;
+		render_invoice_options(dialog);
 	});
 }
 

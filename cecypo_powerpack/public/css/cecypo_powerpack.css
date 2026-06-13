@@ -13,6 +13,7 @@ body.compact-theme {
     --input-height: 22px;
     --btn-height: 22px;
     --list-row-height: 22px;
+    --grid-padding: 6px 8px;
 }
 
 body.compact-theme .grid-body .grid-static-col[data-fieldtype="Text Editor"] .ql-editor {
@@ -96,3 +97,41 @@ body.compact-theme .grid-body .row-index {
 	height: unset !important;
 	max-height: 200px;
 }
+
+/* Grid cell edit mode: keep inputs at the same compact height as static cells */
+body.compact-theme .grid-body .editable-row .form-group {
+	margin-bottom: 0;
+}
+body.compact-theme .grid-body .editable-row .input-area {
+	padding: 1px 2px;
+}
+body.compact-theme .grid-body .editable-row .form-control,
+body.compact-theme .grid-body .editable-row .input-with-feedback {
+	min-height: unset !important;
+	height: var(--input-height) !important;
+	padding: 0 8px !important;
+}
+body.compact-theme .grid-body .editable-row .frappe-control[data-fieldtype="Select"].form-group .select-icon {
+	top: 0;
+}
+body.compact-theme .grid-body .editable-row .link-btn {
+	margin-top: 0;
+}
+
+/* ── Min Selling Price Rule Tree (PowerPack Settings) ── */
+.msp-tree { border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; font-size: 12px; margin-top: 8px; }
+.msp-tree-row { display: flex; align-items: center; gap: 7px; padding: 5px 10px; border-bottom: 1px solid var(--border-color); transition: background 0.1s; }
+.msp-tree-row:last-child { border-bottom: none; }
+.msp-tree-row:hover { background: var(--bg-color); }
+.msp-tree-row.msp-has-rule { background: rgba(99,102,241,0.05); }
+[data-theme="dark"] .msp-tree-row.msp-has-rule { background: rgba(99,102,241,0.1); }
+.msp-tree-icon { color: var(--text-muted); font-size: 10px; flex-shrink: 0; }
+.msp-tree-row.msp-has-rule .msp-tree-icon { color: var(--primary); }
+.msp-tree-name { flex: 1; color: var(--text-color); }
+.msp-tree-row.msp-has-rule .msp-tree-name { font-weight: 600; }
+.msp-rule-badge { font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 10px; background: rgba(99,102,241,0.12); color: var(--primary); white-space: nowrap; }
+.msp-tree-empty { padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
+.msp-tree-row.msp-ancestor { opacity: 0.65; }
+.msp-tree-row.msp-ancestor .msp-tree-name { font-style: italic; }
+/* Grid indentation icon */
+.msp-grid-icon { color: var(--text-muted); font-size: 10px; margin-right: 5px; flex-shrink: 0; }

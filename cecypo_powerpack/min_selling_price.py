@@ -102,16 +102,19 @@ def _handle_violation(item, floor, can_override):
 	# Deliberately does NOT reveal the basis (valuation/last purchase) or the margin %,
 	# so staff cannot back-calculate cost from the message. Only the floor is shown.
 	title = _("Powerpack Restrictions")
+	item_label = item.get("item_name") or item.item_code
 	if can_override:
 		frappe.msgprint(
-			_("Row #{0}: Net selling rate is below {1} — allowed by your role.").format(
-				item.idx, frappe.bold(floor)
+			_("Row #{0} ({1}): Net selling rate is below {2} — allowed by your role.").format(
+				item.idx, item_label, frappe.bold(floor)
 			),
 			title=title,
 			indicator="orange",
 		)
 		return
 	frappe.throw(
-		_("Row #{0}: Net selling rate should be at least {1}.").format(item.idx, frappe.bold(floor)),
+		_("Row #{0} ({1}): Net selling rate should be at least {2}.").format(
+			item.idx, item_label, frappe.bold(floor)
+		),
 		title=title,
 	)

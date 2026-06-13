@@ -1613,7 +1613,7 @@ def get_lens_data(item_code: str, customer: str = None, doctype: str = None) -> 
                    IFNULL(ip.currency, pl.currency) AS currency
             FROM `tabPrice List` pl
             LEFT JOIN `tabItem Price` ip ON ip.price_list = pl.name AND ip.item_code = %s
-            WHERE pl.enabled = 1
+            WHERE pl.enabled = 1 AND pl.selling = 1
             ORDER BY pl.name
         """, (item_code,), as_dict=True)
     else:
@@ -2025,3 +2025,23 @@ def import_email_group_subscribers_by_item(email_group, filter_type, filter_valu
 	total = eg.update_total_subscribers()
 
 	return {"added": added, "total": total}
+
+
+@frappe.whitelist()
+def get_item_group_tree_for_rules() -> list:
+	"""Return all Item Groups ordered by tree position with computed depth."""
+	return frappe.db.sql(
+		"""
+		SELECT
+			ig.name,
+			ig.lft,
+			ig.rgt,
+			ig.is_group,
+			ig.parent_item_group,
+			(SELECT COUNT(*) FROM `tabItem Group` p
+			 WHERE p.lft < ig.lft AND p.rgt > ig.rgt) AS depth
+		FROM `tabItem Group` ig
+		ORDER BY ig.lft
+		""",
+		as_dict=True,
+	)

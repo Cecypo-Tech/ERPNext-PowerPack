@@ -6,7 +6,12 @@ frappe.ui.form.on('PowerPack Settings', {
 		frm.set_intro(__('Configure PowerPack features and settings'));
 		cecypo_check_min_price_conflict(frm);
 		cecypo_add_load_group_buttons(frm);
+		cecypo_refresh_min_price_grid(frm);
 	},
+
+	min_selling_price_rules_add: function(frm) { cecypo_refresh_min_price_grid(frm); },
+	min_selling_price_rules_remove: function(frm) { cecypo_refresh_min_price_grid(frm); },
+	after_save: function(frm) { cecypo_refresh_min_price_grid(frm); },
 
 	enable_min_selling_price: function(frm) {
 		cecypo_check_min_price_conflict(frm);
@@ -52,6 +57,49 @@ function cecypo_add_load_group_buttons(frm) {
 	});
 	field.grid.add_custom_button(__('Load Parent Item Groups'), function () {
 		cecypo_load_item_groups(frm, 1);
+	});
+}
+
+function cecypo_refresh_min_price_grid(frm) {
+	if (!(frm.doc.min_selling_price_rules || []).length) return;
+
+	frappe.call({
+		method: 'cecypo_powerpack.api.get_item_group_tree_for_rules',
+		callback: function(r) {
+			const all_groups = r.message || [];
+			const lft_map = {}, depth_map = {};
+			all_groups.forEach(function(g) {
+				lft_map[g.name] = g.lft;
+				depth_map[g.name] = g.depth || 0;
+			});
+
+			const grid = frm.fields_dict.min_selling_price_rules && frm.fields_dict.min_selling_price_rules.grid;
+			if (!grid) return;
+			frm.doc.min_selling_price_rules.sort(function(a, b) {
+				return (lft_map[a.item_group] || 0) - (lft_map[b.item_group] || 0);
+			});
+			grid.refresh();
+			cecypo_indent_min_price_grid(grid, frm.doc.min_selling_price_rules, depth_map);
+		}
+	});
+}
+
+function cecypo_indent_min_price_grid(grid, doc_rows, depth_map) {
+	if (!grid || !grid.grid_rows) return;
+	grid.grid_rows.forEach(function(grid_row, i) {
+		const doc_row = doc_rows[i];
+		if (!doc_row) return;
+		const depth = depth_map[doc_row.item_group] || 0;
+		const $row = grid_row.row;
+		if (!$row || !$row.length) return;
+		const icon = depth === 0 ? 'fa-sitemap' : (depth === 1 ? 'fa-folder-o' : 'fa-tag');
+		// The first .static-area in the row corresponds to the item_group column.
+		const $area = $row.find('.static-area').first();
+		if (!$area.length) return;
+		$area.css('padding-left', (depth * 14 + 4) + 'px');
+		if (!$area.find('.msp-grid-icon').length) {
+			$area.prepend('<i class="fa ' + icon + ' msp-grid-icon"></i>');
+		}
 	});
 }
 
