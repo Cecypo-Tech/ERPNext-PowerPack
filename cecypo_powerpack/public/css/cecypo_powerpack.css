@@ -102,14 +102,20 @@ body.compact-theme .grid-body .row-index {
 body.compact-theme .grid-body .editable-row .form-group {
 	margin-bottom: 0;
 }
+body.compact-theme .grid-body .editable-row .field-area {
+	height: var(--input-height);
+}
 body.compact-theme .grid-body .editable-row .input-area {
-	padding: 1px 2px;
+	padding: 0 2px;
 }
 body.compact-theme .grid-body .editable-row .form-control,
 body.compact-theme .grid-body .editable-row .input-with-feedback {
 	min-height: unset !important;
 	height: var(--input-height) !important;
 	padding: 0 8px !important;
+}
+body.compact-theme .grid-body .editable-row .form-control:focus {
+	box-shadow: none !important;
 }
 body.compact-theme .grid-body .editable-row .frappe-control[data-fieldtype="Select"].form-group .select-icon {
 	top: 0;

@@ -5,11 +5,11 @@
 .qp-credit-header .fa { color: #16a34a; }
 [data-theme="dark"] .qp-credit-header { color: #4ade80; }
 [data-theme="dark"] .qp-credit-header .fa { color: #4ade80; }
-.qp-credits-scroll { max-height: 190px; overflow-y: auto; }
-.qp-credit-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; cursor: pointer; }
+.qp-credits-scroll { max-height: 295px; overflow-y: auto; }
+.qp-credit-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; cursor: pointer; }
 .qp-credit-row + .qp-credit-row { border-top: 1px solid rgba(34,197,94,0.12); }
 .qp-credit-row:hover { background: rgba(34,197,94,0.05); border-radius: 5px; }
-.qp-credit-check { flex-shrink: 0; width: 15px; height: 15px; accent-color: #16a34a; cursor: pointer; }
+.qp-credit-check { flex-shrink: 0; width: 15px; height: 15px; accent-color: #16a34a; cursor: pointer; margin-top: 2px; }
 .qp-credit-body { flex: 1; min-width: 0; }
 .qp-credit-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
 .qp-credit-id { font-size: 12px; font-weight: 600; color: var(--primary); text-decoration: none; }
@@ -26,8 +26,14 @@
 .qp-pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 500; background: rgba(0,0,0,0.06); color: var(--text-muted); white-space: nowrap; }
 [data-theme="dark"] .qp-pill { background: rgba(255,255,255,0.1); }
 .qp-pill .fa { font-size: 9px; }
+.qp-pill-ref { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .qp-credit-apply-col { flex-shrink: 0; }
-.qp-credit-apply-col input { width: 88px; text-align: right; font-size: 12px; }
+.qp-credit-apply-col input { width: 88px; text-align: right; font-size: 12px; border: 1px solid rgba(34,197,94,0.35); border-radius: 5px; background: rgba(34,197,94,0.05); }
+.qp-credit-apply-col input:focus { border-color: rgba(34,197,94,0.7); outline: none; box-shadow: 0 0 0 2px rgba(34,197,94,0.15); }
+.qp-credit-apply-col input:disabled { border-color: var(--border-color); background: transparent; }
+.qp-credit-apply-input::-webkit-outer-spin-button,
+.qp-credit-apply-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qp-credit-apply-input[type=number] { -moz-appearance: textfield; }
 
 /* Invoice toggle buttons (shared Quick Pay + Mpesa) */
 .qp-invoice-toggles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0; }

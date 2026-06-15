@@ -264,7 +264,7 @@ function render_credits_container(dialog, frm, raw_credits) {
 				<div class="qp-credit-pills">
 					<span class="qp-pill"><i class="fa fa-calendar"></i> ${frappe.datetime.str_to_user(c.posting_date)}</span>
 					${c.mode_of_payment ? `<span class="qp-pill"><i class="fa fa-credit-card"></i> ${c.mode_of_payment}</span>` : ''}
-					${c.reference_no ? `<span class="qp-pill"><i class="fa fa-hashtag"></i> ${c.reference_no}</span>` : ''}
+					${c.reference_no ? `<span class="qp-pill qp-pill-ref" title="${c.reference_no}"><i class="fa fa-hashtag"></i> ${c.reference_no}</span>` : ''}
 				</div>
 			</div>
 			<div class="qp-credit-apply-col">

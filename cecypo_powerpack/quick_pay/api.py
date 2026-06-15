@@ -113,7 +113,7 @@ def _apply_credit_to_so(pe_name: str, so_doc, amount: float, precision: int) -> 
 			"outstanding_amount": float(so_doc.grand_total) - float(so_doc.advance_paid),
 		},
 	)
-	amended.insert(ignore_permissions=True)
+	amended.insert()
 	amended.submit()
 
 	return {"original_pe": pe_name, "amended_pe": amended.name, "amount": allocated}
@@ -205,7 +205,7 @@ def process_quick_pay(
 			reference_no=p_ref or None,
 			remarks=f"{p_type} payment for {so.name}",
 		)
-		pe.insert(ignore_permissions=True)
+		pe.insert()
 		pe.submit()
 
 		payment_entries.append(
@@ -234,7 +234,7 @@ def process_quick_pay(
 	if create_invoice and remaining <= 0:
 		so.reload()
 		si = builders.build_sales_invoice(so)
-		si.insert(ignore_permissions=True)
+		si.insert()
 		builders.sync_so_party_fields(si, so)
 		if submit_invoice:
 			si.submit()
@@ -376,7 +376,7 @@ def process_mpesa_quick_pay(
 			remarks=f"Mpesa payment: {mpesa_name}",
 			full_received_amount=mpesa_amt,
 		)
-		pe.insert(ignore_permissions=True)
+		pe.insert()
 		pe.submit()
 
 		# Now mark the Mpesa row as processed and link the PE.
@@ -412,7 +412,7 @@ def process_mpesa_quick_pay(
 	if create_invoice and remaining <= 0:
 		so.reload()
 		si = builders.build_sales_invoice(so)
-		si.insert(ignore_permissions=True)
+		si.insert()
 		builders.sync_so_party_fields(si, so)
 		if submit_invoice:
 			si.submit()

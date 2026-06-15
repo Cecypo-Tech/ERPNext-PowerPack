@@ -124,13 +124,26 @@ def assert_quick_pay_enabled(flow: str) -> None:
 		frappe.throw(f"Quick Pay ({flow}) is disabled in PowerPack Settings")
 
 
+def _can_submit_as_owner(doctype: str) -> bool:
+	"""Return True if the current user has submit rights on documents they own.
+
+	`frappe.has_permission(..., "submit")` without a doc has no owner context,
+	so it returns False for roles where submit is restricted to "if owner".
+	We explicitly pass is_owner=True since the user always owns docs they create.
+	"""
+	from frappe.permissions import get_role_permissions
+
+	perms = get_role_permissions(frappe.get_meta(doctype), is_owner=True)
+	return bool(perms.get("submit") or perms.get("if_owner", {}).get("submit"))
+
+
 def assert_can_create_payment_and_invoice(create_invoice: bool, submit_invoice: bool) -> None:
 	if not frappe.has_permission("Payment Entry", "create"):
 		frappe.throw("You do not have permission to create Payment Entry")
-	if not frappe.has_permission("Payment Entry", "submit"):
+	if not _can_submit_as_owner("Payment Entry"):
 		frappe.throw("You do not have permission to submit Payment Entry")
 	if create_invoice:
 		if not frappe.has_permission("Sales Invoice", "create"):
 			frappe.throw("You do not have permission to create Sales Invoice")
-		if submit_invoice and not frappe.has_permission("Sales Invoice", "submit"):
+		if submit_invoice and not _can_submit_as_owner("Sales Invoice"):
 			frappe.throw("You do not have permission to submit Sales Invoice")
