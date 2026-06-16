@@ -53,6 +53,7 @@
   "qp_column_break",
   "qp_auto_create_invoice",
   "qp_auto_submit_invoice",
+  "qp_update_stock",
   "lens_section",
   "enable_lens",
   "lens_description",
@@ -548,6 +549,14 @@
    "fieldname": "qp_auto_submit_invoice",
    "fieldtype": "Check",
    "label": "Auto-submit invoice immediately"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.qp_auto_create_invoice",
+   "description": "Deduct stock when the Sales Invoice is created/submitted. Disable if invoices should be billing-only (e.g. stock already moved via Delivery Note).",
+   "fieldname": "qp_update_stock",
+   "fieldtype": "Check",
+   "label": "Update Stock on invoice"
   },
   {
    "fieldname": "min_selling_price_section",

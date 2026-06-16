@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 
 from cecypo_powerpack.quick_pay import builders, validators
-from cecypo_powerpack.utils import get_powerpack_settings
+from cecypo_powerpack.utils import is_feature_enabled
 
 
 def _user_permitted_mops(user: str) -> list[str] | None:
@@ -237,7 +237,7 @@ def process_quick_pay(
 
 	if create_invoice and remaining <= 0:
 		so.reload()
-		si = builders.build_sales_invoice(so)
+		si = builders.build_sales_invoice(so, update_stock=is_feature_enabled("qp_update_stock"))
 		si.insert()
 		builders.sync_so_party_fields(si, so)
 		if submit_invoice:
@@ -415,7 +415,7 @@ def process_mpesa_quick_pay(
 
 	if create_invoice and remaining <= 0:
 		so.reload()
-		si = builders.build_sales_invoice(so)
+		si = builders.build_sales_invoice(so, update_stock=is_feature_enabled("qp_update_stock"))
 		si.insert()
 		builders.sync_so_party_fields(si, so)
 		if submit_invoice:

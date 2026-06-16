@@ -5,6 +5,59 @@ import frappe
 from frappe.tests import UnitTestCase
 
 
+class TestQpUpdateStockSetting(UnitTestCase):
+	"""Doesn't touch any Sales Order / Payment Entry data — safe to re-run."""
+
+	def setUp(self):
+		self._original = frappe.db.sql(
+			"""select value from `tabSingles` where doctype='PowerPack Settings' and field='qp_update_stock'"""
+		)
+
+	def tearDown(self):
+		if self._original:
+			frappe.db.set_single_value("PowerPack Settings", "qp_update_stock", self._original[0][0])
+		else:
+			frappe.db.sql(
+				"""delete from `tabSingles` where doctype='PowerPack Settings' and field='qp_update_stock'"""
+			)
+		frappe.db.commit()
+
+	def test_respects_explicit_disable(self):
+		from cecypo_powerpack.utils import is_feature_enabled
+
+		frappe.db.set_single_value("PowerPack Settings", "qp_update_stock", 0)
+		self.assertFalse(is_feature_enabled("qp_update_stock"))
+
+	def test_respects_explicit_enable(self):
+		from cecypo_powerpack.utils import is_feature_enabled
+
+		frappe.db.set_single_value("PowerPack Settings", "qp_update_stock", 1)
+		self.assertTrue(is_feature_enabled("qp_update_stock"))
+
+	def test_patch_backfills_default_when_never_saved(self):
+		from cecypo_powerpack.patches.v1.default_qp_update_stock import execute
+		from cecypo_powerpack.utils import is_feature_enabled
+
+		frappe.db.sql(
+			"""delete from `tabSingles` where doctype='PowerPack Settings' and field='qp_update_stock'"""
+		)
+		frappe.db.commit()
+
+		execute()
+
+		self.assertTrue(is_feature_enabled("qp_update_stock"))
+
+	def test_patch_leaves_explicit_value_untouched(self):
+		from cecypo_powerpack.patches.v1.default_qp_update_stock import execute
+		from cecypo_powerpack.utils import is_feature_enabled
+
+		frappe.db.set_single_value("PowerPack Settings", "qp_update_stock", 0)
+
+		execute()
+
+		self.assertFalse(is_feature_enabled("qp_update_stock"))
+
+
 class TestGetPaymentModes(UnitTestCase):
 	def setUp(self):
 		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay", 1)
@@ -41,6 +94,7 @@ class TestProcessQuickPay(UnitTestCase):
 
 	def test_full_payment_creates_pe_and_optional_invoice(self):
 		from cecypo_powerpack.quick_pay.api import process_quick_pay
+		from cecypo_powerpack.quick_pay.validators import effective_total
 
 		so_name = frappe.db.get_value(
 			"Sales Order",
@@ -50,7 +104,9 @@ class TestProcessQuickPay(UnitTestCase):
 		if not so_name:
 			self.skipTest("No unbilled SO available")
 		so = frappe.get_doc("Sales Order", so_name)
-		outstanding = float(so.grand_total) - float(so.advance_paid or 0)
+		# Match production: outstanding is measured against the rounded
+		# ceiling Payment Entry actually enforces, not the raw grand_total.
+		outstanding = effective_total(so) - float(so.advance_paid or 0)
 		if outstanding <= 0:
 			self.skipTest("SO has no outstanding")
 

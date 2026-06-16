@@ -93,12 +93,12 @@ def build_payment_entry(
 	return pe
 
 
-def build_sales_invoice(so_doc):
+def build_sales_invoice(so_doc, *, update_stock: int = 1):
 	"""Build (but don't save) a Sales Invoice from a Sales Order using the
 	official ERPNext mapper. Caller is responsible for insert/submit.
 	"""
 	si = make_sales_invoice(so_doc.name)
-	si.update_stock = 1
+	si.update_stock = 1 if update_stock else 0
 	si.allocate_advances_automatically = 1
 	# Pre-populate advances so validate_advance_entries (which runs before
 	# set_advances in ERPNext's validate sequence) doesn't fire a spurious
