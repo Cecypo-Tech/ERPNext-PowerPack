@@ -57,3 +57,8 @@ typing-modules = ["frappe.types.DF"]
 quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.17",
+]
