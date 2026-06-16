@@ -59,10 +59,10 @@ class TestBuildSalesInvoice(UnitTestCase):
 			self.skipTest("No unbilled submitted Sales Order to invoice against")
 		so = frappe.get_doc("Sales Order", so_name)
 
-		si = build_sales_invoice(so, update_stock=1)
+		si = build_sales_invoice(so)
 		# Mapper-style invariant: items inherit so_detail
 		self.assertTrue(all(it.so_detail for it in si.items))
-		# update_stock honored
+		# Quick Pay always invoices with stock movement
 		self.assertEqual(si.update_stock, 1)
 		# Should still be unsaved
 		self.assertFalse(si.get("name") and frappe.db.exists("Sales Invoice", si.name))

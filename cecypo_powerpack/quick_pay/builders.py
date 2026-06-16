@@ -15,6 +15,7 @@ from frappe.utils import flt, nowdate
 from cecypo_powerpack.quick_pay.validators import (
 	cap_allocation,
 	compute_outstanding,
+	effective_total,
 )
 
 
@@ -55,7 +56,8 @@ def build_payment_entry(
 	paid_from_currency = frappe.db.get_value("Account", paid_from, "account_currency") or company_currency
 
 	precision = so_doc.precision("grand_total")
-	outstanding = compute_outstanding(so_doc.grand_total, so_doc.advance_paid, precision)
+	total = effective_total(so_doc)
+	outstanding = compute_outstanding(total, so_doc.advance_paid, precision)
 	allocated = cap_allocation(amount, outstanding, precision)
 
 	pe = frappe.new_doc("Payment Entry")
@@ -82,7 +84,7 @@ def build_payment_entry(
 			"reference_doctype": "Sales Order",
 			"reference_name": so_doc.name,
 			"due_date": so_doc.delivery_date or nowdate(),
-			"total_amount": flt(so_doc.grand_total, precision),
+			"total_amount": flt(total, precision),
 			"outstanding_amount": outstanding,
 			"allocated_amount": allocated,
 		},
@@ -96,6 +98,7 @@ def build_sales_invoice(so_doc):
 	official ERPNext mapper. Caller is responsible for insert/submit.
 	"""
 	si = make_sales_invoice(so_doc.name)
+	si.update_stock = 1
 	si.allocate_advances_automatically = 1
 	# Pre-populate advances so validate_advance_entries (which runs before
 	# set_advances in ERPNext's validate sequence) doesn't fire a spurious

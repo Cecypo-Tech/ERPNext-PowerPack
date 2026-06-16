@@ -97,8 +97,10 @@ def _apply_credit_to_so(pe_name: str, so_doc, amount: float, precision: int) -> 
 	if allocated <= 0:
 		return None
 
+	pe.flags.ignore_permissions = True
 	pe.cancel()
 
+	total = validators.effective_total(so_doc)
 	amended = frappe.copy_doc(pe)
 	amended.docstatus = 0
 	amended.amended_from = pe.name
@@ -109,11 +111,11 @@ def _apply_credit_to_so(pe_name: str, so_doc, amount: float, precision: int) -> 
 			"reference_name": so_doc.name,
 			"allocated_amount": allocated,
 			"due_date": so_doc.delivery_date or frappe.utils.nowdate(),
-			"total_amount": float(so_doc.grand_total),
-			"outstanding_amount": float(so_doc.grand_total) - float(so_doc.advance_paid),
+			"total_amount": total,
+			"outstanding_amount": total - float(so_doc.advance_paid),
 		},
 	)
-	amended.insert()
+	amended.insert(ignore_permissions=True)
 	amended.submit()
 
 	return {"original_pe": pe_name, "amended_pe": amended.name, "amount": allocated}
@@ -135,7 +137,6 @@ def process_quick_pay(
 	validators.assert_quick_pay_enabled("cash")
 	create_invoice = int(create_invoice or 0)
 	submit_invoice = int(submit_invoice or 0)
-	validators.assert_can_create_payment_and_invoice(create_invoice, submit_invoice)
 	validators.claim_idempotency_token(idempotency_token)
 
 	if not sales_order or not payments_json:
@@ -146,13 +147,16 @@ def process_quick_pay(
 		frappe.throw(_("No payments provided"))
 
 	so = frappe.get_doc("Sales Order", sales_order)
+	validators.assert_can_process_quick_pay(so, create_invoice, submit_invoice)
 	if so.docstatus != 1:
 		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
 	if so.status in ("Closed", "Cancelled"):
 		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
 
 	precision = so.precision("grand_total")
-	actual_outstanding = validators.compute_outstanding(so.grand_total, so.advance_paid, precision)
+	actual_outstanding = validators.compute_outstanding(
+		validators.effective_total(so), so.advance_paid, precision
+	)
 	remaining = actual_outstanding
 
 	payment_entries: list[dict] = []
@@ -205,7 +209,7 @@ def process_quick_pay(
 			reference_no=p_ref or None,
 			remarks=f"{p_type} payment for {so.name}",
 		)
-		pe.insert()
+		pe.insert(ignore_permissions=True)
 		pe.submit()
 
 		payment_entries.append(
@@ -327,7 +331,6 @@ def process_mpesa_quick_pay(
 	validators.assert_quick_pay_enabled("mpesa")
 	create_invoice = int(create_invoice or 0)
 	submit_invoice = int(submit_invoice or 0)
-	validators.assert_can_create_payment_and_invoice(create_invoice, submit_invoice)
 	validators.claim_idempotency_token(idempotency_token)
 
 	mpesa_names = [n.strip() for n in (mpesa_payments or "").split(",") if n.strip()]
@@ -335,6 +338,7 @@ def process_mpesa_quick_pay(
 		frappe.throw(_("No Mpesa payments selected"))
 
 	so = frappe.get_doc("Sales Order", sales_order)
+	validators.assert_can_process_quick_pay(so, create_invoice, submit_invoice)
 	if so.docstatus != 1:
 		frappe.throw(_("Sales Order {0} is not submitted").format(sales_order))
 	if so.status in ("Closed", "Cancelled"):
@@ -348,7 +352,7 @@ def process_mpesa_quick_pay(
 		frappe.throw(_("No Mpesa Settings for {0}").format(so.company))
 
 	precision = so.precision("grand_total")
-	remaining = validators.compute_outstanding(so.grand_total, so.advance_paid, precision)
+	remaining = validators.compute_outstanding(validators.effective_total(so), so.advance_paid, precision)
 
 	payment_entries: list[dict] = []
 	mpesa_results: list[dict] = []
@@ -376,7 +380,7 @@ def process_mpesa_quick_pay(
 			remarks=f"Mpesa payment: {mpesa_name}",
 			full_received_amount=mpesa_amt,
 		)
-		pe.insert()
+		pe.insert(ignore_permissions=True)
 		pe.submit()
 
 		# Now mark the Mpesa row as processed and link the PE.
@@ -457,7 +461,7 @@ def create_mpesa_payment_request(
 		frappe.throw(_("Cannot process payment for a {0} Sales Order").format(so.status))
 
 	precision = so.precision("grand_total")
-	outstanding = validators.compute_outstanding(so.grand_total, so.advance_paid, precision)
+	outstanding = validators.compute_outstanding(validators.effective_total(so), so.advance_paid, precision)
 	safe_amount = validators.cap_allocation(float(amount), outstanding, precision)
 	if safe_amount <= 0:
 		frappe.throw(_("No outstanding amount on this Sales Order"))

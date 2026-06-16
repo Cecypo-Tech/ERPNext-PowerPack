@@ -18,12 +18,21 @@ function with_settings(cb) {
     });
 }
 
+// ERPNext prefers rounded_total over grand_total once rounding is enabled
+// (see get_orders_to_be_billed / set_grand_total_and_outstanding_amount in
+// payment_entry.py) — advance_paid accumulates against that rounded ceiling,
+// so using grand_total here overstates "outstanding" and Quick Pay ends up
+// asking to allocate more than Payment Entry will ever accept.
+function effective_total(doc) {
+    return flt(doc.rounded_total) || flt(doc.grand_total);
+}
+
 frappe.ui.form.on('Sales Order', {
     refresh(frm) {
         if (!window.CecypoPowerPack || !CecypoPowerPack.Settings) return;
         CecypoPowerPack.Settings.isEnabled('enable_quick_pay_mpesa', function (enabled) {
             if (!enabled) return;
-            const outstanding = flt(frm.doc.grand_total) - flt(frm.doc.advance_paid);
+            const outstanding = effective_total(frm.doc) - flt(frm.doc.advance_paid);
             const is_submitted = frm.doc.docstatus === 1;
             const not_completed = frm.doc.status !== 'Completed' && frm.doc.status !== 'Closed';
             const no_invoice = flt(frm.doc.per_billed) === 0;
@@ -47,7 +56,7 @@ frappe.ui.form.on('Sales Order', {
 });
 
 function show_mpesa_pay_dialog(frm) {
-    const outstanding = flt(frm.doc.grand_total) - flt(frm.doc.advance_paid);
+    const outstanding = effective_total(frm.doc) - flt(frm.doc.advance_paid);
     
     if (outstanding <= 0) {
         frappe.msgprint(__('No outstanding amount to pay'));
@@ -113,7 +122,7 @@ function show_mpesa_pay_dialog(frm) {
 
 function get_mpesa_summary_html(frm, outstanding) {
     const paid = flt(frm.doc.advance_paid);
-    const total = flt(frm.doc.grand_total);
+    const total = effective_total(frm.doc);
     const percent = total > 0 ? Math.round((paid / total) * 100) : 0;
     
     return `
@@ -496,7 +505,7 @@ function process_mpesa_payments(frm, dialog, outstanding) {
 }
 
 function show_request_payment_dialog(frm, parent_dialog) {
-    const outstanding = flt(frm.doc.grand_total) - flt(frm.doc.advance_paid);
+    const outstanding = effective_total(frm.doc) - flt(frm.doc.advance_paid);
     
     // Get customer phone from contact
     frappe.call({

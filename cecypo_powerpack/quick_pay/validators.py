@@ -8,6 +8,7 @@ section and clearly marked.
 from __future__ import annotations
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 # --- Precision -------------------------------------------------------------
@@ -16,6 +17,20 @@ from frappe.utils import flt
 def normalize_amount(value, precision: int = 2) -> float:
 	"""Round a money amount to currency precision, killing IEEE-754 drift."""
 	return flt(value, precision)
+
+
+def effective_total(so_doc) -> float:
+	"""The amount ERPNext actually treats as due on a Sales Order.
+
+	Mirrors the `rounded_total or grand_total` pattern used throughout
+	erpnext (e.g. `get_orders_to_be_billed`, `set_grand_total_and_outstanding_amount`
+	in payment_entry.py) for computing a voucher's real outstanding ceiling.
+	Using `grand_total` alone overstates that ceiling once rounding is
+	enabled, since `advance_paid` accumulates against the rounded total —
+	allocating the unrounded difference then fails Payment Entry's own
+	"Allocated Amount cannot be greater than outstanding amount" check.
+	"""
+	return flt(so_doc.rounded_total) or flt(so_doc.grand_total)
 
 
 def compute_outstanding(grand_total, advance_paid, precision: int = 2) -> float:
@@ -137,13 +152,18 @@ def _can_submit_as_owner(doctype: str) -> bool:
 	return bool(perms.get("submit") or perms.get("if_owner", {}).get("submit"))
 
 
-def assert_can_create_payment_and_invoice(create_invoice: bool, submit_invoice: bool) -> None:
-	if not frappe.has_permission("Payment Entry", "create"):
-		frappe.throw("You do not have permission to create Payment Entry")
-	if not _can_submit_as_owner("Payment Entry"):
-		frappe.throw("You do not have permission to submit Payment Entry")
+def assert_can_process_quick_pay(so_doc, create_invoice: bool, submit_invoice: bool) -> None:
+	"""Quick Pay creates (and amends) Payment Entries with ignore_permissions,
+	because the Sales role intentionally has no direct Payment Entry access —
+	finance keeps that locked down so reps can't browse to the PE list and
+	create ad-hoc entries. Checking `frappe.has_permission("Payment Entry", ...)`
+	here would therefore always fail by design and isn't the real authorization
+	boundary anyway: the boundary is "can this user act on this Sales Order".
+	"""
+	if not frappe.has_permission("Sales Order", "write", so_doc):
+		frappe.throw(_("You do not have permission to record payments against this Sales Order"))
 	if create_invoice:
 		if not frappe.has_permission("Sales Invoice", "create"):
-			frappe.throw("You do not have permission to create Sales Invoice")
+			frappe.throw(_("You do not have permission to create Sales Invoice"))
 		if submit_invoice and not _can_submit_as_owner("Sales Invoice"):
-			frappe.throw("You do not have permission to submit Sales Invoice")
+			frappe.throw(_("You do not have permission to submit Sales Invoice"))

@@ -89,3 +89,68 @@ class TestStockPreflight(UnitTestCase):
 			).insert(ignore_permissions=True)
 		issues = preflight_stock_for_so(FakeSO())
 		self.assertEqual(issues, [])
+
+
+from unittest.mock import patch
+
+from cecypo_powerpack.quick_pay.validators import assert_can_process_quick_pay, effective_total
+
+
+class TestEffectiveTotal(UnitTestCase):
+	def test_prefers_rounded_total_when_set(self):
+		so = frappe._dict(rounded_total=271.0, grand_total=271.44)
+		self.assertEqual(effective_total(so), 271.0)
+
+	def test_falls_back_to_grand_total_when_rounding_disabled(self):
+		# disable_rounded_total sets rounded_total to 0, which is falsy
+		so = frappe._dict(rounded_total=0, grand_total=271.44)
+		self.assertEqual(effective_total(so), 271.44)
+
+	def test_falls_back_to_grand_total_when_rounded_total_missing(self):
+		so = frappe._dict(rounded_total=None, grand_total=271.44)
+		self.assertEqual(effective_total(so), 271.44)
+
+
+class TestAssertCanProcessQuickPay(UnitTestCase):
+	def test_raises_when_so_write_denied(self):
+		so = frappe._dict(name="SAL-ORD-TEST")
+		with patch("cecypo_powerpack.quick_pay.validators.frappe.has_permission", return_value=False):
+			with self.assertRaises(frappe.ValidationError):
+				assert_can_process_quick_pay(so, create_invoice=False, submit_invoice=False)
+
+	def test_passes_when_so_write_allowed_and_no_invoice_requested(self):
+		so = frappe._dict(name="SAL-ORD-TEST")
+		with patch("cecypo_powerpack.quick_pay.validators.frappe.has_permission", return_value=True):
+			assert_can_process_quick_pay(so, create_invoice=False, submit_invoice=False)
+
+	def test_raises_when_invoice_create_denied(self):
+		so = frappe._dict(name="SAL-ORD-TEST")
+
+		def fake_has_permission(doctype, ptype="read", *args, **kwargs):
+			if doctype == "Sales Invoice" and ptype == "create":
+				return False
+			return True
+
+		with patch(
+			"cecypo_powerpack.quick_pay.validators.frappe.has_permission",
+			side_effect=fake_has_permission,
+		):
+			with self.assertRaises(frappe.ValidationError):
+				assert_can_process_quick_pay(so, create_invoice=True, submit_invoice=False)
+
+	def test_raises_when_submit_not_allowed_as_owner(self):
+		so = frappe._dict(name="SAL-ORD-TEST")
+		with (
+			patch("cecypo_powerpack.quick_pay.validators.frappe.has_permission", return_value=True),
+			patch("cecypo_powerpack.quick_pay.validators._can_submit_as_owner", return_value=False),
+		):
+			with self.assertRaises(frappe.ValidationError):
+				assert_can_process_quick_pay(so, create_invoice=True, submit_invoice=True)
+
+	def test_passes_when_submit_allowed_as_owner(self):
+		so = frappe._dict(name="SAL-ORD-TEST")
+		with (
+			patch("cecypo_powerpack.quick_pay.validators.frappe.has_permission", return_value=True),
+			patch("cecypo_powerpack.quick_pay.validators._can_submit_as_owner", return_value=True),
+		):
+			assert_can_process_quick_pay(so, create_invoice=True, submit_invoice=True)
