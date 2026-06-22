@@ -568,7 +568,9 @@ frappe.ui.form.on('Quotation Item', {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				if (item.item_code) {
+					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				}
 				// Update profit metrics
 				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
@@ -689,7 +691,9 @@ frappe.ui.form.on('Sales Order Item', {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				if (item.item_code) {
+					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				}
 				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 				}
@@ -795,7 +799,9 @@ frappe.ui.form.on('Sales Invoice Item', {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				if (item.item_code) {
+					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				}
 				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 				}
@@ -901,7 +907,9 @@ frappe.ui.form.on('POS Invoice Item', {
 			const item = locals[cdt][cdn];
 			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
 			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				if (item.item_code) {
+					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
+				}
 				if (frappe.user.has_role(visible_role)) {
 					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
 				}

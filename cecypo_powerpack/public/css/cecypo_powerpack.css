@@ -92,10 +92,60 @@ body.compact-theme .datatable {
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
+/* Unset Frappe's fixed 43px row-cell height; cells size to content */
 body.compact-theme .grid-body .grid-static-col,
 body.compact-theme .grid-body .row-index {
 	height: unset !important;
 	max-height: 200px;
+}
+
+/* Constrain the leftmost checkbox column so it doesn't inflate the flex row height.
+   Before this rule, row-check had no compact override and stayed at Frappe's default
+   32-43px, stretching all sibling flex cells to match — making focus borders too tall. */
+body.compact-theme .grid-body .row-check {
+	height: var(--input-height) !important;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* Check cells in STATIC rows only: centre the tick icon and neutralise Frappe's offset nudges.
+   Scoped to .data-row to avoid interfering with the editable-row form control layout. */
+body.compact-theme .grid-body .data-row .grid-static-col[data-fieldtype="Check"] {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+body.compact-theme .grid-body .data-row .grid-static-col[data-fieldtype="Check"] .static-area {
+	padding-top: 0 !important;
+	margin-bottom: 0 !important;
+}
+
+/* Check cells in EDITABLE rows: constrain height and centre the checkbox input.
+   Frappe's .checkbox label has align-items:start + padding-top:2.5px which pushes
+   the tick/input toward the top; we override the whole chain to centre it properly. */
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Check"] {
+	height: var(--input-height) !important;
+	overflow: hidden;
+}
+body.compact-theme .grid-body .editable-row [data-fieldtype="Check"] .field-area,
+body.compact-theme .grid-body .editable-row [data-fieldtype="Check"] .form-group,
+body.compact-theme .grid-body .editable-row [data-fieldtype="Check"] .checkbox {
+	height: var(--input-height) !important;
+}
+/* The label is the last centering step; neutralise padding-top and align-items: start */
+body.compact-theme .grid-body .editable-row [data-fieldtype="Check"] .checkbox label {
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	padding-top: 0 !important;
+	height: var(--input-height) !important;
+}
+/* .input-area wraps the actual <input type="checkbox">; shrink it to the checkbox-size */
+body.compact-theme .grid-body .editable-row [data-fieldtype="Check"] .checkbox .input-area {
+	height: var(--checkbox-size) !important;
+	display: flex !important;
+	align-items: center !important;
 }
 
 /* Grid cell edit mode: keep inputs at the same compact height as static cells */
@@ -122,6 +172,10 @@ body.compact-theme .grid-body .editable-row .frappe-control[data-fieldtype="Sele
 }
 body.compact-theme .grid-body .editable-row .link-btn {
 	margin-top: 0;
+}
+/* Remove Frappe's margin-top on all editable-row checkboxes (grid.scss adds 8px by default) */
+body.compact-theme .grid-body .editable-row .checkbox {
+	margin-top: 0 !important;
 }
 
 /* ── Min Selling Price Rule Tree (PowerPack Settings) ── */

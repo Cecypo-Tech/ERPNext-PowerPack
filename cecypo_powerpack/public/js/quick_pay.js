@@ -235,21 +235,40 @@ function render_payments_container(dialog, frm) {
 	});
 }
 
+function recalculate_credits(dialog) {
+	const wrapper = dialog._credits_wrapper;
+	if (!wrapper || !dialog.credits) return;
+	let remaining = dialog.outstanding;
+	dialog.credits.forEach(c => {
+		const apply = Math.min(c.available_amount, remaining);
+		const diff = c.available_amount - remaining;
+		c.amount_cls = Math.abs(diff) < 0.01 ? '' : (diff > 0 ? 'qp-credit-over' : 'qp-credit-partial');
+		const $row = wrapper.find(`[data-credit="${c.pe_name}"]`);
+		$row.find('.qp-credit-total').attr('class', `qp-credit-total ${c.amount_cls}`);
+		if (c.checked) {
+			c.apply_amount = Math.min(c.apply_amount, apply);
+			remaining = Math.max(0, remaining - c.apply_amount);
+		} else {
+			c.apply_amount = apply;
+		}
+		$row.find('.qp-credit-apply-input').val(c.apply_amount);
+	});
+}
+
 function render_credits_container(dialog, frm, raw_credits) {
 	const wrapper = dialog.fields_dict.credits_container.$wrapper;
+	dialog._credits_wrapper = wrapper;
 
 	if (!raw_credits || !raw_credits.length) {
 		wrapper.html('');
 		return;
 	}
 
-	let remaining = dialog.outstanding;
 	dialog.credits = raw_credits.map(c => {
 		const avail = flt(c.unallocated_amount);
-		const apply = Math.min(avail, remaining);
-		const diff = avail - remaining;
+		const apply = Math.min(avail, dialog.outstanding);
+		const diff = avail - dialog.outstanding;
 		const amount_cls = Math.abs(diff) < 0.01 ? '' : (diff > 0 ? 'qp-credit-over' : 'qp-credit-partial');
-		remaining = Math.max(0, remaining - apply);
 		return {
 			pe_name: c.name,
 			posting_date: c.posting_date,
@@ -307,10 +326,12 @@ function render_credits_container(dialog, frm, raw_credits) {
 		$row.find('.qp-credit-check').on('change', function () {
 			c.checked = $(this).is(':checked');
 			$row.find('.qp-credit-apply-input').prop('disabled', !c.checked);
+			recalculate_credits(dialog);
 			update_payment_totals(dialog);
 		});
 		$row.find('.qp-credit-apply-input').on('input change', function () {
 			c.apply_amount = Math.min(flt($(this).val()), c.available_amount);
+			recalculate_credits(dialog);
 			update_payment_totals(dialog);
 		});
 	});

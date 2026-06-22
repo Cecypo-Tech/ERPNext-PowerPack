@@ -143,7 +143,10 @@ def process_quick_pay(
 		frappe.throw(_("Missing required parameters"))
 
 	payments = _json.loads(payments_json)
-	if not isinstance(payments, list) or not payments:
+	if not isinstance(payments, list):
+		frappe.throw(_("No payments provided"))
+	credits = _json.loads(credits_json) if credits_json else []
+	if not payments and not credits:
 		frappe.throw(_("No payments provided"))
 
 	so = frappe.get_doc("Sales Order", sales_order)
@@ -166,8 +169,7 @@ def process_quick_pay(
 	total_paid = 0.0
 
 	# Apply unallocated payments (credits) first, before processing new payments.
-	if credits_json:
-		credits = _json.loads(credits_json)
+	if credits:
 		for c in credits:
 			c_pe = c.get("pe_name")
 			c_amt = float(c.get("amount") or 0)
