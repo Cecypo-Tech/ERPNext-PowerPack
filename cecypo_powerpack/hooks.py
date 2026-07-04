@@ -100,10 +100,9 @@ website_route_rules = [
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "cecypo_powerpack.utils.jinja_methods",
-# 	"filters": "cecypo_powerpack.utils.jinja_filters"
-# }
+jinja = {
+	"methods": "cecypo_powerpack.api.get_document_public_link",
+}
 
 # Installation
 # ------------
