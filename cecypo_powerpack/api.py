@@ -1264,15 +1264,19 @@ def get_short_link_target(token):
 
 
 @frappe.whitelist()
-def custom_search_link(doctype, txt, query=None, filters=None, page_length=10,
-		searchfield=None, reference_doctype=None, ignore_user_permissions=False,
-		link_fieldname=None):
-	"""Override for frappe.desk.search.search_link.
+def custom_search_link(
+	doctype, txt, query=None, filters=None, page_length=10,
+	searchfield=None, reference_doctype=None, ignore_user_permissions=False,
+	*, link_fieldname=None,
+):
+	"""Override for frappe.desk.search.search_link (signature kept identical to upstream).
 
-	Replaces erpnext.controllers.queries.item_query with custom_item_query when
-	enable_item_search_powerup is enabled. This must override search_link (the actual
-	HTTP endpoint) rather than search_widget, because search_link → search_widget →
-	frappe.call(query) all run in Python and bypass handler.py's override lookup.
+	Only behaviour change: when `enable_item_search_powerup` is on, swap the Item link
+	query for our enhanced `custom_item_query`; every argument is otherwise forwarded
+	unchanged to the standard `search_link`, so it degrades to stock behaviour when the
+	flag is off. We override `search_link` (the HTTP endpoint) rather than the query
+	because `search_link → search_widget → frappe.call(query)` runs in Python and bypasses
+	`override_whitelisted_methods` lookup on the inner query.
 	"""
 	from cecypo_powerpack.utils import is_feature_enabled
 	from frappe.desk.search import search_link
@@ -1283,15 +1287,11 @@ def custom_search_link(doctype, txt, query=None, filters=None, page_length=10,
 	):
 		query = "cecypo_powerpack.api.custom_item_query"
 
-	import inspect
-	kwargs = dict(
-		query=query, filters=filters, page_length=page_length,
+	return search_link(
+		doctype, txt, query=query, filters=filters, page_length=page_length,
 		searchfield=searchfield, reference_doctype=reference_doctype,
-		ignore_user_permissions=ignore_user_permissions,
+		ignore_user_permissions=ignore_user_permissions, link_fieldname=link_fieldname,
 	)
-	if "link_fieldname" in inspect.signature(search_link).parameters:
-		kwargs["link_fieldname"] = link_fieldname
-	return search_link(doctype, txt, **kwargs)
 
 
 @frappe.whitelist()
@@ -1377,6 +1377,12 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 			+ [f for f in searchfields if f not in ["name", "description"]]
 		)
 	)
+	# Harden: only ever interpolate real, existing Item columns into the SQL identifier
+	# positions below. `searchfield` is the one caller-supplied identifier that reaches
+	# here; validating the whole set against the doctype's real columns makes the
+	# `.format()` call injection-proof by construction, independent of the input decorator.
+	valid_columns = set(meta.get_valid_columns())
+	search_cols = [c for c in search_cols if c in valid_columns] or ["name"]
 
 	# Parse tokens
 	txt = (txt or "").strip()
@@ -1417,8 +1423,16 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 
 	search_cond = " and ".join(token_clauses)
 
-	return frappe.db.sql(
-		"""select tabItem.name {columns}
+	# SECURITY (frappe-sql-format-injection): every *value* (search tokens, dates, paging)
+	# is bound as a query parameter via `values` (%(tokN)s / %(today)s / %(_txt)s /
+	# %(start)s / %(page_len)s). The pieces injected with .format() are SQL *identifiers*
+	# and framework-generated condition fragments — which cannot be bound as parameters:
+	#   • `columns` / `scond` column names come from frappe meta and are filtered above
+	#     against meta.get_valid_columns(), so only real Item columns can appear;
+	#   • `fcond` / `mcond` are produced by Frappe's own get_filters_cond / get_match_cond
+	#     (%-escaped), exactly as ERPNext core's item_query does.
+	# No user-supplied string reaches the SQL text unparameterised.
+	query_sql = """select tabItem.name {columns}
 		from tabItem
 		where tabItem.docstatus < 2
 			and tabItem.disabled=0
@@ -1432,14 +1446,14 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 			idx desc,
 			name, item_name
 		limit %(start)s, %(page_len)s""".format(
-			columns=columns,
-			scond=search_cond,
-			fcond=get_filters_cond(doctype, filters, conditions).replace("%", "%%"),
-			mcond=get_match_cond(doctype).replace("%", "%%"),
-		),
-		values,
-		as_dict=as_dict,
+		columns=columns,
+		scond=search_cond,
+		fcond=get_filters_cond(doctype, filters, conditions).replace("%", "%%"),
+		mcond=get_match_cond(doctype).replace("%", "%%"),
 	)
+
+	# nosemgrep: frappe-sql-format-injection -- identifiers validated above; all values bound as params
+	return frappe.db.sql(query_sql, values, as_dict=as_dict)
 
 
 @frappe.whitelist()

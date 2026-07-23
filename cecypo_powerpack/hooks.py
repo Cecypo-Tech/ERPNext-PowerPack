@@ -190,9 +190,11 @@ fixtures = [
 
 # DocType Class
 # ---------------
-# Override standard doctype classes
+# Extend standard doctype classes (v16+). Layers our mixin on top of ERPNext's
+# controller instead of replacing it, so upstream fixes are preserved and other
+# apps extending the same doctype are not clobbered.
 
-override_doctype_class = {
+extend_doctype_class = {
 	"Payment Reconciliation": "cecypo_powerpack.custom_payment_reconciliation.CustomPaymentReconciliation"
 }
 

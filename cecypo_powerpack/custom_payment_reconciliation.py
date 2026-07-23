@@ -10,7 +10,6 @@ Provides zero-allocation reconciliation without affecting standard reconciliatio
 import frappe
 from frappe import _
 from frappe.utils import flt
-from erpnext.accounts.doctype.payment_reconciliation.payment_reconciliation import PaymentReconciliation
 
 
 def _fixed_update_reference_in_journal_entry(d, journal_entry, do_not_save=False):
@@ -93,16 +92,23 @@ def _fixed_update_reference_in_journal_entry(d, journal_entry, do_not_save=False
     return new_row
 
 
-class CustomPaymentReconciliation(PaymentReconciliation):
-    """
-    Extended Payment Reconciliation with zero allocation support via custom method.
-    Standard reconciliation is not affected.
+class CustomPaymentReconciliation:
+    """Mixin layered onto Payment Reconciliation via the `extend_doctype_class` hook.
+
+    It is injected *before* ERPNext's ``PaymentReconciliation`` in the MRO, so ``super()``
+    calls here resolve to the standard controller. This adds the ``zero_reconcile`` method
+    and layers a JE-imbalance fix onto ``reconcile_allocations`` without replacing the
+    upstream class — upstream bug fixes are preserved and it coexists with other apps.
     """
 
     def reconcile_allocations(self, skip_ref_details_update_for_pe=False):
         import erpnext.accounts.utils as erpnext_utils
+        original_update = erpnext_utils.update_reference_in_journal_entry
         erpnext_utils.update_reference_in_journal_entry = _fixed_update_reference_in_journal_entry
-        super().reconcile_allocations(skip_ref_details_update_for_pe)
+        try:
+            super().reconcile_allocations(skip_ref_details_update_for_pe)
+        finally:
+            erpnext_utils.update_reference_in_journal_entry = original_update
 
     @frappe.whitelist()
     def zero_reconcile(self):
@@ -171,8 +177,11 @@ class CustomPaymentReconciliation(PaymentReconciliation):
 
         frappe.msgprint(_("Successfully Reconciled"), indicator="green")
 
-    # NOTE: The process-level monkey-patch in zero_reconcile() is safe under preforked
-    # Gunicorn (current bench16 config). Under gevent/gthread it would race across greenlets.
+    # NOTE: These patches mutate module-level functions in erpnext.accounts.utils, so they
+    # are process-global for their duration. Each call now restores the originals in a
+    # `finally` block, keeping the window as tight as possible. Safe under preforked
+    # Gunicorn (current bench16 config); under gevent/gthread it could still race across
+    # greenlets sharing the process.
     def _reconcile_without_validation(self):
         """
         Internal method that performs reconciliation without the strict validation.
@@ -184,6 +193,7 @@ class CustomPaymentReconciliation(PaymentReconciliation):
         import erpnext.accounts.utils
 
         original_check = erpnext.accounts.utils.check_if_advance_entry_modified
+        original_update = erpnext.accounts.utils.update_reference_in_journal_entry
         erpnext.accounts.utils.update_reference_in_journal_entry = _fixed_update_reference_in_journal_entry
 
         def dummy_check(entry):
@@ -251,3 +261,4 @@ class CustomPaymentReconciliation(PaymentReconciliation):
 
         finally:
             erpnext.accounts.utils.check_if_advance_entry_modified = original_check
+            erpnext.accounts.utils.update_reference_in_journal_entry = original_update
