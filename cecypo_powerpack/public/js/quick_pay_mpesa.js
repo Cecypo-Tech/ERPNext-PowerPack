@@ -114,6 +114,8 @@ function show_mpesa_pay_dialog(frm) {
         args: { company: frm.doc.company, search: '' },
         callback(r) {
             dialog.mpesa_data = r.message || {count: 0, payments: []};
+            // Cache the total pending count so search calls don't recompute it.
+            dialog.total_count = dialog.mpesa_data.count || 0;
             render_mpesa_list(dialog);
             update_mpesa_totals(dialog);
         }
@@ -359,9 +361,11 @@ function load_mpesa_payments(dialog, search) {
     
     frappe.call({
         method: 'cecypo_powerpack.quick_pay.api.list_pending_mpesa_payments',
-        args: { company: dialog.company, search: search || '' },
+        args: { company: dialog.company, search: search || '', with_count: 0 },
         callback(r) {
-            dialog.mpesa_data = r.message || {count: 0, payments: []};
+            const payments = (r.message && r.message.payments) || [];
+            // Reuse the cached total pending count; the search response skips it.
+            dialog.mpesa_data = { count: dialog.total_count || 0, payments: payments };
             render_mpesa_list(dialog);
             update_mpesa_totals(dialog);
         }

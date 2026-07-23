@@ -1,5 +1,6 @@
 import json
 import uuid
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import UnitTestCase
@@ -158,3 +159,87 @@ class TestProcessQuickPay(UnitTestCase):
 				submit_invoice=0,
 				idempotency_token=token,
 			)
+
+
+class TestListPendingMpesaPayments(UnitTestCase):
+	"""Covers the with_count caching flag and the 3-char search gate on the
+	Quick Pay - Mpesa listing.
+
+	The shortcode lookup is mocked so the test exercises the listing logic
+	without needing a full (heavily-required) Mpesa Settings fixture. Register
+	rows have no required fields, so a handful can be inserted directly and
+	filtered by a unique businessshortcode for exact-count assertions.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.shortcode = "TST" + uuid.uuid4().hex[:8]
+		cls.company = "_Test QP Mpesa Co"
+		cls.rows = []
+		# full_name is derived from firstname/lastname by the register's
+		# set_missing_values(), so set the name parts rather than full_name.
+		specs = [
+			{"firstname": "Alice", "lastname": "Wanjiru", "msisdn": "254700000001"},
+			{"firstname": "Bob", "lastname": "Otieno", "msisdn": "254700000002"},
+			{"firstname": "Carol", "lastname": "Njoroge", "msisdn": "254700000003"},
+		]
+		for spec in specs:
+			doc = frappe.get_doc(
+				{
+					"doctype": "Mpesa C2B Payment Register",
+					"businessshortcode": cls.shortcode,
+					"transamount": 100,
+					"transid": "QPM" + uuid.uuid4().hex[:10],
+					**spec,
+				}
+			).insert(ignore_permissions=True)
+			cls.rows.append(doc.name)
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		for name in cls.rows:
+			frappe.db.delete("Mpesa C2B Payment Register", {"name": name})
+		frappe.db.commit()
+		super().tearDownClass()
+
+	def setUp(self):
+		self._orig = frappe.db.get_single_value("PowerPack Settings", "enable_quick_pay_mpesa")
+		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay_mpesa", 1)
+
+	def tearDown(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_quick_pay_mpesa", self._orig or 0)
+		frappe.db.commit()
+
+	def _call(self, search="", with_count=1):
+		from cecypo_powerpack.quick_pay import api
+
+		with patch.object(api, "_mpesa_shortcode_for_company", return_value=self.shortcode):
+			return api.list_pending_mpesa_payments(self.company, search, with_count)
+
+	def test_with_count_computes_total(self):
+		self.assertEqual(self._call(with_count=1)["count"], 3)
+
+	def test_with_count_zero_skips_total_but_still_searches(self):
+		res = self._call(search="wanjiru", with_count=0)
+		self.assertEqual(res["count"], 0)  # count skipped
+		self.assertEqual(len(res["payments"]), 1)  # search still runs
+
+	def test_with_count_accepts_string_flag(self):
+		# HTTP passes whitelisted args as strings.
+		self.assertEqual(self._call(with_count="0")["count"], 0)
+		self.assertEqual(self._call(with_count="1")["count"], 3)
+
+	def test_short_search_returns_no_rows_but_keeps_count(self):
+		res = self._call(search="al", with_count=1)  # 2 chars < 3
+		self.assertEqual(res["payments"], [])
+		self.assertEqual(res["count"], 3)
+
+	def test_search_matches_full_name(self):
+		res = self._call(search="wanjiru")
+		self.assertEqual({p["name"] for p in res["payments"]}, {self.rows[0]})
+
+	def test_search_matches_transid(self):
+		tid = frappe.db.get_value("Mpesa C2B Payment Register", self.rows[1], "transid")
+		self.assertIn(self.rows[1], {p["name"] for p in self._call(search=tid)["payments"]})

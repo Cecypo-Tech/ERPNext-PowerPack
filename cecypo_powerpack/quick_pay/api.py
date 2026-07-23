@@ -283,14 +283,20 @@ def check_mpesa_available(company: str) -> dict:
 
 
 @frappe.whitelist()
-def list_pending_mpesa_payments(company: str, search: str = "") -> dict:
+def list_pending_mpesa_payments(company: str, search: str = "", with_count: int = 1) -> dict:
 	validators.assert_quick_pay_enabled("mpesa")
 	shortcode = _mpesa_shortcode_for_company(company)
 	if not shortcode:
 		return {"count": 0, "payments": []}
 
 	base_filters = {"docstatus": 0, "businessshortcode": shortcode}
-	total_count = frappe.db.count("Mpesa C2B Payment Register", base_filters)
+	# The count is an aggregate over the whole pending register and only changes when
+	# rows are added/submitted — not per keystroke. Compute it on the initial dialog
+	# load (with_count=1) so the client can cache it, and skip it on every subsequent
+	# search call (with_count=0) to avoid re-scanning the register each time.
+	total_count = (
+		frappe.db.count("Mpesa C2B Payment Register", base_filters) if int(with_count) else 0
+	)
 
 	payments: list[dict] = []
 	if len(search) >= 3:
