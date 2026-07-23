@@ -19,28 +19,14 @@ from cecypo_powerpack.quick_pay.validators import (
 )
 
 
-def build_payment_entry(
-	so_doc,
-	amount: float,
-	mode_of_payment: str,
-	reference_no: str | None = None,
-	remarks: str | None = None,
-	*,
-	full_received_amount: float | None = None,
-):
-	"""Build (but don't save) a Payment Entry against a Sales Order.
+def resolve_payment_accounts(company: str, customer: str, mode_of_payment: str) -> dict:
+	"""Resolve the account + currency fields a Payment Entry needs.
 
-	`amount` is what to allocate to the SO. `full_received_amount` (Mpesa-only)
-	is the total received when it exceeds the SO outstanding — the PE records
-	the full amount but only allocates `amount` to this SO. If None, defaults
-	to `amount` (cash/bank/card path).
+	These depend only on (company, customer, mode_of_payment), so a caller
+	building many PEs with the same triple (e.g. the Mpesa loop) can resolve
+	once and pass the result to `build_payment_entry(..., accounts=...)` instead
+	of repeating these single-row lookups on every iteration.
 	"""
-	company = so_doc.company
-	customer = so_doc.customer
-
-	if full_received_amount is None:
-		full_received_amount = amount
-
 	paid_to = frappe.db.get_value(
 		"Mode of Payment Account",
 		{"parent": mode_of_payment, "company": company},
@@ -52,8 +38,46 @@ def build_payment_entry(
 	paid_from = get_party_account("Customer", customer, company)
 
 	company_currency = frappe.db.get_value("Company", company, "default_currency")
-	paid_to_currency = frappe.db.get_value("Account", paid_to, "account_currency") or company_currency
-	paid_from_currency = frappe.db.get_value("Account", paid_from, "account_currency") or company_currency
+	return {
+		"paid_to": paid_to,
+		"paid_from": paid_from,
+		"paid_to_currency": frappe.db.get_value("Account", paid_to, "account_currency") or company_currency,
+		"paid_from_currency": frappe.db.get_value("Account", paid_from, "account_currency") or company_currency,
+	}
+
+
+def build_payment_entry(
+	so_doc,
+	amount: float,
+	mode_of_payment: str,
+	reference_no: str | None = None,
+	remarks: str | None = None,
+	*,
+	full_received_amount: float | None = None,
+	accounts: dict | None = None,
+):
+	"""Build (but don't save) a Payment Entry against a Sales Order.
+
+	`amount` is what to allocate to the SO. `full_received_amount` (Mpesa-only)
+	is the total received when it exceeds the SO outstanding — the PE records
+	the full amount but only allocates `amount` to this SO. If None, defaults
+	to `amount` (cash/bank/card path).
+
+	`accounts` (optional) is a pre-resolved dict from `resolve_payment_accounts`;
+	when omitted the lookups run inline (unchanged single-PE behaviour).
+	"""
+	company = so_doc.company
+	customer = so_doc.customer
+
+	if full_received_amount is None:
+		full_received_amount = amount
+
+	if accounts is None:
+		accounts = resolve_payment_accounts(company, customer, mode_of_payment)
+	paid_to = accounts["paid_to"]
+	paid_from = accounts["paid_from"]
+	paid_to_currency = accounts["paid_to_currency"]
+	paid_from_currency = accounts["paid_from_currency"]
 
 	precision = so_doc.precision("grand_total")
 	total = effective_total(so_doc)

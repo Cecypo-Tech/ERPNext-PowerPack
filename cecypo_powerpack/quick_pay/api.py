@@ -359,6 +359,10 @@ def process_mpesa_quick_pay(
 	payment_entries: list[dict] = []
 	mpesa_results: list[dict] = []
 
+	# company / customer / mode are constant across the loop — resolve the PE
+	# accounts + currencies once instead of on every selected payment.
+	payment_accounts = builders.resolve_payment_accounts(so.company, so.customer, phone_mop)
+
 	for mpesa_name in mpesa_names:
 		if remaining <= 0:
 			break
@@ -381,17 +385,20 @@ def process_mpesa_quick_pay(
 			reference_no=mpesa_name,
 			remarks=f"Mpesa payment: {mpesa_name}",
 			full_received_amount=mpesa_amt,
+			accounts=payment_accounts,
 		)
 		pe.insert(ignore_permissions=True)
 		pe.submit()
 
-		# Now mark the Mpesa row as processed and link the PE.
+		# Now mark the Mpesa row as processed and link the PE. submit() persists
+		# these field changes and transitions docstatus in a single write, so no
+		# separate save() is needed.
 		mpesa.customer = so.customer
 		mpesa.company = so.company
 		mpesa.mode_of_payment = phone_mop
 		mpesa.submit_payment = 0
 		mpesa.payment_entry = pe.name
-		mpesa.save(ignore_permissions=True)
+		mpesa.flags.ignore_permissions = True
 		mpesa.submit()
 
 		payment_entries.append(
