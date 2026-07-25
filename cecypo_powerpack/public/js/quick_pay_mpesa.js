@@ -492,9 +492,23 @@ function process_mpesa_payments(frm, dialog, outstanding) {
                             <span class="indicator-pill ${inv.submitted ? 'green' : 'orange'}">${inv.submitted ? __('Submitted') : __('Draft')}</span>
                         </div>
                     `;
+                } else if (r.message.invoice_error) {
+                    // Payments committed but the invoice stage failed (e.g. eTIMS timeout).
+                    // Warn rather than error — the money was received and recorded.
+                    msg += `
+                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                            <p style="margin-bottom: 8px;"><strong>${__('Invoice Not Created')}</strong></p>
+                            <p class="text-muted" style="margin-bottom: 0;"><small>${frappe.utils.escape_html(r.message.invoice_error)}</small></p>
+                        </div>
+                    `;
                 }
-                
-                frappe.msgprint({ title: __('Payment Successful'), message: msg, indicator: 'green' });
+
+                const invoice_failed = !!r.message.invoice_error;
+                frappe.msgprint({
+                    title: invoice_failed ? __('Payment Recorded — Invoice Failed') : __('Payment Successful'),
+                    message: msg,
+                    indicator: invoice_failed ? 'orange' : 'green',
+                });
                 frm.reload_doc();
             }
         },

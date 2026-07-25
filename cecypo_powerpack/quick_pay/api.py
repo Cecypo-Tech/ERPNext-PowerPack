@@ -81,6 +81,60 @@ def get_unallocated_payments(customer: str, company: str) -> list[dict]:
 	)
 
 
+def _finalize_with_invoice(so_doc, *, submit_invoice: int, result: dict) -> None:
+	"""Create (and optionally submit) the Sales Invoice for a completed Quick Pay.
+
+	Called only once every Payment Entry for the request is inserted and submitted.
+	Mutates `result` in place with either `sales_invoice` or `invoice_error`.
+
+	WHY THE COMMIT COMES FIRST
+	--------------------------
+	`pe.insert()` names the Payment Entry through frappe's `getseries()`, which runs
+	`SELECT current FROM tabSeries WHERE name = 'ACC-PAY-<year>-' FOR UPDATE`. InnoDB
+	holds that row lock until the transaction commits, and frappe commits once, at the
+	end of the request — so the lock is held from the first PE insert all the way to
+	the response, not just for the duration of the SELECT.
+
+	Sales Invoice submission is the expensive part of that window: cecypo_etims_compliance
+	registers a `Sales Invoice.before_submit` hook that makes a synchronous HTTPS call to
+	KRA eTIMS with a 30s timeout, then a second one for the stock movement. Holding a
+	site-wide Payment Entry naming-series lock across a third-party network round-trip
+	serialises every other Payment Entry writer on the site — other cashiers' Quick Pay,
+	POS, C2B reconciliation, Payment Reconciliation — behind this one request.
+
+	Committing here releases the series lock before any of that starts.
+
+	TRADE-OFF: this deliberately gives up all-or-nothing atomicity between the payments
+	and the invoice. That is the correct semantic — the money *was* received and the
+	Payment Entries are the record of it, so a KRA timeout must not silently discard a
+	recorded receipt (which is what the previous single-transaction behaviour did). The
+	caller surfaces `invoice_error` so the operator knows to create the invoice manually.
+	"""
+	frappe.db.commit()
+
+	try:
+		so_doc.reload()
+		si = builders.build_sales_invoice(so_doc, update_stock=is_feature_enabled("qp_update_stock"))
+		si.insert()
+		builders.sync_so_party_fields(si, so_doc)
+		if submit_invoice:
+			si.submit()
+		result["sales_invoice"] = {"name": si.name, "submitted": si.docstatus == 1}
+	except Exception:
+		# Roll back to the commit above: the invoice work is discarded, the Payment
+		# Entries survive. Log after the rollback so the Error Log row isn't discarded.
+		frappe.db.rollback()
+		frappe.log_error(
+			frappe.get_traceback(),
+			f"Quick Pay: invoice creation failed for {so_doc.name}",
+		)
+		result["sales_invoice"] = None
+		result["invoice_error"] = _(
+			"Payments were recorded successfully, but the invoice could not be created. "
+			"Create it from the Sales Order."
+		)
+
+
 def _apply_credit_to_so(pe_name: str, so_doc, amount: float, precision: int) -> dict | None:
 	"""Cancel+amend an unallocated Payment Entry to add an allocation to the Sales Order."""
 	pe = frappe.get_doc("Payment Entry", pe_name)
@@ -238,16 +292,7 @@ def process_quick_pay(
 	}
 
 	if create_invoice and remaining <= 0:
-		so.reload()
-		si = builders.build_sales_invoice(so, update_stock=is_feature_enabled("qp_update_stock"))
-		si.insert()
-		builders.sync_so_party_fields(si, so)
-		if submit_invoice:
-			si.submit()
-		result["sales_invoice"] = {
-			"name": si.name,
-			"submitted": si.docstatus == 1,
-		}
+		_finalize_with_invoice(so, submit_invoice=submit_invoice, result=result)
 
 	return result
 
@@ -429,13 +474,7 @@ def process_mpesa_quick_pay(
 	}
 
 	if create_invoice and remaining <= 0:
-		so.reload()
-		si = builders.build_sales_invoice(so, update_stock=is_feature_enabled("qp_update_stock"))
-		si.insert()
-		builders.sync_so_party_fields(si, so)
-		if submit_invoice:
-			si.submit()
-		result["sales_invoice"] = {"name": si.name, "submitted": si.docstatus == 1}
+		_finalize_with_invoice(so, submit_invoice=submit_invoice, result=result)
 
 	return result
 

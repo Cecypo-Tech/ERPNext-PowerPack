@@ -1,6 +1,6 @@
 import json
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests import UnitTestCase
@@ -159,6 +159,99 @@ class TestProcessQuickPay(UnitTestCase):
 				submit_invoice=0,
 				idempotency_token=token,
 			)
+
+
+class TestFinalizeWithInvoice(UnitTestCase):
+	"""Pins the naming-series lock fix.
+
+	The Sales Invoice stage must run *after* an explicit commit, because the
+	`ACC-PAY-<year>-` row lock in `tabSeries` taken by the first `pe.insert()` is
+	held by InnoDB until the transaction commits — and Sales Invoice submission
+	fires a synchronous KRA eTIMS HTTPS call (30s timeout) through
+	cecypo_etims_compliance's `before_submit` hook. Without the commit, every
+	other Payment Entry on the site serialises behind that network round-trip.
+
+	Nothing here touches real documents: the builders and both transaction
+	boundaries are mocked, so no commit or rollback reaches the site.
+	"""
+
+	class _FakeSO:
+		name = "SO-TEST-0001"
+		company = "_Test Co"
+
+		def reload(self):
+			pass
+
+	def _run(self, *, submit_invoice=1, build_raises=None, submit_raises=None, docstatus=1):
+		from cecypo_powerpack.quick_pay import api
+
+		calls = []
+		si = MagicMock()
+		si.name = "ACC-SINV-TEST-0001"
+		si.docstatus = docstatus
+		si.insert.side_effect = lambda *a, **kw: calls.append("insert")
+
+		def fake_submit(*a, **kw):
+			calls.append("submit")
+			if submit_raises:
+				raise submit_raises
+
+		si.submit.side_effect = fake_submit
+
+		def fake_build(*a, **kw):
+			calls.append("build")
+			if build_raises:
+				raise build_raises
+			return si
+
+		result = {"success": True, "payment_entries": [{"name": "ACC-PAY-TEST-0001"}]}
+
+		with (
+			patch.object(frappe.db, "commit", side_effect=lambda: calls.append("commit")),
+			patch.object(frappe.db, "rollback", side_effect=lambda **kw: calls.append("rollback")),
+			patch.object(api.builders, "build_sales_invoice", side_effect=fake_build),
+			patch.object(api.builders, "sync_so_party_fields", side_effect=lambda *a: calls.append("sync")),
+			patch.object(api, "is_feature_enabled", return_value=False),
+			patch.object(frappe, "log_error"),
+		):
+			api._finalize_with_invoice(self._FakeSO(), submit_invoice=submit_invoice, result=result)
+
+		return calls, result
+
+	def test_commit_precedes_invoice_build(self):
+		"""The whole point: lock released before any invoice work starts."""
+		calls, _ = self._run()
+		self.assertEqual(calls[0], "commit")
+		self.assertLess(calls.index("commit"), calls.index("build"))
+		self.assertLess(calls.index("commit"), calls.index("submit"))
+
+	def test_successful_invoice_reported_in_result(self):
+		_, result = self._run(submit_invoice=1, docstatus=1)
+		self.assertEqual(result["sales_invoice"]["name"], "ACC-SINV-TEST-0001")
+		self.assertTrue(result["sales_invoice"]["submitted"])
+		self.assertNotIn("invoice_error", result)
+
+	def test_unsubmitted_invoice_reported_as_draft(self):
+		calls, result = self._run(submit_invoice=0, docstatus=0)
+		self.assertNotIn("submit", calls)
+		self.assertFalse(result["sales_invoice"]["submitted"])
+
+	def test_build_failure_keeps_payments_and_reports_error(self):
+		"""A KRA timeout must not present as 'nothing happened' — the money was received."""
+		calls, result = self._run(build_raises=frappe.ValidationError("eTIMS API timeout"))
+		self.assertIn("rollback", calls)
+		self.assertTrue(result["success"])
+		self.assertEqual(result["payment_entries"], [{"name": "ACC-PAY-TEST-0001"}])
+		self.assertIsNone(result["sales_invoice"])
+		self.assertIn("invoice_error", result)
+
+	def test_submit_failure_rolls_back_only_the_invoice(self):
+		"""Rollback returns to our commit point, so the Payment Entries survive."""
+		calls, result = self._run(submit_raises=frappe.ValidationError("eTIMS API timeout"))
+		self.assertLess(calls.index("commit"), calls.index("rollback"))
+		self.assertTrue(result["success"])
+		self.assertIsNone(result["sales_invoice"])
+		self.assertIn("invoice_error", result)
 
 
 class TestListPendingMpesaPayments(UnitTestCase):
