@@ -2,9 +2,17 @@
 
 frappe.ui.form.on('Email Group', {
 	refresh(frm) {
-		frm.add_custom_button(__('Import Subscribers by Item Purchased'), function () {
-			show_import_dialog(frm);
-		}, __('Powerup'));
+		CecypoPowerPack.Settings.isEnabled('enable_email_group_powerup', function (enabled) {
+			if (!enabled) return;
+
+			frm.add_custom_button(__('Import Subscribers by Item Purchased'), function () {
+				show_import_dialog(frm);
+			}, __('Powerup'));
+
+			frm.add_custom_button(__('Export Subscribers (CSV)'), function () {
+				export_subscribers(frm);
+			}, __('Powerup'));
+		});
 	},
 });
 
@@ -72,6 +80,20 @@ function show_import_dialog(frm) {
 	});
 
 	d.show();
+}
+
+function export_subscribers(frm) {
+	if (!frm.doc.total_subscribers) {
+		frappe.show_alert({
+			message: __('This group has no subscribers to export.'),
+			indicator: 'blue',
+		});
+		return;
+	}
+
+	const url = '/api/method/cecypo_powerpack.api.export_email_group_csv'
+		+ '?email_group=' + encodeURIComponent(frm.doc.name);
+	window.open(url, '_blank');
 }
 
 })();
