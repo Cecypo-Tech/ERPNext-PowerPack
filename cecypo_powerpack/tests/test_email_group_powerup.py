@@ -206,6 +206,10 @@ def _export(email_group="TestGroup"):
 class TestExportEmailGroupCsv(unittest.TestCase):
 
     def setUp(self):
+        # Snapshot and restore in tearDown: frappe.response is process-global, so
+        # leaving type="csv" and a CSV body in it leaks into whatever test module the
+        # runner executes next in the same `bench run-tests --app` process.
+        self._saved_response = dict(frappe.response)
         frappe.response.clear()
         frappe.response["docs"] = []
         # Warm the System Settings meta/cache outside the frappe.db.sql mock below:
@@ -213,6 +217,10 @@ class TestExportEmailGroupCsv(unittest.TestCase):
         # a cold cache that read hits the DB. Priming it here keeps the mocked db.sql
         # call count in each test limited to the export's own query.
         frappe.utils.today()
+
+    def tearDown(self):
+        frappe.response.clear()
+        frappe.response.update(self._saved_response)
 
     @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
     @patch("frappe.has_permission", return_value=True)
@@ -303,6 +311,39 @@ class TestExportEmailGroupCsv(unittest.TestCase):
             with self.assertRaises(frappe.PermissionError):
                 _export()
 
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[
+        frappe._dict(
+            email="+15550000@example.com",
+            customer_name='=HYPERLINK("http://evil","click")',
+            first_name="@SUM(1+1)",
+            last_name="-2+3",
+        )
+    ])
+    def test_formula_injection_is_neutralised(self, _sql, _perm, _flag):
+        # Quoting does not stop Excel/LibreOffice evaluating a cell that starts with
+        # =, +, - or @. Every one of the four columns must be defused.
+        _export()
+        line = frappe.response["result"].strip().splitlines()[1]
+        self.assertIn("'=HYPERLINK", line)
+        self.assertIn("'@SUM(1+1)", line)
+        self.assertIn("'-2+3", line)
+        self.assertIn("'+15550000@example.com", line)
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[
+        frappe._dict(email="ok@example.com", customer_name="Acme Ltd",
+                     first_name="Jane", last_name="O'Brien")
+    ])
+    def test_ordinary_values_are_not_mangled(self, _sql, _perm, _flag):
+        _export()
+        line = frappe.response["result"].strip().splitlines()[1]
+        self.assertIn('"Acme Ltd"', line)
+        self.assertIn('"Jane"', line)
+        self.assertNotIn("'Acme", line)
+
 
 class TestExportSqlExecutes(unittest.TestCase):
     """Executes the real export SQL. Mock-based tests cannot catch SQL errors.
@@ -320,6 +361,7 @@ class TestExportSqlExecutes(unittest.TestCase):
 
     def setUp(self):
         self._created = []  # list of (doctype, name), deleted in reverse order
+        self.suffix = frappe.generate_hash(length=8)
 
     def tearDown(self):
         for doctype, name in reversed(self._created):
@@ -327,6 +369,72 @@ class TestExportSqlExecutes(unittest.TestCase):
                 doctype, name, force=True, ignore_permissions=True, delete_permanently=True
             )
         frappe.db.commit()
+
+    # --- fixture helpers -------------------------------------------------------
+    # Every fixture is registered in self._created so tearDown removes it in reverse
+    # creation order (children before the parents they link to).
+
+    def _email(self, local):
+        return f"{local}.{self.suffix}@example.com"
+
+    def _mk_group(self):
+        doc = frappe.get_doc(
+            {"doctype": "Email Group", "title": f"_Test PowerPack Export Group {self.suffix}"}
+        ).insert(ignore_permissions=True)
+        self._created.append(("Email Group", doc.name))
+        return doc.name
+
+    def _mk_member(self, group, email):
+        doc = frappe.get_doc(
+            {"doctype": "Email Group Member", "email_group": group, "email": email}
+        ).insert(ignore_permissions=True)
+        self._created.append(("Email Group Member", doc.name))
+        return doc.name
+
+    def _mk_customer(self, label, email=None, first_name=None, last_name=None,
+                     customer_type="Company"):
+        doc = frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": f"{label} {self.suffix}",
+                "customer_type": customer_type,
+            }
+        ).insert(ignore_permissions=True)
+        self._created.append(("Customer", doc.name))
+
+        # Customer.email_id / first_name / last_name are read-only `fetch_from`
+        # customer_primary_contact in this ERPNext version, so a normal .save() will not
+        # persist them. Write the columns directly -- which is exactly the state migrated
+        # data is in, and the state the src_rank 2 fallback arm exists to serve.
+        updates = {}
+        if email:
+            updates["email_id"] = email
+        if first_name:
+            updates["first_name"] = first_name
+        if last_name:
+            updates["last_name"] = last_name
+        if updates:
+            frappe.db.set_value("Customer", doc.name, updates, update_modified=False)
+        return doc.name
+
+    def _mk_contact(self, first_name, last_name, email, customers=None, is_primary_contact=0):
+        payload = {
+            "doctype": "Contact",
+            "first_name": first_name,
+            "last_name": last_name,
+            "is_primary_contact": is_primary_contact,
+            "email_ids": [{"email_id": email, "is_primary": 1}],
+        }
+        if customers:
+            payload["links"] = [
+                {"link_doctype": "Customer", "link_name": c} for c in customers
+            ]
+        doc = frappe.get_doc(payload).insert(ignore_permissions=True)
+        self._created.append(("Contact", doc.name))
+        return doc.name
+
+    def _export_rows(self, group):
+        return frappe.db.sql(_EXPORT_SQL, {"email_group": group}, as_dict=True)
 
     def test_export_sql_runs_against_database(self):
         # No fixtures needed: an Email Group that does not exist yields zero rows,
@@ -339,32 +447,152 @@ class TestExportSqlExecutes(unittest.TestCase):
         self.assertEqual(rows, [])
 
     def test_export_sql_resolves_a_real_contact(self):
-        suffix = frappe.generate_hash(length=8)
-        email = f"jane.export.{suffix}@example.com"
+        email = self._email("jane.export")
+        group = self._mk_group()
+        self._mk_contact("Jane", "Wanjiru", email)
+        self._mk_member(group, email)
 
-        group = frappe.get_doc(
-            {"doctype": "Email Group", "title": f"_Test PowerPack Export Group {suffix}"}
-        ).insert(ignore_permissions=True)
-        self._created.append(("Email Group", group.name))
-
-        contact = frappe.get_doc(
-            {
-                "doctype": "Contact",
-                "first_name": "Jane",
-                "last_name": "Wanjiru",
-                "email_ids": [{"email_id": email, "is_primary": 1}],
-            }
-        ).insert(ignore_permissions=True)
-        self._created.append(("Contact", contact.name))
-
-        member = frappe.get_doc(
-            {"doctype": "Email Group Member", "email_group": group.name, "email": email}
-        ).insert(ignore_permissions=True)
-        self._created.append(("Email Group Member", member.name))
-
-        rows = frappe.db.sql(_EXPORT_SQL, {"email_group": group.name}, as_dict=True)
+        rows = self._export_rows(group)
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].email, email)
         self.assertEqual(rows[0].first_name, "Jane")
         self.assertEqual(rows[0].last_name, "Wanjiru")
+
+    # --- spec case: contact-sourced name wins over the customer fallback -------
+
+    def test_contact_name_wins_over_customer_fallback(self):
+        email = self._email("both")
+        group = self._mk_group()
+        customer = self._mk_customer(
+            "_Test Acme", email=email, first_name="Stale", last_name="Fetch"
+        )
+        self._mk_contact("Jane", "Wanjiru", email, customers=[customer])
+        self._mk_member(group, email)
+
+        rows = self._export_rows(group)
+
+        self.assertEqual(len(rows), 1)
+        # src_rank 1 (Contact) beats src_rank 2 (Customer) for the name columns...
+        self.assertEqual(rows[0].first_name, "Jane")
+        self.assertEqual(rows[0].last_name, "Wanjiru")
+        # ...and the linked Customer still supplies Company Name.
+        self.assertEqual(rows[0].customer_name, customer)
+
+    # --- spec case: customer fallback used when no Contact matches -------------
+
+    def test_customer_fallback_used_when_no_contact(self):
+        email = self._email("customeronly")
+        group = self._mk_group()
+        customer = self._mk_customer(
+            "_Test Fallback Co", email=email, first_name="Peter", last_name="Kamau"
+        )
+        self._mk_member(group, email)
+
+        rows = self._export_rows(group)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].customer_name, customer)
+        self.assertEqual(rows[0].first_name, "Peter")
+        self.assertEqual(rows[0].last_name, "Kamau")
+
+    # --- spec case: collision -> one row, is_primary_contact wins --------------
+
+    def test_collision_resolves_to_one_row_with_primary_contact_winning(self):
+        email = self._email("collide")
+        group = self._mk_group()
+        self._mk_contact("Secondary", "Person", email, is_primary_contact=0)
+        self._mk_contact("Primary", "Person", email, is_primary_contact=1)
+        self._mk_member(group, email)
+
+        rows = self._export_rows(group)
+
+        self.assertEqual(len(rows), 1, "two Contacts on one email must collapse to one row")
+        self.assertEqual(rows[0].first_name, "Primary")
+
+    # --- spec case: customer_type = Individual still fills Company Name --------
+
+    def test_individual_customer_fills_company_name(self):
+        email = self._email("individual")
+        group = self._mk_group()
+        customer = self._mk_customer(
+            "_Test Sole Trader",
+            email=email,
+            first_name="Asha",
+            last_name="Njeri",
+            customer_type="Individual",
+        )
+        self._mk_member(group, email)
+
+        rows = self._export_rows(group)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0].customer_name,
+            customer,
+            "Individual customers must still populate Company Name (spec decision)",
+        )
+
+    # --- regression: a Contact match must not blank a Company Name we have -----
+
+    def test_contact_without_customer_link_keeps_customer_company_name(self):
+        """Regression: row-level precedence used to blank a recoverable Company Name.
+
+        The Contact wins the name because it is src_rank 1, but it has no Dynamic Link
+        to a Customer, so its own customer_name is NULL. A src_rank 2 Customer row
+        carries the real company name for the same email. Fallback is per-field, so the
+        export must take the name from the Contact and the company from the Customer,
+        rather than exporting a blank Company Name.
+        """
+        email = self._email("nolink")
+        group = self._mk_group()
+        customer = self._mk_customer("_Test Acme Ltd", email=email)
+        self._mk_contact("Ann", "Alpha", email)  # deliberately NOT linked to any Customer
+        self._mk_member(group, email)
+
+        rows = self._export_rows(group)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].first_name, "Ann")
+        self.assertEqual(rows[0].last_name, "Alpha")
+        self.assertEqual(
+            rows[0].customer_name,
+            customer,
+            "Company Name must fall back to the Customer when the winning Contact has none",
+        )
+
+    # --- case-insensitive collapsing, proven end to end -----------------------
+
+    def test_case_differing_addresses_collapse_to_one_resolved_row(self):
+        """Proves removing LOWER() from the WHERE clauses kept dedupe case-insensitive.
+
+        All four email columns are utf8mb4_unicode_ci so the IN (...) prefilter matches
+        regardless of case, and the projected key_email is lowered so PARTITION BY and
+        the final join still collapse the two spellings into one row.
+        """
+        upper = f"Upper.{self.suffix}@Example.COM"
+        lower = upper.lower()
+        group = self._mk_group()
+        self._mk_contact("Case", "Insensitive", upper)
+        self._mk_member(group, lower)
+
+        rows = self._export_rows(group)
+
+        self.assertEqual(len(rows), 1, "case-differing addresses must yield exactly one row")
+        self.assertEqual(rows[0].first_name, "Case")
+        self.assertEqual(rows[0].last_name, "Insensitive")
+
+    # --- determinism when one Contact links to more than one Customer ---------
+
+    def test_multi_customer_contact_picks_the_same_company_every_run(self):
+        email = self._email("multilink")
+        group = self._mk_group()
+        c1 = self._mk_customer("_Test Alpha Co", customer_type="Company")
+        c2 = self._mk_customer("_Test Beta Co", customer_type="Company")
+        self._mk_contact("Multi", "Linked", email, customers=[c1, c2])
+        self._mk_member(group, email)
+
+        picks = {self._export_rows(group)[0].customer_name for _ in range(5)}
+
+        self.assertEqual(len(picks), 1, f"non-deterministic company pick across runs: {picks}")
+        self.assertIn(picks.pop(), {c1, c2})
