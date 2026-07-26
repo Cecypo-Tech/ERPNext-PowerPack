@@ -6,10 +6,40 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
+from cecypo_powerpack.api import _EXPORT_SQL
+
 
 def _run(email_group="TestGroup", filter_type="Item", filter_value="ITEM-001"):
     from cecypo_powerpack.api import import_email_group_subscribers_by_item
     return import_email_group_subscribers_by_item(email_group, filter_type, filter_value)
+
+
+def _find_sql_call(mock_sql, needle):
+    """Return the first mocked frappe.db.sql call whose SQL text contains `needle`.
+
+    Guards against a false pass when a later, unrelated frappe.db.sql call (e.g. a
+    metadata lookup) becomes `call_args` (the *last* call) instead of the query under
+    test. Raises with a clear message if no call matches, rather than silently
+    asserting against the wrong query.
+    """
+    for call in mock_sql.call_args_list:
+        sql = call.args[0] if call.args else None
+        if isinstance(sql, str) and needle in sql:
+            return sql
+    raise AssertionError(f"No frappe.db.sql call contained {needle!r}")
+
+
+def _get_export_sql_call(mock_sql):
+    """Return the mocked frappe.db.sql call whose first positional arg *is* _EXPORT_SQL.
+
+    Identity comparison against the module-level constant, rather than a positional
+    call_args[0][0] lookup, so this can never bind to the wrong query even if a future
+    change adds another frappe.db.sql call to the export path.
+    """
+    for call in mock_sql.call_args_list:
+        if call.args and call.args[0] is _EXPORT_SQL:
+            return call.args[0]
+    raise AssertionError("_EXPORT_SQL was not passed to frappe.db.sql")
 
 
 def _make_eg(total=1):
@@ -130,7 +160,7 @@ class TestImportContactSources(unittest.TestCase):
     def test_query_reads_contact_email_child_table(self, mock_sql, mock_get_doc, _perm, _flag):
         _wire_get_doc(mock_get_doc, _make_eg(total=0))
         _run()
-        sql = mock_sql.call_args[0][0]
+        sql = _find_sql_call(mock_sql, "tabSales Invoice Item")
         self.assertIn("tabContact Email", sql)
 
     @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
@@ -140,7 +170,7 @@ class TestImportContactSources(unittest.TestCase):
     def test_query_joins_contacts_via_dynamic_link(self, mock_sql, mock_get_doc, _perm, _flag):
         _wire_get_doc(mock_get_doc, _make_eg(total=0))
         _run()
-        sql = mock_sql.call_args[0][0]
+        sql = _find_sql_call(mock_sql, "tabSales Invoice Item")
         self.assertIn("tabDynamic Link", sql)
         self.assertIn("link_doctype = 'Customer'", sql)
 
@@ -155,7 +185,8 @@ class TestImportContactSources(unittest.TestCase):
         _wire_get_doc(mock_get_doc, _make_eg(total=1))
         result = _run()
         self.assertEqual(result["added"], 1)
-        self.assertIn("DISTINCT", mock_sql.call_args[0][0])
+        sql = _find_sql_call(mock_sql, "tabSales Invoice Item")
+        self.assertIn("DISTINCT", sql)
 
 
 class TestEmailGroupFeatureFlag(unittest.TestCase):
@@ -238,14 +269,15 @@ class TestExportEmailGroupCsv(unittest.TestCase):
     @patch("frappe.db.sql", return_value=[])
     def test_query_excludes_unsubscribed(self, mock_sql, _perm, _flag):
         _export()
-        self.assertIn("unsubscribed = 0", mock_sql.call_args[0][0])
+        sql = _get_export_sql_call(mock_sql)
+        self.assertIn("unsubscribed = 0", sql)
 
     @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.db.sql", return_value=[])
     def test_query_picks_one_row_per_email(self, mock_sql, _perm, _flag):
         _export()
-        sql = mock_sql.call_args[0][0]
+        sql = _get_export_sql_call(mock_sql)
         self.assertIn("ROW_NUMBER()", sql)
         self.assertIn("PARTITION BY key_email", sql)
         self.assertIn("is_primary_contact DESC", sql)
