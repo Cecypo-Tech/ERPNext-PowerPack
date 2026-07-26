@@ -2170,6 +2170,24 @@ ORDER BY egm.email
 """
 
 
+# Excel and LibreOffice evaluate any cell whose text starts with one of these, no matter
+# how the field is quoted in the file, so a customer named `=HYPERLINK(...)` would run on
+# open. csv.QUOTE_NONNUMERIC does not help.
+_CSV_INJECTION_PREFIXES = ("=", "+", "-", "@")
+
+
+def _csv_safe(value):
+	"""Neutralise spreadsheet formula injection in one exported cell.
+
+	Prefixes a single quote, which Excel/LibreOffice consume as a "treat as text"
+	marker, so a legitimate value like `-Foo` still displays as `-Foo`.
+	"""
+	text = "" if value is None else str(value)
+	if text.startswith(_CSV_INJECTION_PREFIXES):
+		return "'" + text
+	return text
+
+
 @frappe.whitelist(methods=["GET"])
 def export_email_group_csv(email_group):
 	"""Download an Email Group's subscribers as a CSV for bulk mail tools.
@@ -2198,10 +2216,10 @@ def export_email_group_csv(email_group):
 	for row in rows:
 		data.append(
 			[
-				row.customer_name or "",
-				row.first_name or "",
-				row.last_name or "",
-				row.email or "",
+				_csv_safe(row.customer_name),
+				_csv_safe(row.first_name),
+				_csv_safe(row.last_name),
+				_csv_safe(row.email),
 			]
 		)
 
