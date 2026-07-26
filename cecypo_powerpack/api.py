@@ -1987,6 +1987,11 @@ def apply_price_import(rows: str) -> dict:
 def import_email_group_subscribers_by_item(email_group, filter_type, filter_value):
 	import contextlib
 
+	from cecypo_powerpack.utils import is_feature_enabled
+
+	if not is_feature_enabled("enable_email_group_powerup"):
+		frappe.throw(_("Email Group Powerup is disabled in PowerPack Settings"))
+
 	if not frappe.has_permission("Email Group", "write", email_group):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 

@@ -34,7 +34,8 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[frappe._dict(email_id="a@example.com")])
-    def test_import_by_item(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_import_by_item(self, _flag, mock_sql, mock_get_doc, _perm):
         _wire_get_doc(mock_get_doc, _make_eg(total=1))
         result = _run()
         self.assertEqual(result["added"], 1)
@@ -46,7 +47,8 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[frappe._dict(email_id="a@example.com")])
-    def test_import_by_item_group(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_import_by_item_group(self, _flag, mock_sql, mock_get_doc, _perm):
         _wire_get_doc(mock_get_doc, _make_eg(total=1))
         result = _run(filter_type="Item Group", filter_value="Electronics")
         self.assertEqual(result["added"], 1)
@@ -56,7 +58,8 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[frappe._dict(email_id="a@example.com")])
-    def test_no_duplicate_on_reimport(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_no_duplicate_on_reimport(self, _flag, mock_sql, mock_get_doc, _perm):
         _wire_get_doc(mock_get_doc, _make_eg(total=1), member_side_effect=frappe.UniqueValidationError)
         result = _run()
         self.assertEqual(result["added"], 0)
@@ -64,7 +67,8 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[frappe._dict(email_id="a@example.com")])
-    def test_unsubscribed_flag_preserved(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_unsubscribed_flag_preserved(self, _flag, mock_sql, mock_get_doc, _perm):
         eg = _make_eg()
         captured = []
 
@@ -82,7 +86,8 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[])
-    def test_draft_invoice_excluded(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_draft_invoice_excluded(self, _flag, mock_sql, mock_get_doc, _perm):
         _wire_get_doc(mock_get_doc, _make_eg(total=0))
         result = _run()
         self.assertEqual(result["added"], 0)
@@ -92,7 +97,8 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[])
-    def test_no_email_customer_excluded(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_no_email_customer_excluded(self, _flag, mock_sql, mock_get_doc, _perm):
         _wire_get_doc(mock_get_doc, _make_eg(total=0))
         _run()
         sql_query = mock_sql.call_args[0][0]
@@ -102,12 +108,23 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
     @patch("frappe.has_permission", return_value=True)
     @patch("frappe.get_doc")
     @patch("frappe.db.sql", return_value=[])
-    def test_empty_result_returns_zero(self, mock_sql, mock_get_doc, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_empty_result_returns_zero(self, _flag, mock_sql, mock_get_doc, _perm):
         _wire_get_doc(mock_get_doc, _make_eg(total=0))
         result = _run()
         self.assertEqual(result["added"], 0)
 
     @patch("frappe.has_permission", return_value=False)
-    def test_permission_check(self, _perm):
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_permission_check(self, _flag, _perm):
         with self.assertRaises(frappe.PermissionError):
+            _run()
+
+
+class TestEmailGroupFeatureFlag(unittest.TestCase):
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=False)
+    @patch("frappe.has_permission", return_value=True)
+    def test_import_throws_when_feature_disabled(self, _perm, _flag):
+        with self.assertRaises(frappe.ValidationError):
             _run()
