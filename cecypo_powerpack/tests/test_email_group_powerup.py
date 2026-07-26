@@ -302,3 +302,69 @@ class TestExportEmailGroupCsv(unittest.TestCase):
         with patch("frappe.has_permission", side_effect=perms):
             with self.assertRaises(frappe.PermissionError):
                 _export()
+
+
+class TestExportSqlExecutes(unittest.TestCase):
+    """Executes the real export SQL. Mock-based tests cannot catch SQL errors.
+
+    Every test in TestExportEmailGroupCsv above mocks frappe.db.sql, so a syntax
+    error, a wrong column name, or an unsupported construct in _EXPORT_SQL would
+    ship completely undetected. These two tests run the real statement against the
+    test database instead.
+
+    Fixtures use unique throwaway names and are deleted explicitly in tearDown
+    (rather than relying on frappe.db.rollback()) because this is a plain
+    unittest.TestCase, not FrappeTestCase, so bench's test runner does not
+    automatically wrap each test in a transaction/savepoint that gets rolled back.
+    """
+
+    def setUp(self):
+        self._created = []  # list of (doctype, name), deleted in reverse order
+
+    def tearDown(self):
+        for doctype, name in reversed(self._created):
+            frappe.delete_doc(
+                doctype, name, force=True, ignore_permissions=True, delete_permanently=True
+            )
+        frappe.db.commit()
+
+    def test_export_sql_runs_against_database(self):
+        # No fixtures needed: an Email Group that does not exist yields zero rows,
+        # which still fully parses, plans and executes the statement.
+        rows = frappe.db.sql(
+            _EXPORT_SQL,
+            {"email_group": "__cecypo_nonexistent_group__"},
+            as_dict=True,
+        )
+        self.assertEqual(rows, [])
+
+    def test_export_sql_resolves_a_real_contact(self):
+        suffix = frappe.generate_hash(length=8)
+        email = f"jane.export.{suffix}@example.com"
+
+        group = frappe.get_doc(
+            {"doctype": "Email Group", "title": f"_Test PowerPack Export Group {suffix}"}
+        ).insert(ignore_permissions=True)
+        self._created.append(("Email Group", group.name))
+
+        contact = frappe.get_doc(
+            {
+                "doctype": "Contact",
+                "first_name": "Jane",
+                "last_name": "Wanjiru",
+                "email_ids": [{"email_id": email, "is_primary": 1}],
+            }
+        ).insert(ignore_permissions=True)
+        self._created.append(("Contact", contact.name))
+
+        member = frappe.get_doc(
+            {"doctype": "Email Group Member", "email_group": group.name, "email": email}
+        ).insert(ignore_permissions=True)
+        self._created.append(("Email Group Member", member.name))
+
+        rows = frappe.db.sql(_EXPORT_SQL, {"email_group": group.name}, as_dict=True)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].email, email)
+        self.assertEqual(rows[0].first_name, "Jane")
+        self.assertEqual(rows[0].last_name, "Wanjiru")
