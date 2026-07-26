@@ -180,12 +180,13 @@ Requires `bench migrate`.
 
 Extend `cecypo_powerpack/tests/test_email_group_powerup.py`. Red-first per repo rules.
 
-**Important — existing tests will break.** The current suite mocks `frappe.db.sql`
-wholesale and asserts on SQL *string fragments* (e.g. `test_no_email_customer_excluded`
-asserts `"email_id IS NOT NULL"` and `"email_id != ''"`; `test_import_by_item` asserts
-`"sii.item_code = %(filter_value)s"`). Widening the import query will invalidate these.
-Update them to assert on behaviour and on stable structural markers rather than exact
-fragments.
+**Existing tests are brittle but survive.** The current suite mocks `frappe.db.sql`
+wholesale and asserts on SQL *string fragments* — `test_import_by_item` asserts
+`"sii.item_code = %(filter_value)s"` and `"docstatus = 1"`, `test_import_by_item_group`
+asserts `"item_group = %(filter_value)s"`, `test_no_email_customer_excluded` asserts
+`"email_id IS NOT NULL"` and `"email_id != ''"`. The widened query retains every one of
+those fragments, so these tests keep passing unmodified. They still assert nothing about
+correctness; the new contact-source coverage must come from new tests, not from these.
 
 **Mock-based tests cannot validate the new CTE.** At least one test must execute the
 export query against the real test database so a SQL syntax or column-name error fails
