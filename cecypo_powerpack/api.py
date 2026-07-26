@@ -2075,6 +2075,116 @@ def import_email_group_subscribers_by_item(email_group, filter_type, filter_valu
 	return {"added": added, "total": total}
 
 
+# Resolves each Email Group Member email back to a person and an account.
+#
+# Contact is the source of truth for names; Customer.email_id/first_name/last_name are
+# read-only fetches of the primary contact, so they are only a fallback. src_rank orders
+# those two sources; is_primary_contact then modified break ties, so one email always
+# yields exactly one deterministic row (Zoho and Mailchimp dedupe on email and would
+# otherwise pick arbitrarily).
+_EXPORT_SQL = """
+WITH group_emails AS (
+	SELECT DISTINCT LOWER(email) AS key_email
+	FROM `tabEmail Group Member`
+	WHERE email_group = %(email_group)s AND unsubscribed = 0
+),
+candidates AS (
+	SELECT
+		LOWER(ce.email_id) AS key_email,
+		c.first_name AS first_name,
+		c.last_name AS last_name,
+		cust.customer_name AS customer_name,
+		1 AS src_rank,
+		COALESCE(c.is_primary_contact, 0) AS is_primary_contact,
+		c.modified AS modified
+	FROM `tabContact Email` ce
+	JOIN `tabContact` c ON c.name = ce.parent AND ce.parenttype = 'Contact'
+	LEFT JOIN `tabDynamic Link` dl
+		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
+	LEFT JOIN `tabCustomer` cust ON cust.name = dl.link_name
+	WHERE ce.email_id IS NOT NULL AND ce.email_id != ''
+	  AND LOWER(ce.email_id) IN (SELECT key_email FROM group_emails)
+
+	UNION ALL
+
+	SELECT
+		LOWER(c.email_id), c.first_name, c.last_name, cust.customer_name, 1,
+		COALESCE(c.is_primary_contact, 0), c.modified
+	FROM `tabContact` c
+	LEFT JOIN `tabDynamic Link` dl
+		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
+	LEFT JOIN `tabCustomer` cust ON cust.name = dl.link_name
+	WHERE c.email_id IS NOT NULL AND c.email_id != ''
+	  AND LOWER(c.email_id) IN (SELECT key_email FROM group_emails)
+
+	UNION ALL
+
+	SELECT
+		LOWER(cust.email_id), cust.first_name, cust.last_name, cust.customer_name, 2,
+		0, cust.modified
+	FROM `tabCustomer` cust
+	WHERE cust.email_id IS NOT NULL AND cust.email_id != ''
+	  AND LOWER(cust.email_id) IN (SELECT key_email FROM group_emails)
+),
+ranked AS (
+	SELECT
+		key_email, first_name, last_name, customer_name,
+		ROW_NUMBER() OVER (
+			PARTITION BY key_email
+			ORDER BY src_rank ASC, is_primary_contact DESC, modified DESC
+		) AS rn
+	FROM candidates
+)
+SELECT
+	egm.email AS email,
+	r.customer_name AS customer_name,
+	r.first_name AS first_name,
+	r.last_name AS last_name
+FROM `tabEmail Group Member` egm
+LEFT JOIN ranked r ON r.key_email = LOWER(egm.email) AND r.rn = 1
+WHERE egm.email_group = %(email_group)s AND egm.unsubscribed = 0
+ORDER BY egm.email
+"""
+
+
+@frappe.whitelist(methods=["GET"])
+def export_email_group_csv(email_group):
+	"""Download an Email Group's subscribers as a CSV for bulk mail tools.
+
+	Column headers match Zoho Campaigns' default field names so its importer
+	auto-maps them; the same file imports cleanly into Mailchimp, Brevo, etc.
+	"""
+	from frappe.utils.csvutils import build_csv_response
+
+	from cecypo_powerpack.utils import is_feature_enabled
+
+	if not is_feature_enabled("enable_email_group_powerup"):
+		frappe.throw(_("Email Group Powerup is disabled in PowerPack Settings"))
+
+	if not frappe.has_permission("Email Group", "read", email_group):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	# The export discloses customer names and emails, so Email Group access alone
+	# is not sufficient.
+	if not frappe.has_permission("Customer", "read"):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	rows = frappe.db.sql(_EXPORT_SQL, {"email_group": email_group}, as_dict=True)
+
+	data = [["Company Name", "First Name", "Last Name", "Contact Email"]]
+	for row in rows:
+		data.append(
+			[
+				row.customer_name or "",
+				row.first_name or "",
+				row.last_name or "",
+				row.email or "",
+			]
+		)
+
+	build_csv_response(data, f"{frappe.scrub(email_group)}-subscribers-{frappe.utils.today()}")
+
+
 @frappe.whitelist()
 def get_item_group_tree_for_rules() -> list:
 	"""Return all Item Groups ordered by tree position with computed depth."""

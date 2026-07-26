@@ -165,3 +165,108 @@ class TestEmailGroupFeatureFlag(unittest.TestCase):
     def test_import_throws_when_feature_disabled(self, _perm, _flag):
         with self.assertRaises(frappe.ValidationError):
             _run()
+
+
+def _export(email_group="TestGroup"):
+    from cecypo_powerpack.api import export_email_group_csv
+    return export_email_group_csv(email_group)
+
+
+class TestExportEmailGroupCsv(unittest.TestCase):
+
+    def setUp(self):
+        frappe.response.clear()
+        frappe.response["docs"] = []
+        # Warm the System Settings meta/cache outside the frappe.db.sql mock below:
+        # frappe.utils.today() reads the site's time zone from System Settings, and on
+        # a cold cache that read hits the DB. Priming it here keeps the mocked db.sql
+        # call count in each test limited to the export's own query.
+        frappe.utils.today()
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[])
+    def test_headers_are_zoho_field_names(self, _sql, _perm, _flag):
+        _export()
+        rows = frappe.response["result"]
+        self.assertIn("Company Name", rows)
+        self.assertIn("First Name", rows)
+        self.assertIn("Last Name", rows)
+        self.assertIn("Contact Email", rows)
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[])
+    def test_empty_group_returns_headers_only(self, _sql, _perm, _flag):
+        _export()
+        self.assertEqual(frappe.response["type"], "csv")
+        # One header line; allow a trailing newline.
+        self.assertEqual(len(frappe.response["result"].strip().splitlines()), 1)
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[
+        frappe._dict(
+            email="jane@acme.co.ke", customer_name="Acme Ltd",
+            first_name="Jane", last_name="Wanjiru",
+        )
+    ])
+    def test_row_maps_columns_in_order(self, _sql, _perm, _flag):
+        _export()
+        line = frappe.response["result"].strip().splitlines()[1]
+        self.assertIn("Acme Ltd", line)
+        self.assertIn("Jane", line)
+        self.assertIn("Wanjiru", line)
+        self.assertIn("jane@acme.co.ke", line)
+        self.assertLess(line.index("Acme Ltd"), line.index("jane@acme.co.ke"))
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[
+        frappe._dict(email="ghost@example.com", customer_name=None,
+                     first_name=None, last_name=None)
+    ])
+    def test_unresolved_email_exports_with_blank_names(self, _sql, _perm, _flag):
+        _export()
+        lines = frappe.response["result"].strip().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("ghost@example.com", lines[1])
+        self.assertNotIn("None", lines[1])
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[])
+    def test_query_excludes_unsubscribed(self, mock_sql, _perm, _flag):
+        _export()
+        self.assertIn("unsubscribed = 0", mock_sql.call_args[0][0])
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.db.sql", return_value=[])
+    def test_query_picks_one_row_per_email(self, mock_sql, _perm, _flag):
+        _export()
+        sql = mock_sql.call_args[0][0]
+        self.assertIn("ROW_NUMBER()", sql)
+        self.assertIn("PARTITION BY key_email", sql)
+        self.assertIn("is_primary_contact DESC", sql)
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=False)
+    @patch("frappe.has_permission", return_value=True)
+    def test_throws_when_feature_disabled(self, _perm, _flag):
+        with self.assertRaises(frappe.ValidationError):
+            _export()
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=False)
+    def test_throws_without_email_group_read(self, _perm, _flag):
+        with self.assertRaises(frappe.PermissionError):
+            _export()
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    def test_throws_without_customer_read(self, _flag):
+        def perms(doctype, ptype="read", doc=None, *a, **kw):
+            return doctype != "Customer"
+
+        with patch("frappe.has_permission", side_effect=perms):
+            with self.assertRaises(frappe.PermissionError):
+                _export()
