@@ -1996,37 +1996,66 @@ def import_email_group_subscribers_by_item(email_group, filter_type, filter_valu
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	if filter_type == "Item":
-		rows = frappe.db.sql(
-			"""
-			SELECT DISTINCT c.email_id
-			FROM `tabSales Invoice Item` sii
-			JOIN `tabSales Invoice` si ON si.name = sii.parent
-			JOIN `tabCustomer` c ON c.name = si.customer
-			WHERE si.docstatus = 1
-			  AND sii.item_code = %(filter_value)s
-			  AND c.email_id IS NOT NULL AND c.email_id != ''
-			""",
-			{"filter_value": filter_value},
-			as_dict=True,
-		)
+		item_condition = "sii.item_code = %(filter_value)s"
 	elif filter_type == "Item Group":
-		rows = frappe.db.sql(
-			"""
-			SELECT DISTINCT c.email_id
-			FROM `tabSales Invoice Item` sii
-			JOIN `tabSales Invoice` si ON si.name = sii.parent
-			JOIN `tabCustomer` c ON c.name = si.customer
-			WHERE si.docstatus = 1
-			  AND sii.item_code IN (
-				  SELECT name FROM `tabItem` WHERE item_group = %(filter_value)s
-			  )
-			  AND c.email_id IS NOT NULL AND c.email_id != ''
-			""",
-			{"filter_value": filter_value},
-			as_dict=True,
+		item_condition = (
+			"sii.item_code IN (SELECT name FROM `tabItem` WHERE item_group = %(filter_value)s)"
 		)
 	else:
 		frappe.throw(_("filter_type must be 'Item' or 'Item Group'"))
+
+	# Customers who bought the item on a submitted Sales Invoice. Referenced three
+	# times below; kept as a plain subquery string (no user input) so each UNION arm
+	# can be pruned independently by the optimizer.
+	matched_customers = f"""
+		SELECT DISTINCT si.customer
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.docstatus = 1
+		  AND {item_condition}
+	"""
+
+	# Emails come from three places. Customer.email_id is a read-only fetch of the
+	# primary contact, so on its own it misses customers with no primary contact set
+	# and every non-primary contact.
+	#
+	# SQL-injection note (see prior marketplace review flag on this file): the only
+	# f-string-interpolated fragments below are `item_condition` and `matched_customers`,
+	# both built above from hardcoded Python string literals selected by the
+	# if/elif/else, never from `filter_value`. `filter_value` itself is never
+	# interpolated — it stays a bound named parameter (`%(filter_value)s`) passed via
+	# the params dict to frappe.db.sql.
+	rows = frappe.db.sql(
+		f"""
+		SELECT DISTINCT email_id
+		FROM (
+			SELECT c.email_id
+			FROM `tabCustomer` c
+			WHERE c.name IN ({matched_customers})
+
+			UNION ALL
+
+			SELECT con.email_id
+			FROM `tabDynamic Link` dl
+			JOIN `tabContact` con ON con.name = dl.parent
+			WHERE dl.parenttype = 'Contact'
+			  AND dl.link_doctype = 'Customer'
+			  AND dl.link_name IN ({matched_customers})
+
+			UNION ALL
+
+			SELECT ce.email_id
+			FROM `tabDynamic Link` dl
+			JOIN `tabContact Email` ce ON ce.parent = dl.parent AND ce.parenttype = 'Contact'
+			WHERE dl.parenttype = 'Contact'
+			  AND dl.link_doctype = 'Customer'
+			  AND dl.link_name IN ({matched_customers})
+		) AS all_emails
+		WHERE email_id IS NOT NULL AND email_id != ''
+		""",
+		{"filter_value": filter_value},
+		as_dict=True,
+	)
 
 	added = 0
 	for row in rows:

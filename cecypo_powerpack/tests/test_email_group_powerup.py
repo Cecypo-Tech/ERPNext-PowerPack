@@ -121,6 +121,43 @@ class TestImportEmailGroupSubscribersByItem(unittest.TestCase):
             _run()
 
 
+class TestImportContactSources(unittest.TestCase):
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.get_doc")
+    @patch("frappe.db.sql", return_value=[])
+    def test_query_reads_contact_email_child_table(self, mock_sql, mock_get_doc, _perm, _flag):
+        _wire_get_doc(mock_get_doc, _make_eg(total=0))
+        _run()
+        sql = mock_sql.call_args[0][0]
+        self.assertIn("tabContact Email", sql)
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.get_doc")
+    @patch("frappe.db.sql", return_value=[])
+    def test_query_joins_contacts_via_dynamic_link(self, mock_sql, mock_get_doc, _perm, _flag):
+        _wire_get_doc(mock_get_doc, _make_eg(total=0))
+        _run()
+        sql = mock_sql.call_args[0][0]
+        self.assertIn("tabDynamic Link", sql)
+        self.assertIn("link_doctype = 'Customer'", sql)
+
+    @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.get_doc")
+    @patch("frappe.db.sql", return_value=[
+        frappe._dict(email_id="a@example.com"),
+    ])
+    def test_email_from_multiple_sources_inserted_once(self, mock_sql, mock_get_doc, _perm, _flag):
+        # DISTINCT in SQL collapses duplicates; one row in => one insert.
+        _wire_get_doc(mock_get_doc, _make_eg(total=1))
+        result = _run()
+        self.assertEqual(result["added"], 1)
+        self.assertIn("DISTINCT", mock_sql.call_args[0][0])
+
+
 class TestEmailGroupFeatureFlag(unittest.TestCase):
 
     @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=False)
