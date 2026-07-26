@@ -2079,9 +2079,22 @@ def import_email_group_subscribers_by_item(email_group, filter_type, filter_valu
 #
 # Contact is the source of truth for names; Customer.email_id/first_name/last_name are
 # read-only fetches of the primary contact, so they are only a fallback. src_rank orders
-# those two sources; is_primary_contact then modified break ties, so one email always
-# yields exactly one deterministic row (Zoho and Mailchimp dedupe on email and would
-# otherwise pick arbitrarily).
+# those two sources; is_primary_contact, then modified, then tie_key break ties, so one
+# email always yields exactly one deterministic row (Zoho and Mailchimp dedupe on email
+# and would otherwise pick arbitrarily). tie_key is the final stable key: without it a
+# Contact linked to two Customers produces two candidates that tie on every other term
+# and the winner is whatever order the executor happened to emit.
+#
+# Fallback is per-field, not per-row. A Contact with no Dynamic Link to a Customer wins
+# the name but carries a NULL customer_name; FIRST_VALUE picks the best non-blank
+# customer_name for the same email independently, using the same precedence, so a
+# Customer-sourced company name is not thrown away just because a Contact matched.
+#
+# The IN (...) filters compare the bare column, never LOWER(column): all four email
+# columns are utf8mb4_unicode_ci, so the comparison is already case-insensitive, and
+# wrapping the column in LOWER() only makes the predicate non-sargable. LOWER() is kept
+# on the projected key_email so PARTITION BY and the final join collapse case-differing
+# addresses into exactly one row without depending on collation semantics.
 _EXPORT_SQL = """
 WITH group_emails AS (
 	SELECT DISTINCT LOWER(email) AS key_email
@@ -2096,42 +2109,52 @@ candidates AS (
 		cust.customer_name AS customer_name,
 		1 AS src_rank,
 		COALESCE(c.is_primary_contact, 0) AS is_primary_contact,
-		c.modified AS modified
+		c.modified AS modified,
+		CONCAT('1:', ce.name, ':', COALESCE(cust.name, '')) AS tie_key
 	FROM `tabContact Email` ce
 	JOIN `tabContact` c ON c.name = ce.parent AND ce.parenttype = 'Contact'
 	LEFT JOIN `tabDynamic Link` dl
 		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
 	LEFT JOIN `tabCustomer` cust ON cust.name = dl.link_name
 	WHERE ce.email_id IS NOT NULL AND ce.email_id != ''
-	  AND LOWER(ce.email_id) IN (SELECT key_email FROM group_emails)
+	  AND ce.email_id IN (SELECT key_email FROM group_emails)
 
 	UNION ALL
 
 	SELECT
 		LOWER(c.email_id), c.first_name, c.last_name, cust.customer_name, 1,
-		COALESCE(c.is_primary_contact, 0), c.modified
+		COALESCE(c.is_primary_contact, 0), c.modified,
+		CONCAT('2:', c.name, ':', COALESCE(cust.name, ''))
 	FROM `tabContact` c
 	LEFT JOIN `tabDynamic Link` dl
 		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
 	LEFT JOIN `tabCustomer` cust ON cust.name = dl.link_name
 	WHERE c.email_id IS NOT NULL AND c.email_id != ''
-	  AND LOWER(c.email_id) IN (SELECT key_email FROM group_emails)
+	  AND c.email_id IN (SELECT key_email FROM group_emails)
 
 	UNION ALL
 
 	SELECT
 		LOWER(cust.email_id), cust.first_name, cust.last_name, cust.customer_name, 2,
-		0, cust.modified
+		0, cust.modified,
+		CONCAT('3:', cust.name)
 	FROM `tabCustomer` cust
 	WHERE cust.email_id IS NOT NULL AND cust.email_id != ''
-	  AND LOWER(cust.email_id) IN (SELECT key_email FROM group_emails)
+	  AND cust.email_id IN (SELECT key_email FROM group_emails)
 ),
 ranked AS (
 	SELECT
-		key_email, first_name, last_name, customer_name,
+		key_email, first_name, last_name,
+		FIRST_VALUE(customer_name) OVER (
+			PARTITION BY key_email
+			ORDER BY
+				(customer_name IS NULL OR customer_name = '') ASC,
+				src_rank ASC, is_primary_contact DESC, modified DESC, tie_key ASC
+			ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+		) AS customer_name,
 		ROW_NUMBER() OVER (
 			PARTITION BY key_email
-			ORDER BY src_rank ASC, is_primary_contact DESC, modified DESC
+			ORDER BY src_rank ASC, is_primary_contact DESC, modified DESC, tie_key ASC
 		) AS rn
 	FROM candidates
 )
