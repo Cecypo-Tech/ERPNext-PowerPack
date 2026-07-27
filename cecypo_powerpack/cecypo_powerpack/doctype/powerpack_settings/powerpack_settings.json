@@ -94,7 +94,10 @@
   "public_link_hide_header",
   "column_break_public_link_1",
   "public_link_header_content",
-  "public_link_footer_content"
+  "public_link_footer_content",
+  "email_group_section",
+  "enable_email_group_powerup",
+  "email_group_description"
  ],
  "fields": [
   {
@@ -630,6 +633,23 @@
    "fieldname": "system_tab",
    "fieldtype": "Tab Break",
    "label": "System"
+  },
+  {
+   "fieldname": "email_group_section",
+   "fieldtype": "Section Break",
+   "label": "Email Group Powerup"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_email_group_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Email Group Powerup"
+  },
+  {
+   "fieldname": "email_group_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Adds two actions to Email Group:<br><strong>Import Subscribers by Item Purchased</strong> — add every customer who bought a given item or item group as a subscriber.<br><strong>Export Subscribers (CSV)</strong> — download the group as a CSV with company name, first name, last name and email, ready to import into Zoho Campaigns, Mailchimp or any bulk mail tool.</p>"
   }
  ],
  "issingle": 1,

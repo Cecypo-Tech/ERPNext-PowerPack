@@ -1987,41 +1987,75 @@ def apply_price_import(rows: str) -> dict:
 def import_email_group_subscribers_by_item(email_group, filter_type, filter_value):
 	import contextlib
 
+	from cecypo_powerpack.utils import is_feature_enabled
+
+	if not is_feature_enabled("enable_email_group_powerup"):
+		frappe.throw(_("Email Group Powerup is disabled in PowerPack Settings"))
+
 	if not frappe.has_permission("Email Group", "write", email_group):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	if filter_type == "Item":
-		rows = frappe.db.sql(
-			"""
-			SELECT DISTINCT c.email_id
-			FROM `tabSales Invoice Item` sii
-			JOIN `tabSales Invoice` si ON si.name = sii.parent
-			JOIN `tabCustomer` c ON c.name = si.customer
-			WHERE si.docstatus = 1
-			  AND sii.item_code = %(filter_value)s
-			  AND c.email_id IS NOT NULL AND c.email_id != ''
-			""",
-			{"filter_value": filter_value},
-			as_dict=True,
-		)
+		item_condition = "sii.item_code = %(filter_value)s"
 	elif filter_type == "Item Group":
-		rows = frappe.db.sql(
-			"""
-			SELECT DISTINCT c.email_id
-			FROM `tabSales Invoice Item` sii
-			JOIN `tabSales Invoice` si ON si.name = sii.parent
-			JOIN `tabCustomer` c ON c.name = si.customer
-			WHERE si.docstatus = 1
-			  AND sii.item_code IN (
-				  SELECT name FROM `tabItem` WHERE item_group = %(filter_value)s
-			  )
-			  AND c.email_id IS NOT NULL AND c.email_id != ''
-			""",
-			{"filter_value": filter_value},
-			as_dict=True,
+		item_condition = (
+			"sii.item_code IN (SELECT name FROM `tabItem` WHERE item_group = %(filter_value)s)"
 		)
 	else:
 		frappe.throw(_("filter_type must be 'Item' or 'Item Group'"))
+
+	# Customers who bought the item on a submitted Sales Invoice. Referenced three
+	# times below; kept as a plain subquery string (no user input) so each UNION arm
+	# can be pruned independently by the optimizer.
+	matched_customers = f"""
+		SELECT DISTINCT si.customer
+		FROM `tabSales Invoice Item` sii
+		JOIN `tabSales Invoice` si ON si.name = sii.parent
+		WHERE si.docstatus = 1
+		  AND {item_condition}
+	"""
+
+	# Emails come from three places. Customer.email_id is a read-only fetch of the
+	# primary contact, so on its own it misses customers with no primary contact set
+	# and every non-primary contact.
+	#
+	# SQL-injection note (see prior marketplace review flag on this file): the only
+	# f-string-interpolated fragments below are `item_condition` and `matched_customers`,
+	# both built above from hardcoded Python string literals selected by the
+	# if/elif/else, never from `filter_value`. `filter_value` itself is never
+	# interpolated — it stays a bound named parameter (`%(filter_value)s`) passed via
+	# the params dict to frappe.db.sql.
+	rows = frappe.db.sql(
+		f"""
+		SELECT DISTINCT email_id
+		FROM (
+			SELECT c.email_id
+			FROM `tabCustomer` c
+			WHERE c.name IN ({matched_customers})
+
+			UNION ALL
+
+			SELECT con.email_id
+			FROM `tabDynamic Link` dl
+			JOIN `tabContact` con ON con.name = dl.parent
+			WHERE dl.parenttype = 'Contact'
+			  AND dl.link_doctype = 'Customer'
+			  AND dl.link_name IN ({matched_customers})
+
+			UNION ALL
+
+			SELECT ce.email_id
+			FROM `tabDynamic Link` dl
+			JOIN `tabContact Email` ce ON ce.parent = dl.parent AND ce.parenttype = 'Contact'
+			WHERE dl.parenttype = 'Contact'
+			  AND dl.link_doctype = 'Customer'
+			  AND dl.link_name IN ({matched_customers})
+		) AS all_emails
+		WHERE email_id IS NOT NULL AND email_id != ''
+		""",
+		{"filter_value": filter_value},
+		as_dict=True,
+	)
 
 	added = 0
 	for row in rows:
@@ -2039,6 +2073,157 @@ def import_email_group_subscribers_by_item(email_group, filter_type, filter_valu
 	total = eg.update_total_subscribers()
 
 	return {"added": added, "total": total}
+
+
+# Resolves each Email Group Member email back to a person and an account.
+#
+# Contact is the source of truth for names; Customer.email_id/first_name/last_name are
+# read-only fetches of the primary contact, so they are only a fallback. src_rank orders
+# those two sources; is_primary_contact, then modified, then tie_key break ties, so one
+# email always yields exactly one deterministic row (Zoho and Mailchimp dedupe on email
+# and would otherwise pick arbitrarily). tie_key is the final stable key: without it a
+# Contact linked to two Customers produces two candidates that tie on every other term
+# and the winner is whatever order the executor happened to emit.
+#
+# Fallback is per-field, not per-row. A Contact with no Dynamic Link to a Customer wins
+# the name but carries a NULL customer_name; FIRST_VALUE picks the best non-blank
+# customer_name for the same email independently, using the same precedence, so a
+# Customer-sourced company name is not thrown away just because a Contact matched.
+#
+# The IN (...) filters compare the bare column, never LOWER(column): all four email
+# columns are utf8mb4_unicode_ci, so the comparison is already case-insensitive, and
+# wrapping the column in LOWER() only makes the predicate non-sargable. LOWER() is kept
+# on the projected key_email so PARTITION BY and the final join collapse case-differing
+# addresses into exactly one row without depending on collation semantics.
+_EXPORT_SQL = """
+WITH group_emails AS (
+	SELECT DISTINCT LOWER(email) AS key_email
+	FROM `tabEmail Group Member`
+	WHERE email_group = %(email_group)s AND unsubscribed = 0
+),
+candidates AS (
+	SELECT
+		LOWER(ce.email_id) AS key_email,
+		c.first_name AS first_name,
+		c.last_name AS last_name,
+		cust.customer_name AS customer_name,
+		1 AS src_rank,
+		COALESCE(c.is_primary_contact, 0) AS is_primary_contact,
+		c.modified AS modified,
+		CONCAT('1:', ce.name, ':', COALESCE(cust.name, '')) AS tie_key
+	FROM `tabContact Email` ce
+	JOIN `tabContact` c ON c.name = ce.parent AND ce.parenttype = 'Contact'
+	LEFT JOIN `tabDynamic Link` dl
+		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
+	LEFT JOIN `tabCustomer` cust ON cust.name = dl.link_name
+	WHERE ce.email_id IS NOT NULL AND ce.email_id != ''
+	  AND ce.email_id IN (SELECT key_email FROM group_emails)
+
+	UNION ALL
+
+	SELECT
+		LOWER(c.email_id), c.first_name, c.last_name, cust.customer_name, 1,
+		COALESCE(c.is_primary_contact, 0), c.modified,
+		CONCAT('2:', c.name, ':', COALESCE(cust.name, ''))
+	FROM `tabContact` c
+	LEFT JOIN `tabDynamic Link` dl
+		ON dl.parent = c.name AND dl.parenttype = 'Contact' AND dl.link_doctype = 'Customer'
+	LEFT JOIN `tabCustomer` cust ON cust.name = dl.link_name
+	WHERE c.email_id IS NOT NULL AND c.email_id != ''
+	  AND c.email_id IN (SELECT key_email FROM group_emails)
+
+	UNION ALL
+
+	SELECT
+		LOWER(cust.email_id), cust.first_name, cust.last_name, cust.customer_name, 2,
+		0, cust.modified,
+		CONCAT('3:', cust.name)
+	FROM `tabCustomer` cust
+	WHERE cust.email_id IS NOT NULL AND cust.email_id != ''
+	  AND cust.email_id IN (SELECT key_email FROM group_emails)
+),
+ranked AS (
+	SELECT
+		key_email, first_name, last_name,
+		FIRST_VALUE(customer_name) OVER (
+			PARTITION BY key_email
+			ORDER BY
+				(customer_name IS NULL OR customer_name = '') ASC,
+				src_rank ASC, is_primary_contact DESC, modified DESC, tie_key ASC
+			ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+		) AS customer_name,
+		ROW_NUMBER() OVER (
+			PARTITION BY key_email
+			ORDER BY src_rank ASC, is_primary_contact DESC, modified DESC, tie_key ASC
+		) AS rn
+	FROM candidates
+)
+SELECT
+	egm.email AS email,
+	r.customer_name AS customer_name,
+	r.first_name AS first_name,
+	r.last_name AS last_name
+FROM `tabEmail Group Member` egm
+LEFT JOIN ranked r ON r.key_email = LOWER(egm.email) AND r.rn = 1
+WHERE egm.email_group = %(email_group)s AND egm.unsubscribed = 0
+ORDER BY egm.email
+"""
+
+
+# Excel and LibreOffice evaluate any cell whose text starts with one of these, no matter
+# how the field is quoted in the file, so a customer named `=HYPERLINK(...)` would run on
+# open. csv.QUOTE_NONNUMERIC does not help.
+_CSV_INJECTION_PREFIXES = ("=", "+", "-", "@")
+
+
+def _csv_safe(value):
+	"""Neutralise spreadsheet formula injection in one exported cell.
+
+	Prefixes a single quote, which Excel/LibreOffice consume as a "treat as text"
+	marker, so a legitimate value like `-Foo` still displays as `-Foo`.
+	"""
+	text = "" if value is None else str(value)
+	if text.startswith(_CSV_INJECTION_PREFIXES):
+		return "'" + text
+	return text
+
+
+@frappe.whitelist(methods=["GET"])
+def export_email_group_csv(email_group):
+	"""Download an Email Group's subscribers as a CSV for bulk mail tools.
+
+	Column headers match Zoho Campaigns' default field names so its importer
+	auto-maps them; the same file imports cleanly into Mailchimp, Brevo, etc.
+	"""
+	from frappe.utils.csvutils import build_csv_response
+
+	from cecypo_powerpack.utils import is_feature_enabled
+
+	if not is_feature_enabled("enable_email_group_powerup"):
+		frappe.throw(_("Email Group Powerup is disabled in PowerPack Settings"))
+
+	if not frappe.has_permission("Email Group", "read", email_group):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	# The export discloses customer names and emails, so Email Group access alone
+	# is not sufficient.
+	if not frappe.has_permission("Customer", "read"):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	rows = frappe.db.sql(_EXPORT_SQL, {"email_group": email_group}, as_dict=True)
+
+	data = [["Company Name", "First Name", "Last Name", "Contact Email"]]
+	for row in rows:
+		data.append(
+			[
+				_csv_safe(row.customer_name),
+				_csv_safe(row.first_name),
+				_csv_safe(row.last_name),
+				_csv_safe(row.email),
+			]
+		)
+
+	build_csv_response(data, f"{frappe.scrub(email_group)}-subscribers-{frappe.utils.today()}")
 
 
 @frappe.whitelist()

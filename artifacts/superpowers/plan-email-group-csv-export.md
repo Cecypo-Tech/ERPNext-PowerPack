@@ -103,7 +103,10 @@ In `api.py`, inside `import_email_group_subscribers_by_item`, immediately after 
 
 - [ ] **Step 5: Make the flag true for the other existing tests**
 
-The existing tests in `TestImportEmailGroupSubscribersByItem` do not patch the flag, so they will now fail. Add this decorator to **every** existing test method in that class (outermost, so it is the last argument):
+The existing tests in `TestImportEmailGroupSubscribersByItem` do not patch the flag, so they
+depend on whatever `enable_email_group_powerup` happens to be in the database. Add this
+decorator to **every** existing test method in that class as the **bottom-most** decorator,
+which makes it the **first** argument after `self`:
 
 ```python
     @patch("cecypo_powerpack.utils.is_feature_enabled", return_value=True)
@@ -764,6 +767,35 @@ git commit -m "feat(email-group): add Export Subscribers (CSV) button"
 ```
 
 ---
+
+---
+
+### Task 6: Singleton default backfill (gap found during execution)
+
+**Not in the original plan.** Surfaced during Task 5 verification.
+
+Task 1 gave `enable_email_group_powerup` a JSON default of `"1"` so existing installs would
+not silently lose the feature. That does not work on its own: Frappe does not backfill a new
+field's default into an existing singleton's `tabSingles` row on migrate. On every site where
+PowerPack Settings had been saved before, the flag read back as `0` and **both** Email Group
+powerup buttons disappeared — including the import feature that was already shipping.
+
+**Files:**
+- Create: `cecypo_powerpack/patches/v1/default_email_group_powerup.py`
+- Modify: `cecypo_powerpack/patches.txt` (append under `[post_model_sync]`)
+
+The patch follows the existing precedent at `cecypo_powerpack/patches/v1/default_qp_update_stock.py`,
+which was added for exactly this reason and whose comment documents the trap. It queries
+`tabSingles` directly to distinguish "never set" from "explicitly switched off", so an admin
+who deliberately disabled the feature is not overridden.
+
+Verified: row absent and `is_feature_enabled` False before; row present with value `1` and
+`is_feature_enabled` True after `bench migrate`; setting the value to `0` and re-running
+`execute()` leaves it at `0`.
+
+**Lesson for future plans in this repo:** any new Check field on a singleton DocType that
+defaults to `1` needs a companion backfill patch. The JSON default alone only applies to
+installs that have never saved the singleton.
 
 ## Final verification
 
