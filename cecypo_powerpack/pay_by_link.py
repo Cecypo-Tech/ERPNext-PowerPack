@@ -104,16 +104,62 @@ def get_payable(doctype: str, docname: str) -> dict | None:
     }
 
 
-def _gateway_for_company(company: str) -> str | None:
-    """The M-Pesa gateway collecting for this company, preferring the default."""
+def payable_gateways(company: str) -> list[dict]:
+    """The M-Pesa shortcodes this company can collect through.
+
+    Sourced from Mpesa Settings' own company field. A settings row with no
+    shortcode cannot collect, and one without a matching Payment Gateway cannot
+    be attached to a request, so both are excluded. Live shortcodes win outright
+    when any exist - a sandbox entry alongside them is a test leftover, not a
+    choice worth offering a paying customer.
+    """
     rows = frappe.get_all(
-        "Payment Gateway Account",
-        filters={"company": company, "payment_gateway": ["like", "Mpesa-%"]},
-        fields=["payment_gateway", "is_default"],
-        order_by="is_default desc",
-        limit=1,
+        "Mpesa Settings",
+        filters={"company": company, "business_shortcode": ["is", "set"]},
+        fields=["name", "business_shortcode", "sandbox", "paybill_type"],
+        order_by="business_shortcode asc",
     )
-    return rows[0].payment_gateway if rows else None
+
+    usable = [
+        row
+        for row in rows
+        if str(row.business_shortcode).strip()
+        and frappe.db.exists("Payment Gateway", f"Mpesa-{row.name}")
+    ]
+    live = [row for row in usable if not row.sandbox]
+
+    return [
+        {
+            "gateway": f"Mpesa-{row.name}",
+            "shortcode": str(row.business_shortcode).strip(),
+            "paybill_type": row.paybill_type,
+        }
+        for row in (live or usable)
+    ]
+
+
+def _resolve_gateway(company: str, chosen: str | None) -> str:
+    """Which shortcode to collect through, honouring the customer's choice."""
+    options = payable_gateways(company)
+
+    if not options:
+        frappe.log_error(
+            f"No usable M-Pesa shortcode for company {company}",
+            "Pay by link: no gateway",
+        )
+        frappe.throw(_("M-Pesa is not available for this document."))
+
+    if chosen:
+        # Never take the caller's word for it: only a shortcode this company
+        # actually collects through is allowed, or money lands elsewhere.
+        if chosen not in {option["gateway"] for option in options}:
+            frappe.throw(_("That M-Pesa option is not available for this document."))
+        return chosen
+
+    if len(options) == 1:
+        return options[0]["gateway"]
+
+    frappe.throw(_("Please choose which M-Pesa number to pay."))
 
 
 def _reusable_request(doctype: str, docname: str):
@@ -130,7 +176,7 @@ def _reusable_request(doctype: str, docname: str):
             ["docstatus", "<", 2],
             ["status", "in", ["In Progress", "Failed"]],
         ],
-        fields=["name", "request_id", "docstatus", "base_amount"],
+        fields=["name", "request_id", "docstatus", "base_amount", "payment_gateway"],
         order_by="creation desc",
         limit=1,
     )
@@ -139,7 +185,7 @@ def _reusable_request(doctype: str, docname: str):
 
 @frappe.whitelist(allow_guest=True)
 @rate_limit(key="token", limit=10, seconds=60)
-def start_mpesa_payment(token: str) -> dict:
+def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
     """Hand the customer an M-Pesa checkout page for the linked document."""
     link = _short_link(token)
     payable = get_payable(link.reference_doctype, link.reference_docname)
@@ -147,22 +193,35 @@ def start_mpesa_payment(token: str) -> dict:
     if not payable:
         frappe.throw(_("This document is not awaiting payment."))
 
-    existing = _reusable_request(link.reference_doctype, link.reference_docname)
-    if existing:
-        # The balance can have moved since the request was raised.
-        if existing.docstatus == 0 and flt(existing.base_amount) != payable["amount"]:
-            frappe.db.set_value(
-                EXPRESS_REQUEST, existing.name, "base_amount", payable["amount"]
-            )
-        return {"redirect_to": f"/mpesa/stkpush?id={existing.request_id}"}
+    gateway = _resolve_gateway(payable["company"], gateway)
 
-    gateway = _gateway_for_company(payable["company"])
-    if not gateway:
-        frappe.log_error(
-            f"No Mpesa Payment Gateway Account for company {payable['company']}",
-            "Pay by link: no gateway",
-        )
-        frappe.throw(_("M-Pesa is not available for this document."))
+    existing = _reusable_request(link.reference_doctype, link.reference_docname)
+
+    # A submitted request is fixed to the shortcode it was sent against, so it
+    # can only be reused for the same one - otherwise a retry would keep going
+    # to the till the customer just moved away from.
+    if existing and existing.docstatus != 0 and existing.payment_gateway != gateway:
+        existing = None
+
+    if existing:
+        # A draft can still be stale: the balance may have moved since, or it
+        # may have been raised against a shortcode no longer being offered.
+        if existing.docstatus == 0:
+            changes = {}
+            if flt(existing.base_amount) != payable["amount"]:
+                changes["base_amount"] = payable["amount"]
+            if existing.payment_gateway != gateway:
+                changes["payment_gateway"] = gateway
+                changes["settings"] = gateway[6:]
+            if changes:
+                frappe.db.set_value(EXPRESS_REQUEST, existing.name, changes)
+                frappe.db.commit()
+        return {
+            "request_id": existing.request_id,
+            "amount": payable["amount"],
+            "currency": payable["currency"],
+            "redirect_to": f"/mpesa/stkpush?id={existing.request_id}",
+        }
 
     request = frappe.get_doc(
         {
@@ -183,4 +242,10 @@ def start_mpesa_payment(token: str) -> dict:
     request.insert(ignore_permissions=True)
     frappe.db.commit()
 
-    return {"redirect_to": f"/mpesa/stkpush?id={request.request_id}"}
+    return {
+        "request_id": request.request_id,
+        "amount": payable["amount"],
+        "currency": payable["currency"],
+        # Kept so the page still works if scripting is unavailable.
+        "redirect_to": f"/mpesa/stkpush?id={request.request_id}",
+    }

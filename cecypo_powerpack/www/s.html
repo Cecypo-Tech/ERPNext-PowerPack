@@ -19,6 +19,74 @@
 			--pp-shadow:    0 1px 4px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.04);
 		}
 
+		:root[data-theme="dark"] {
+			--pp-bg:        #0b1220;
+			--pp-surface:   #131c2e;
+			--pp-border:    rgba(148,163,184,.16);
+			--pp-text:      #e2e8f0;
+			--pp-muted:     #94a3b8;
+			--pp-accent:    #3b82f6;
+			--pp-accent-h:  #60a5fa;
+			--pp-shadow:    0 1px 4px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.35);
+		}
+
+		/* The payment sheet follows the theme. The document itself stays on
+		   white - it is a paper document, and recolouring an invoice would
+		   misrepresent what the customer is being asked to pay. */
+		/* These two were hardcoded light, so in dark mode light text landed on
+		   a light strip. */
+		:root[data-theme="dark"] .pp-card-toolbar { background: rgba(255,255,255,.03); }
+		:root[data-theme="dark"] .pp-btn-outline:hover { background: rgba(255,255,255,.07); }
+		:root[data-theme="dark"] .pp-footer-content,
+		:root[data-theme="dark"] .pp-header-content { color: var(--pp-text); }
+
+		:root[data-theme="dark"] .pay-sheet { background: var(--pp-surface); }
+		:root[data-theme="dark"] .pay-top { background: rgba(255,255,255,.03); border-bottom-color: var(--pp-border); }
+		:root[data-theme="dark"] .pay-title,
+		:root[data-theme="dark"] .pay-status-value,
+		:root[data-theme="dark"] .pay-total-row strong { color: var(--pp-text); }
+		:root[data-theme="dark"] .pay-status,
+		:root[data-theme="dark"] .pay-total { background: rgba(255,255,255,.03); border-color: var(--pp-border); }
+		:root[data-theme="dark"] .pay-total-row + .pay-total-row { border-top-color: var(--pp-border); }
+		:root[data-theme="dark"] .pay-status-msg { color: var(--pp-muted); }
+		:root[data-theme="dark"] .pay-input {
+			background: rgba(255,255,255,.04); border-color: var(--pp-border); color: var(--pp-text);
+		}
+		:root[data-theme="dark"] .pay-input:disabled { background: rgba(255,255,255,.02); color: var(--pp-muted); }
+		:root[data-theme="dark"] .pay-input::placeholder { color: #64748b; }
+
+		.pp-theme {
+			display: inline-flex; align-items: center; justify-content: center;
+			width: 34px; height: 34px; padding: 0; flex: none;
+		}
+		/* The button is a flex container with no gap allowance, which collapsed
+		   the icon to zero width - the control rendered as an empty square. */
+		.pp-due {
+			display: inline-block; margin-left: 10px; padding: 3px 9px; border-radius: 999px;
+			background: rgba(0, 184, 148, .12); color: #00846b;
+			font-size: 12px; font-weight: 700; white-space: nowrap;
+		}
+		:root[data-theme="dark"] .pp-due { background: rgba(0, 184, 148, .16); color: #34d399; }
+		.pp-btn-pay { background: #00b894; color: #fff; border: 1px solid #00b894; }
+		.pp-btn-pay:hover { background: #00a082; border-color: #00a082; }
+
+		.pay-choices[hidden] { display: none; }
+		.pay-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 16px; }
+		.pay-choice {
+			display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+			padding: 9px 11px; cursor: pointer; font-family: inherit; text-align: left;
+			background: var(--pp-surface); border: 1px solid var(--pp-border); border-radius: 9px;
+		}
+		.pay-choice:hover { border-color: #00b894; }
+		.pay-choice[data-on] { border-color: #00b894; background: rgba(0, 184, 148, .07); box-shadow: 0 0 0 2px rgba(0, 184, 148, .15); }
+		.pay-choice-code { font-size: 14px; font-weight: 700; color: var(--pp-text); }
+		.pay-choice-type { font-size: 11px; color: var(--pp-muted); }
+
+		.pp-theme svg { width: 15px; height: 15px; flex: none; }
+		.pp-theme .moon { display: none; }
+		:root[data-theme="dark"] .pp-theme .moon { display: block; }
+		:root[data-theme="dark"] .pp-theme .sun { display: none; }
+
 		body {
 			background: var(--pp-bg);
 			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -134,6 +202,7 @@
 
 		.pp-actions {
 			display: flex;
+			flex-wrap: wrap;
 			gap: 8px;
 			flex-shrink: 0;
 		}
@@ -167,6 +236,108 @@
 		.pp-btn-primary:hover { background: var(--pp-accent-h); }
 
 		/* ── Iframe ──────────────────────────────────────────────────── */
+
+		/* Payment lightbox — mirrors the M-Pesa Express checkout so the
+		   customer meets one design from reading to paying. */
+		.pay-scrim {
+			position: fixed; inset: 0; z-index: 1000;
+			background: rgba(15, 23, 42, .62);
+			display: none; align-items: center; justify-content: center;
+			padding: 16px;
+			-webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+		}
+		.pay-scrim[data-open] { display: flex; }
+		.pay-sheet {
+			background: #fff; border-radius: 14px; width: 100%; max-width: 440px;
+			max-height: calc(100dvh - 32px); overflow-y: auto;
+			box-shadow: 0 24px 60px rgba(15, 23, 42, .34);
+		}
+		.pay-top {
+			text-align: center; padding: 22px 20px 18px;
+			background: #f9fafb; border-bottom: 1px solid #eef1f5;
+			border-radius: 14px 14px 0 0; position: relative;
+		}
+		.pay-badge {
+			width: 44px; height: 44px; margin: 0 auto 10px;
+			display: flex; align-items: center; justify-content: center;
+			background: #c2f0e1; color: #00846b; border-radius: 11px;
+		}
+		.pay-title { font-size: 17px; font-weight: 700; color: #0f172a; margin: 0; }
+		.pay-close {
+			position: absolute; top: 10px; right: 10px;
+			background: none; border: none; cursor: pointer; color: #94a3b8;
+			font-size: 24px; line-height: 1; min-width: 44px; min-height: 44px;
+		}
+		.pay-body { padding: 18px 20px 20px; }
+		.pay-status {
+			display: none; border-left: 3px solid #94a3b8;
+			background: #f9fafb; border-radius: 0 8px 8px 0;
+			padding: 11px 14px; margin-bottom: 16px;
+		}
+		.pay-status[data-on] { display: block; }
+		.pay-status.is-wait { border-left-color: #0984e3; }
+		.pay-status.is-ok   { border-left-color: #00b894; }
+		.pay-status.is-bad  { border-left-color: #ff7675; }
+		.pay-status-row { display: flex; align-items: center; gap: 8px; }
+		.pay-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; flex: none; }
+		.is-wait .pay-dot { background: #0984e3; }
+		.is-ok   .pay-dot { background: #00b894; }
+		.is-bad  .pay-dot { background: #ff7675; }
+		.pay-status-label {
+			font-size: 11px; font-weight: 700; letter-spacing: .07em;
+			text-transform: uppercase; color: #64748b;
+		}
+		.pay-status-value { font-size: 12px; font-weight: 700; color: #0f172a; }
+		.pay-status-msg { font-size: 13px; color: #475569; margin: 7px 0 0; }
+		.is-ok  .pay-status-msg { color: #00846b; }
+		.is-bad .pay-status-msg { color: #d63031; }
+		.pay-label {
+			display: block; font-size: 11px; font-weight: 700; letter-spacing: .07em;
+			text-transform: uppercase; color: #64748b; margin: 0 0 6px;
+		}
+		.pay-field { position: relative; margin-bottom: 16px; }
+		.pay-field svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+		.pay-input {
+			width: 100%; box-sizing: border-box; padding: 12px 14px 12px 36px;
+			border: 1px solid #e2e8f0; border-radius: 9px; background: #fff;
+			font-size: 16px; /* 16px keeps iOS from zooming the page on focus */
+			font-family: inherit; font-weight: 600; color: #0f172a;
+		}
+		.pay-input:focus { outline: none; border-color: #00b894; box-shadow: 0 0 0 3px rgba(0, 184, 148, .14); }
+		.pay-input:disabled { background: #f9fafb; color: #64748b; }
+		.pay-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+		.pay-meta .pay-input { padding-left: 14px; font-size: 13px; font-weight: 500; }
+		.pay-total {
+			border: 1px solid #eef1f5; border-radius: 10px; background: #f9fafb;
+			padding: 14px 16px; margin-bottom: 16px;
+		}
+		.pay-total-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+		.pay-total-row + .pay-total-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eef1f5; }
+		.pay-total-row span { font-size: 13px; color: #64748b; }
+		.pay-total-row strong { font-size: 14px; color: #0f172a; }
+		.pay-total-row.is-grand strong { font-size: 17px; color: #00b894; }
+		.pay-go {
+			width: 100%; padding: 13px 16px; min-height: 48px;
+			border: none; border-radius: 9px; cursor: pointer;
+			background: #00b894; color: #fff; font-size: 15px; font-weight: 700; font-family: inherit;
+			display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+		}
+		.pay-go:hover { background: #00a082; }
+		.pay-go:disabled { opacity: .55; cursor: default; }
+		.pay-go.is-retry { background: #ff7675; }
+		.pay-go.is-retry:hover { background: #d63031; }
+		.pay-hint { font-size: 12px; color: #94a3b8; margin: 10px 0 0; text-align: center; }
+		@media (max-width: 520px) {
+			.pay-scrim { padding: 0; align-items: flex-end; }
+			.pay-sheet {
+				max-width: none; border-radius: 16px 16px 0 0; max-height: 94dvh;
+			}
+			.pay-top { border-radius: 16px 16px 0 0; }
+			.pay-body { padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); }
+			.pay-meta { grid-template-columns: 1fr; }
+		}
+		@media print { .pay-scrim { display: none !important; } }
+
 		.pp-iframe {
 			width: 100%;
 			height: 78vh;
@@ -205,8 +376,28 @@
 			.pp-doc-name { font-size: 15px; }
 			.pp-btn { padding: 7px 12px; font-size: 12px; }
 			.pp-iframe { height: 70vh; }
+			/* Stack on a phone: several paybills will not sit on one row. */
+			.pp-card-toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+			.pp-actions { width: 100%; }
+			.pp-actions .pp-btn { flex: 1 1 auto; justify-content: center; min-height: 40px; }
 		}
 	</style>
+<script data-cfasync="false">
+	(function () {
+		try {
+			var saved = localStorage.getItem('pp-theme');
+			var dark = saved ? saved === 'dark'
+				: window.matchMedia('(prefers-color-scheme: dark)').matches;
+			if (dark) { document.documentElement.setAttribute('data-theme', 'dark'); }
+		} catch (e) {}
+	})();
+	function pp_toggle_theme() {
+		var root = document.documentElement;
+		var dark = root.getAttribute('data-theme') === 'dark';
+		if (dark) { root.removeAttribute('data-theme'); } else { root.setAttribute('data-theme', 'dark'); }
+		try { localStorage.setItem('pp-theme', dark ? 'light' : 'dark'); } catch (e) {}
+	}
+</script>
 </head>
 <body>
 
@@ -234,7 +425,7 @@
 			</div>
 		{% endif %}
 	{% elif header_content %}
-		<div class="pp-header-content">{{ header_content }}</div>
+		<div class="pp-header-content">{{ header_content | safe }}</div>
 	{% endif %}
 
 	<!-- Main content -->
@@ -246,21 +437,28 @@
 				<div class="pp-doc-meta">
 					<span class="pp-doc-type">{{ reference_doctype }}</span>
 					<span class="pp-doc-name">{{ reference_docname }}</span>
+					{% if mpesa_payable %}
+					<span class="pp-due">{{ mpesa_amount_display }} due</span>
+					{% endif %}
 				</div>
 				<div class="pp-actions">
-					<button class="pp-btn pp-btn-outline" onclick="window.print()">
+					<button class="pp-btn pp-btn-outline pp-theme" onclick="pp_toggle_theme()" aria-label="Toggle dark mode" title="Toggle dark mode">
+						<svg class="sun" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+						<svg class="moon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+					</button>
+					{% if mpesa_payable %}
+					<button class="pp-btn pp-btn-pay" onclick="pay_open()">
+						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
+						Pay with M-Pesa
+					</button>
+					{% endif %}
+					<button class="pp-btn pp-btn-outline" onclick="pp_print_document()">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><rect x="6" y="17" width="12" height="5"/><path d="M6 13H4a2 2 0 0 0-2 2v4h4v-3h12v3h4v-4a2 2 0 0 0-2-2h-2"/></svg>
 						Print
 					</button>
-					{% if mpesa_payable %}
-					<button class="pp-btn pp-btn-primary" onclick="pay_with_mpesa(this)">
-						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
-						Pay {{ mpesa_amount_display }} with M-Pesa
-					</button>
-					{% endif %}
-					<a class="pp-btn pp-btn-primary" href="{{ target_url }}" target="_blank" rel="noopener">
-						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-						Open
+					<a class="pp-btn pp-btn-outline" id="pp-pdf" href="#" hidden>
+						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+						Get PDF
 					</a>
 				</div>
 			</div>
@@ -279,43 +477,297 @@
 	<!-- Footer -->
 	<footer class="pp-footer">
 		{% if footer_content %}
-			<div class="pp-footer-content">{{ footer_content }}</div>
+			<div class="pp-footer-content">{{ footer_content | safe }}</div>
 		{% endif %}
 		<div>Powered by <a href="https://cecypo.tech" target="_blank" rel="noopener">Cecypo PowerPack</a></div>
 	</footer>
 
 <script>
-	document.querySelector('.pp-iframe').addEventListener('load', function () {
+	// Tidy the embedded document. Same-origin, so we can style inside it.
+	//
+	// This used to run only on the iframe's load event, but the script is
+	// deferred (Rocket Loader), so by the time it attached the iframe had
+	// usually already loaded and nothing was ever applied. Apply immediately
+	// as well, and on load, so it lands either way.
+	// Print the document rather than the page around it.
+	function pp_print_document() {
+		const frame = document.querySelector('.pp-iframe');
 		try {
-			var doc = this.contentDocument || this.contentWindow.document;
-			var style = doc.createElement('style');
-			style.textContent = '.action-banner.print-hide { display: none !important; }';
+			if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); return; }
+		} catch (e) { /* fall through */ }
+		window.print();
+	}
+
+	function pp_style_document(frame) {
+		try {
+			const doc = frame.contentDocument || frame.contentWindow.document;
+			if (!doc || !doc.head || doc.getElementById('pp-embed-style')) { return; }
+			const style = doc.createElement('style');
+			style.id = 'pp-embed-style';
+			style.textContent = [
+				/* The toolbar above already offers Print and Open. */
+				'.action-banner, .action-banner.print-hide { display: none !important; }',
+				/* The print format is a fixed A4 width pinned to the left of a
+				   wider frame, which left it hugging one edge. */
+				'.print-format { margin: 0 auto !important; float: none !important; }',
+				'.print-format-gutter { background: #ffffff !important; padding: 0 !important; }',
+				'body { background: #ffffff !important; }'
+			].join('\n');
 			doc.head.appendChild(style);
+
+			// Frappe builds its own PDF link with the share key, print format and
+			// letterhead already resolved. Lift it rather than reconstructing one
+			// that could drift from whatever Frappe decides is correct.
+			const source = doc.querySelector('.action-banner a[href*="download_pdf"]');
+			const button = document.getElementById('pp-pdf');
+			if (source && button) {
+				button.href = source.getAttribute('href');
+				button.removeAttribute('hidden');
+			}
+		} catch (e) { /* cross-origin target - leave it alone */ }
+	}
+
+	(function () {
+		const frame = document.querySelector('.pp-iframe');
+		if (!frame) { return; }
+		frame.addEventListener('load', function () { pp_style_document(frame); });
+		// Already loaded before this script ran?
+		try {
+			if (frame.contentDocument && frame.contentDocument.readyState === 'complete') {
+				pp_style_document(frame);
+			}
 		} catch (e) {}
-	});
+	})();
 </script>
 <script>
-	async function pay_with_mpesa(btn) {
-		const original = btn.innerHTML;
-		btn.disabled = true;
-		btn.innerHTML = 'Preparing...';
+	// The whole payment happens in the sheet: no hand-off to another page, so
+	// the customer never loses sight of the document they are paying for.
+	let PAY = { token: '{{ token }}', gateway: null, request_id: null, poll: null, deadline: 0, done: false };
+
+	function pay_el(id) { return document.getElementById(id); }
+
+	// status: 'wait' | 'ok' | 'bad' | null to hide
+	function pay_status(kind, value, message) {
+		const box = pay_el('pay-status');
+		if (!kind) { box.removeAttribute('data-on'); return; }
+		box.className = 'pay-status is-' + kind;
+		box.setAttribute('data-on', '1');
+		pay_el('pay-status-value').textContent = value;
+		pay_el('pay-status-msg').textContent = message || '';
+	}
+
+	function pay_busy(on, label) {
+		pay_el('pay-go').disabled = on;
+		pay_el('pay-phone').disabled = on;
+		if (label) { pay_el('pay-go-text').textContent = label; }
+	}
+
+	function pay_close() {
+		if (PAY.poll) { clearInterval(PAY.poll); PAY.poll = null; }
+		pay_el('pay-scrim').removeAttribute('data-open');
+		document.body.style.overflow = '';
+		if (PAY.done) { window.location.reload(); }
+	}
+
+	function pay_choose(btn) {
+		document.querySelectorAll('.pay-choice').forEach(function (el) { el.removeAttribute('data-on'); });
+		btn.setAttribute('data-on', '1');
+		PAY.gateway = btn.getAttribute('data-gateway');
+		pay_el('pay-shortcode').value = btn.getAttribute('data-shortcode') || '';
+		pay_status(null);
+	}
+
+	// Opening the sheet creates nothing. The request is raised on Pay, so a
+	// customer who opens it and changes their mind leaves no row behind.
+	function pay_open() {
+		PAY.request_id = null;
+		PAY.done = false;
+		const choices = Array.prototype.slice.call(document.querySelectorAll('.pay-choice'));
+		if (choices.length === 1) {
+			// One paybill is not a decision - select it and move on.
+			pay_choose(choices[0]);
+		} else {
+			// Several: make them pick, rather than guessing on their behalf.
+			choices.forEach(function (el) { el.removeAttribute('data-on'); });
+			PAY.gateway = null;
+		}
+		pay_el('pay-go-text').textContent = 'Pay with M-Pesa';
+		pay_el('pay-go').classList.remove('is-retry');
+		pay_el('pay-hint').style.display = '';
+		pay_busy(false);
+		pay_status(null);
+		pay_el('pay-scrim').setAttribute('data-open', '1');
+		document.body.style.overflow = 'hidden';
+		if (!choices.length) { pay_el('pay-phone').focus(); }
+	}
+
+	async function pay_send() {
+		if (!PAY.gateway) {
+			pay_status('bad', 'CHOOSE ONE', 'Pick which M-Pesa number to pay.');
+			return;
+		}
+		const phone = (pay_el('pay-phone').value || '').replace(/\D/g, '');
+		if (phone.length < 9) {
+			pay_el('pay-phone').focus();
+			pay_status('bad', 'CHECK NUMBER', 'Enter the M-Pesa number to send the prompt to.');
+			return;
+		}
+		pay_busy(true, 'Sending...');
+		pay_status('wait', 'SENDING', 'Sending a payment prompt to your phone...');
+
+		// Raise (or reuse) the request now that they have committed to paying.
+		if (!PAY.request_id) {
+			try {
+				const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ token: PAY.token, gateway: PAY.gateway })
+				});
+				const data = await res.json();
+				if (!res.ok || !data.message || !data.message.request_id) { throw new Error('start failed'); }
+				PAY.request_id = data.message.request_id;
+			} catch (e) {
+				pay_busy(false, 'Try again');
+				pay_status('bad', 'NOT SENT', 'We could not start the payment. Please try again.');
+				return;
+			}
+		}
+
 		try {
-			const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
+			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.initiate_stk_push', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ token: '{{ token }}' })
+				body: JSON.stringify({ request_id: PAY.request_id, phone_number: phone })
+			});
+			if (!res.ok) { throw new Error('push failed'); }
+		} catch (e) {
+			pay_busy(false, 'Try again');
+			pay_status('bad', 'NOT SENT', 'We could not reach M-Pesa. Please try again.');
+			return;
+		}
+
+		pay_el('pay-hint').style.display = 'none';
+		pay_status('wait', 'PENDING', 'Check your phone and enter your M-Pesa PIN.');
+		PAY.deadline = Date.now() + 120000;
+		PAY.poll = setInterval(pay_check, 3000);
+	}
+
+	function pay_stop_polling() { clearInterval(PAY.poll); PAY.poll = null; }
+
+	async function pay_check() {
+		if (Date.now() > PAY.deadline) {
+			pay_stop_polling();
+			pay_busy(false, 'Try again');
+			pay_el('pay-go').classList.add('is-retry');
+			pay_status('bad', 'NO ANSWER',
+				'We did not get a confirmation. If you completed the payment it will still be recorded.');
+			return;
+		}
+		try {
+			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.check_payment_status', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ request_id: PAY.request_id })
 			});
 			const data = await res.json();
-			if (!res.ok || !data.message || !data.message.redirect_to) {
-				throw new Error('no redirect');
+			const m = (data && data.message) || {};
+			if (m.status === 'Completed') {
+				pay_stop_polling();
+				PAY.done = true;
+				pay_busy(true, 'Paid');
+				pay_status('ok', 'PAID', 'Payment received. Thank you!');
+			} else if (m.status === 'Failed') {
+				pay_stop_polling();
+				pay_busy(false, 'Try again');
+				pay_el('pay-go').classList.add('is-retry');
+				// result_desc is the outcome from Safaricom; response_description
+				// only says the push was accepted, so it reads "Success" even here.
+				pay_status('bad', 'FAILED', m.result_desc || 'The payment did not go through.');
 			}
-			window.location.href = data.message.redirect_to;
-		} catch (e) {
-			btn.disabled = false;
-			btn.innerHTML = original;
-			alert('Sorry, M-Pesa payment is not available for this document right now.');
-		}
+		} catch (e) { /* transient - the next tick retries */ }
 	}
+
+	document.addEventListener('keydown', function (e) {
+		if (e.key === 'Escape') { pay_close(); }
+	});
+	document.getElementById('pay-scrim').addEventListener('click', function (e) {
+		if (e.target === this) { pay_close(); }
+	});
 </script>
+	<div class="pay-scrim" id="pay-scrim" role="dialog" aria-modal="true" aria-labelledby="pay-title">
+		<div class="pay-sheet" role="document">
+			<div class="pay-top">
+				<button class="pay-close" onclick="pay_close()" aria-label="Close">&times;</button>
+				<div class="pay-badge">
+					<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
+				</div>
+				<p class="pay-title" id="pay-title">{{ reference_doctype }} {{ reference_docname }}</p>
+			</div>
+
+			<div class="pay-body">
+				<div class="pay-status" id="pay-status">
+					<div class="pay-status-row">
+						<span class="pay-dot"></span>
+						<span class="pay-status-label">Status</span>
+						<span class="pay-status-value" id="pay-status-value"></span>
+					</div>
+					<p class="pay-status-msg" id="pay-status-msg"></p>
+				</div>
+
+				{% if mpesa_gateways %}{% set only_one = mpesa_gateways|length == 1 %}
+				{% if not only_one %}<label class="pay-label">Pay To</label>{% endif %}
+				{# Rendered even for a single paybill, marked selected and hidden, so
+				   the choice always lives in one place rather than being split
+				   between this template and the script. #}
+				<div class="pay-choices" id="pay-choices"{% if only_one %} hidden{% endif %}>
+					{% for gw in mpesa_gateways %}
+					<button type="button" class="pay-choice" data-gateway="{{ gw.gateway }}"
+						data-shortcode="{{ gw.shortcode }}"{% if only_one %} data-on{% endif %}
+						onclick="pay_choose(this)">
+						<span class="pay-choice-code">{{ gw.shortcode }}</span>
+						<span class="pay-choice-type">{{ gw.paybill_type }}</span>
+					</button>
+					{% endfor %}
+				</div>
+				{% endif %}
+
+				<label class="pay-label" for="pay-phone">Phone Number</label>
+				<div class="pay-field">
+					<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+					<input class="pay-input" id="pay-phone" type="tel" inputmode="numeric"
+						autocomplete="tel" placeholder="07XX XXX XXX" />
+				</div>
+
+				<div class="pay-meta">
+					<div{% if mpesa_gateways|length > 1 %} style="display:none"{% endif %}>
+						<label class="pay-label">Paybill</label>
+						<input class="pay-input" id="pay-shortcode"
+							value="{% if mpesa_gateways %}{{ mpesa_gateways[0].shortcode }}{% endif %}" disabled />
+					</div>
+					<div>
+						<label class="pay-label">Reference</label>
+						<input class="pay-input" value="{{ reference_docname }}" disabled />
+					</div>
+				</div>
+
+				<div class="pay-total">
+					<div class="pay-total-row">
+						<span>Amount</span>
+						<strong>{{ mpesa_amount_display }}</strong>
+					</div>
+					<div class="pay-total-row is-grand">
+						<span>Total to Pay</span>
+						<strong>{{ mpesa_amount_display }}</strong>
+					</div>
+				</div>
+
+				<button class="pay-go" id="pay-go" onclick="pay_send()">
+					<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
+					<span id="pay-go-text">Pay with M-Pesa</span>
+				</button>
+				<p class="pay-hint" id="pay-hint">A prompt will be sent to this phone. Enter your M-Pesa PIN to pay.</p>
+			</div>
+		</div>
+	</div>
 </body>
 </html>
