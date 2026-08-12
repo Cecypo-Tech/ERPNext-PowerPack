@@ -70,6 +70,7 @@
 		.pp-btn-pay { background: #00b894; color: #fff; border: 1px solid #00b894; }
 		.pp-btn-pay:hover { background: #00a082; border-color: #00a082; }
 
+		.pay-choices[hidden] { display: none; }
 		.pay-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 16px; }
 		.pay-choice {
 			display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
@@ -562,13 +563,14 @@
 	function pay_open() {
 		PAY.request_id = null;
 		PAY.done = false;
-		const choices = document.querySelectorAll('.pay-choice');
-		if (choices.length) {
-			// More than one paybill: make them pick, rather than guessing.
+		const choices = Array.prototype.slice.call(document.querySelectorAll('.pay-choice'));
+		if (choices.length === 1) {
+			// One paybill is not a decision - select it and move on.
+			pay_choose(choices[0]);
+		} else {
+			// Several: make them pick, rather than guessing on their behalf.
 			choices.forEach(function (el) { el.removeAttribute('data-on'); });
 			PAY.gateway = null;
-		} else {
-			PAY.gateway = {{ mpesa_gateways[0].gateway | tojson if mpesa_gateways else 'null' }};
 		}
 		pay_el('pay-go-text').textContent = 'Pay with M-Pesa';
 		pay_el('pay-go').classList.remove('is-retry');
@@ -693,12 +695,16 @@
 					<p class="pay-status-msg" id="pay-status-msg"></p>
 				</div>
 
-				{% if mpesa_gateways|length > 1 %}
-				<label class="pay-label">Pay To</label>
-				<div class="pay-choices" id="pay-choices">
+				{% if mpesa_gateways %}{% set only_one = mpesa_gateways|length == 1 %}
+				{% if not only_one %}<label class="pay-label">Pay To</label>{% endif %}
+				{# Rendered even for a single paybill, marked selected and hidden, so
+				   the choice always lives in one place rather than being split
+				   between this template and the script. #}
+				<div class="pay-choices" id="pay-choices"{% if only_one %} hidden{% endif %}>
 					{% for gw in mpesa_gateways %}
 					<button type="button" class="pay-choice" data-gateway="{{ gw.gateway }}"
-						data-shortcode="{{ gw.shortcode }}" onclick="pay_choose(this)">
+						data-shortcode="{{ gw.shortcode }}"{% if only_one %} data-on{% endif %}
+						onclick="pay_choose(this)">
 						<span class="pay-choice-code">{{ gw.shortcode }}</span>
 						<span class="pay-choice-type">{{ gw.paybill_type }}</span>
 					</button>
