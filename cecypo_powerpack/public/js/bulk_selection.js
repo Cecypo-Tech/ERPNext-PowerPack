@@ -119,11 +119,6 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
     let handlers = {
         onload: function(frm) {
             const cfg = BULK_SELECTION_CONFIG[frm.doctype];
-            // Check if feature is enabled for this doctype
-            frappe.db.get_single_value('PowerPack Settings', cfg.setting_field)
-                .then(enabled => {
-                    frm._bulk_selection_enabled = enabled;
-                });
 
             // Filter set_warehouse by the document's company
             if (cfg.warehouse_field === 'set_warehouse') {
@@ -136,79 +131,79 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
         },
 
         refresh: function(frm) {
-            if (frm.doc.docstatus !== 0) return;
-            if (!frm._bulk_selection_enabled) return;
-
-            add_bulk_selection_button(frm);
-            toggle_bulk_button(frm);
+            ensure_bulk_button(frm);
         }
     };
 
-    // Sales-only handlers
+    // Fields that invalidate the cached item list and may change button state.
+    // Every one of them goes through ensure_bulk_button so the button is created
+    // even when the settings lookup had not resolved on the first refresh.
+    let watched_fields = [config.warehouse_field];
+
     if (!config.is_stock_doctype && !config.is_purchase_doctype) {
-        handlers.selling_price_list = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        };
-
-        handlers.taxes_and_charges = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            // Clear cache when tax template changes (affects cost calculation)
-            frm._bulk_item_cache = null;
-        };
+        // Sales: price list and tax template both affect cost calculation
+        watched_fields.push('selling_price_list', 'taxes_and_charges');
     }
 
-    // Purchase-only handlers
     if (config.is_purchase_doctype) {
-        handlers.buying_price_list = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        };
-
-        handlers.taxes_and_charges = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            frm._bulk_item_cache = null;
-        };
+        watched_fields.push('buying_price_list', 'taxes_and_charges');
     }
 
-    // Add customer field handler based on doctype (sales only)
-    if (config.customer_field) {
-        handlers[config.customer_field] = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        };
-    }
+    if (config.customer_field) watched_fields.push(config.customer_field);
+    if (config.supplier_field) watched_fields.push(config.supplier_field);
 
-    // Add supplier field handler based on doctype (purchase only)
-    if (config.supplier_field) {
-        handlers[config.supplier_field] = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
-            frm._bulk_item_cache = null;
-        };
-    }
+    // Stock Entry: either warehouse can enable the button
+    if (doctype === 'Stock Entry') watched_fields.push('to_warehouse');
 
-    // Add warehouse field handler based on doctype
-    handlers[config.warehouse_field] = function(frm) {
-        if (!frm._bulk_selection_enabled) return;
-        toggle_bulk_button(frm);
-        frm._bulk_item_cache = null;
-    };
-
-    // Stock Entry: also watch to_warehouse
-    if (doctype === 'Stock Entry') {
-        handlers.to_warehouse = function(frm) {
-            if (!frm._bulk_selection_enabled) return;
-            toggle_bulk_button(frm);
+    watched_fields.forEach(fieldname => {
+        if (!fieldname || handlers[fieldname]) return;
+        handlers[fieldname] = function(frm) {
             frm._bulk_item_cache = null;
+            ensure_bulk_button(frm);
         };
-    }
+    });
 
     frappe.ui.form.on(doctype, handlers);
 });
+
+/**
+ * Create the Bulk Selection button if the feature is on, then set its enabled
+ * state. Safe to call repeatedly.
+ *
+ * The settings lookup is asynchronous. Reading a flag that a previous call had
+ * populated used to drop the button entirely on forms that never refresh a
+ * second time (Stock Entry, Stock Reconciliation), so the check is done here on
+ * every call and the button is built inside the callback.
+ * CecypoPowerPack.Settings caches the singleton, so this costs one server call
+ * per session, not per invocation.
+ */
+function ensure_bulk_button(frm, attempt) {
+    const config = BULK_SELECTION_CONFIG[frm.doctype];
+    if (!config) return;
+    if (frm.doc.docstatus !== 0) return;
+
+    CecypoPowerPack.Settings.isEnabled(config.setting_field, function(enabled) {
+        if (!enabled) return;
+
+        // Re-check: the form may have been submitted or swapped while we waited
+        if (frm.doc.docstatus !== 0) return;
+        if (!frm.fields_dict || !frm.fields_dict.items) return;
+
+        if (!add_bulk_selection_button(frm)) {
+            // The grid toolbar we anchor to has not rendered yet. There is no
+            // event for that, so retry briefly. This settles as soon as the
+            // toolbar appears rather than waiting out a fixed delay, and gives
+            // up instead of polling forever if the grid never renders.
+            const next = (attempt || 0) + 1;
+            if (next <= 20) {
+                setTimeout(() => ensure_bulk_button(frm, next), 100);
+            }
+            return;
+        }
+
+        toggle_bulk_button(frm);
+    });
+}
 
 // Check if current user can see cost prices
 function has_cost_permission() {
@@ -223,25 +218,28 @@ function has_cost_permission() {
     return cost_roles.some(role => frappe.user_roles.includes(role));
 }
 
+// Returns true once the button is in the DOM, false while the grid toolbar
+// it anchors to has not rendered yet.
 function add_bulk_selection_button(frm) {
     frm.fields_dict.items.$wrapper.find('.btn-bulk-selection').remove();
 
     let $add_multiple = frm.fields_dict.items.$wrapper.find('.grid-add-multiple-rows');
 
-    if ($add_multiple.length) {
-        let $bulk_btn = $(`
-            <button type="button" class="btn btn-xs btn-primary btn-bulk-selection" style="margin-left: 5px;">
-                <span class="hidden-xs">Bulk Selection</span>
-            </button>
-        `);
+    if (!$add_multiple.length) return false;
 
-        $bulk_btn.on('click', function() {
-            show_bulk_item_selector(frm);
-        });
+    let $bulk_btn = $(`
+        <button type="button" class="btn btn-xs btn-primary btn-bulk-selection" style="margin-left: 5px;">
+            <span class="hidden-xs">Bulk Selection</span>
+        </button>
+    `);
 
-        $add_multiple.after($bulk_btn);
-        frm._bulk_selection_btn = $bulk_btn;
-    }
+    $bulk_btn.on('click', function() {
+        show_bulk_item_selector(frm);
+    });
+
+    $add_multiple.after($bulk_btn);
+    frm._bulk_selection_btn = $bulk_btn;
+    return true;
 }
 
 function toggle_bulk_button(frm) {
@@ -586,6 +584,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
     const config = BULK_SELECTION_CONFIG[frm.doctype];
     const is_stock = config.is_stock_doctype;
+    const is_purchase = config.is_purchase_doctype;
     const has_price = config.has_price;
 
     const PAGE_SIZE = 20;
@@ -848,10 +847,16 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 let line_total = qty * rate;
 
                 // For stock docs: only check stock availability
+                // For purchase docs: never dull. Zero stock is the reason to
+                //   raise a Purchase Order, and a missing buying price is normal
+                //   before the first purchase — dulling on either would grey out
+                //   most of the list without telling the buyer anything useful
                 // For sales docs: check both price and stock
                 let is_unavailable;
                 if (is_stock) {
                     is_unavailable = warehouse && (item.actual_qty || 0) <= 0;
+                } else if (is_purchase) {
+                    is_unavailable = false;
                 } else {
                     is_unavailable = rate <= 0 || (warehouse && item.is_stock_item && (item.actual_qty || 0) <= 0);
                 }
@@ -2001,8 +2006,10 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
     // Only check "Available only" by default if warehouse is present
     // For Quotation (no warehouse), all items have actual_qty=0 so this would hide everything
+    // Purchase docs keep it off by default: out-of-stock items are exactly what
+    // you are ordering, so pre-filtering them away hides the useful rows
     if (warehouse) {
-        d.$wrapper.find('#show-available').prop('checked', true);
+        d.$wrapper.find('#show-available').prop('checked', !is_purchase);
     } else {
         // Hide the "Available only" checkbox since it's not applicable without warehouse
         d.$wrapper.find('#show-available').closest('.checkbox-label').hide();
@@ -2017,25 +2024,27 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 }
 
 /**
- * Add selected items to the document using proper ERPNext patterns.
- * Handles sales docs, Stock Reconciliation, and Stock Entry differently.
+ * Add selected items to the document through ERPNext's own item_code trigger.
+ * Per-doctype differences reduce to which fields seed the row and whether qty
+ * is applied before or after the trigger; see seed_values and add_row below.
  */
 function add_items_to_doc(frm, selected_items, warehouse) {
     const config = BULK_SELECTION_CONFIG[frm.doctype];
 
-    // Step 1: Remove empty rows
-    let items_to_remove = [];
-    (frm.doc.items || []).forEach((row) => {
-        if (!row.item_code) {
-            items_to_remove.push(row);
-        }
-    });
+    // Rows with no item_code are stripped after the adds, not before: the grid
+    // puts a fresh blank row back while items are being added, so clearing them
+    // up front leaves one behind.
+    function remove_empty_rows() {
+        const grid = frm.get_field('items').grid;
+        (frm.doc.items || [])
+            .filter(row => !row.item_code)
+            .forEach(row => {
+                const grid_row = (grid.grid_rows_by_docname || {})[row.name];
+                if (grid_row) grid_row.remove();
+            });
+    }
 
-    items_to_remove.forEach(row => {
-        frm.get_field('items').grid.grid_rows_by_docname[row.name].remove();
-    });
-
-    // Step 2: Build map of existing items
+    // Step 1: Build map of existing items
     let existing_items = {};
     (frm.doc.items || []).forEach(row => {
         if (row.item_code) {
@@ -2049,157 +2058,90 @@ function add_items_to_doc(frm, selected_items, warehouse) {
     let updated_count = 0;
     let added_count = 0;
 
-    // Step 3: Process items sequentially to avoid race conditions
-    let chain = Promise.resolve();
+    // Stock Reconciliation overwrites qty with the current stock balance inside
+    // its own item_code handler (set_valuation_rate_and_qty), so qty has to be
+    // applied after that call settles rather than seeded before it.
+    const qty_after_trigger = frm.doctype === 'Stock Reconciliation';
 
-    if (frm.doctype === 'Stock Reconciliation') {
-        // Stock Reconciliation: item_code -> warehouse -> wait for valuation -> qty
-        selected_items.forEach(item => {
-            chain = chain.then(() => {
-                if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
-                    let existing_row = existing_items[item.item_code][0];
-                    updated_count++;
-                    return frappe.model.set_value(
-                        existing_row.doctype,
-                        existing_row.name,
-                        'qty',
-                        item.qty
-                    );
-                } else {
-                    added_count++;
-                    let child = frm.add_child('items');
+    // Values placed on a new row BEFORE the item_code trigger fires.
+    function seed_values(item) {
+        let values = { item_code: item.item_code };
 
-                    return frappe.model.set_value(
-                        child.doctype,
-                        child.name,
-                        'item_code',
-                        item.item_code
-                    ).then(() => {
-                        return frappe.model.set_value(
-                            child.doctype,
-                            child.name,
-                            'warehouse',
-                            warehouse
-                        );
-                    }).then(() => {
-                        // Wait for ERPNext to fetch valuation_rate and current_qty
-                        return new Promise(resolve => setTimeout(resolve, 300));
-                    }).then(() => {
-                        return frappe.model.set_value(
-                            child.doctype,
-                            child.name,
-                            'qty',
-                            item.qty
-                        );
-                    });
-                }
-            });
-        });
-    } else if (frm.doctype === 'Stock Entry') {
-        // Stock Entry: item_code (triggers get_item_details) -> wait -> qty -> set warehouses
-        let s_warehouse = frm.doc.from_warehouse || '';
-        let t_warehouse = frm.doc.to_warehouse || '';
+        if (!qty_after_trigger) {
+            values.qty = item.qty;
+        }
 
-        selected_items.forEach(item => {
-            chain = chain.then(() => {
-                if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
-                    let existing_row = existing_items[item.item_code][0];
-                    updated_count++;
-                    return frappe.model.set_value(
-                        existing_row.doctype,
-                        existing_row.name,
-                        'qty',
-                        item.qty
-                    );
-                } else {
-                    added_count++;
-                    let child = frm.add_child('items');
+        if (frm.doctype === 'Stock Entry') {
+            if (frm.doc.from_warehouse) values.s_warehouse = frm.doc.from_warehouse;
+            if (frm.doc.to_warehouse) values.t_warehouse = frm.doc.to_warehouse;
+        } else if (frm.doctype === 'Stock Reconciliation') {
+            // set_valuation_rate_and_qty needs item_code AND warehouse together,
+            // otherwise its first run is a no-op
+            if (warehouse) values.warehouse = warehouse;
+        } else if (config.requires_warehouse && warehouse) {
+            values.warehouse = warehouse;
+        }
 
-                    return frappe.model.set_value(
-                        child.doctype,
-                        child.name,
-                        'item_code',
-                        item.item_code
-                    ).then(() => {
-                        // Wait for ERPNext get_item_details
-                        return new Promise(resolve => setTimeout(resolve, 500));
-                    }).then(() => {
-                        return frappe.model.set_value(
-                            child.doctype,
-                            child.name,
-                            'qty',
-                            item.qty
-                        );
-                    }).then(() => {
-                        // Set source warehouse
-                        if (s_warehouse) {
-                            return frappe.model.set_value(
-                                child.doctype,
-                                child.name,
-                                's_warehouse',
-                                s_warehouse
-                            );
-                        }
-                    }).then(() => {
-                        // Set target warehouse
-                        if (t_warehouse) {
-                            return frappe.model.set_value(
-                                child.doctype,
-                                child.name,
-                                't_warehouse',
-                                t_warehouse
-                            );
-                        }
-                    });
-                }
-            });
-        });
-    } else {
-        // Sales doctypes: item_code -> qty -> warehouse
-        selected_items.forEach(item => {
-            chain = chain.then(() => {
-                if (existing_items[item.item_code] && existing_items[item.item_code].length > 0) {
-                    let existing_row = existing_items[item.item_code][0];
-                    updated_count++;
-                    return frappe.model.set_value(
-                        existing_row.doctype,
-                        existing_row.name,
-                        'qty',
-                        item.qty
-                    );
-                } else {
-                    added_count++;
-                    let child = frm.add_child('items');
+        return values;
+    }
 
-                    return frappe.model.set_value(
-                        child.doctype,
-                        child.name,
-                        'item_code',
-                        item.item_code
-                    ).then(() => {
-                        return frappe.model.set_value(
-                            child.doctype,
-                            child.name,
-                            'qty',
-                            item.qty
-                        );
-                    }).then(() => {
-                        if (config.requires_warehouse && warehouse) {
-                            return frappe.model.set_value(
-                                child.doctype,
-                                child.name,
-                                'warehouse',
-                                warehouse
-                            );
-                        }
-                    });
-                }
-            });
+    /**
+     * Add one row through ERPNext's own item_code handler.
+     *
+     * Everything comes from ERPNext: uom, conversion_factor, item_tax_template,
+     * rate. Nothing is copied field by field here.
+     *
+     * Two details matter. First, qty is seeded onto the row before the trigger
+     * runs, because get_item_details reads qty off the row and returns a rate and
+     * conversion factor that match it. Second, ERPNext's item_code handler
+     * returns no promise -- it starts a server call and returns immediately -- so
+     * we wait on frappe.after_ajax() rather than assume the trigger is finished.
+     *
+     * Setting qty as a separate step afterwards used to land while the row still
+     * had uom = null and conversion_factor = 0 (both blanked at the top of
+     * process_item_selection), which is what produced the wrong UOM and the
+     * "UOM conversion factor is required in every row" error.
+     */
+    function add_row(item) {
+        added_count++;
+        const child = frm.add_child('items', seed_values(item));
+
+        return Promise.resolve(
+            frm.script_manager.trigger('item_code', child.doctype, child.name)
+        ).then(() => frappe.after_ajax()).then(() => {
+            if (!qty_after_trigger) return;
+            return frappe.model.set_value(child.doctype, child.name, 'qty', item.qty);
         });
     }
 
+    // Existing rows already carry a valid uom and conversion factor
+    function update_row(item) {
+        const existing_row = existing_items[item.item_code][0];
+        updated_count++;
+        return frappe.model.set_value(
+            existing_row.doctype,
+            existing_row.name,
+            'qty',
+            item.qty
+        );
+    }
+
+    // Step 3: Process items sequentially. Each row's server round-trip has to
+    // land before the next row is added, or the responses overwrite each other.
+    let chain = Promise.resolve();
+
+    selected_items.forEach(item => {
+        chain = chain.then(() => {
+            const rows = existing_items[item.item_code];
+            return (rows && rows.length) ? update_row(item) : add_row(item);
+        });
+    });
+
+
     // Step 4: After all items are processed, refresh and show message
     chain.then(() => {
+        remove_empty_rows();
+
         // Refresh the items grid to update UI
         frm.refresh_field('items');
 
