@@ -195,3 +195,10 @@ body.compact-theme .grid-body .editable-row .checkbox {
 .msp-tree-row.msp-ancestor .msp-tree-name { font-style: italic; }
 /* Grid indentation icon */
 .msp-grid-icon { color: var(--text-muted); font-size: 10px; margin-right: 5px; flex-shrink: 0; }
+
+/* ── Short link in the PowerPack Short Link form sidebar ── */
+.cecypo-short-url { font-size: var(--text-sm); align-items: center; }
+.cecypo-short-url a { color: var(--text-muted); }
+.cecypo-short-url a:hover { color: var(--text-color); }
+.cecypo-short-url .cecypo-short-url-copy { cursor: copy; flex-shrink: 0; }
+.cecypo-short-url .icon { vertical-align: text-bottom; }

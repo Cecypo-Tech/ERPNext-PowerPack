@@ -252,12 +252,12 @@
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><rect x="6" y="17" width="12" height="5"/><path d="M6 13H4a2 2 0 0 0-2 2v4h4v-3h12v3h4v-4a2 2 0 0 0-2-2h-2"/></svg>
 						Print
 					</button>
-					{% if mpesa_payable %}
-					<button class="pp-btn pp-btn-primary" onclick="pay_with_mpesa(this)">
+					{% if mpesa_payable %}{% for gw in mpesa_gateways %}
+					<button class="pp-btn pp-btn-primary" onclick="pay_with_mpesa(this, '{{ gw.gateway }}')">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
-						Pay {{ mpesa_amount_display }} with M-Pesa
+						Pay {{ mpesa_amount_display }}{% if mpesa_gateways|length > 1 %} to {{ gw.shortcode }}{% else %} with M-Pesa{% endif %}
 					</button>
-					{% endif %}
+					{% endfor %}{% endif %}
 					<a class="pp-btn pp-btn-primary" href="{{ target_url }}" target="_blank" rel="noopener">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
 						Open
@@ -295,7 +295,7 @@
 	});
 </script>
 <script>
-	async function pay_with_mpesa(btn) {
+	async function pay_with_mpesa(btn, gateway) {
 		const original = btn.innerHTML;
 		btn.disabled = true;
 		btn.innerHTML = 'Preparing...';
@@ -303,7 +303,7 @@
 			const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ token: '{{ token }}' })
+				body: JSON.stringify({ token: '{{ token }}', gateway: gateway })
 			});
 			const data = await res.json();
 			if (!res.ok || !data.message || !data.message.redirect_to) {

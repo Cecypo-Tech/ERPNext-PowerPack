@@ -96,11 +96,18 @@ def get_context(context):
 	# PowerPack banner / footer config
 	# Offer M-Pesa only while the document is actually awaiting payment. No
 	# payment request is created here - that happens if the customer presses Pay.
-	from cecypo_powerpack.pay_by_link import get_payable
+	from cecypo_powerpack.pay_by_link import get_payable, payable_gateways
 
 	context.mpesa_payable = get_payable(
 		short_link.reference_doctype, short_link.reference_docname
 	)
+	# Several shortcodes can collect for one company. Offer the choice rather
+	# than picking one, since the wrong pick sends the money to the wrong till.
+	context.mpesa_gateways = (
+		payable_gateways(context.mpesa_payable["company"]) if context.mpesa_payable else []
+	)
+	if not context.mpesa_gateways:
+		context.mpesa_payable = None
 	context.mpesa_amount_display = (
 		frappe.utils.fmt_money(
 			context.mpesa_payable["amount"], currency=context.mpesa_payable["currency"]
