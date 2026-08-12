@@ -169,67 +169,104 @@
 
 		/* ── Iframe ──────────────────────────────────────────────────── */
 
-		/* Payment lightbox */
+		/* Payment lightbox — mirrors the M-Pesa Express checkout so the
+		   customer meets one design from reading to paying. */
 		.pay-scrim {
 			position: fixed; inset: 0; z-index: 1000;
-			background: rgba(15, 23, 42, .55);
+			background: rgba(15, 23, 42, .62);
 			display: none; align-items: center; justify-content: center;
 			padding: 16px;
-			-webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+			-webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
 		}
 		.pay-scrim[data-open] { display: flex; }
 		.pay-sheet {
-			background: #fff; border-radius: 14px; width: 100%; max-width: 420px;
+			background: #fff; border-radius: 14px; width: 100%; max-width: 440px;
 			max-height: calc(100dvh - 32px); overflow-y: auto;
-			box-shadow: 0 20px 50px rgba(15, 23, 42, .28);
-			padding: 22px 20px 20px;
+			box-shadow: 0 24px 60px rgba(15, 23, 42, .34);
 		}
-		.pay-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+		.pay-top {
+			text-align: center; padding: 22px 20px 18px;
+			background: #f9fafb; border-bottom: 1px solid #eef1f5;
+			border-radius: 14px 14px 0 0; position: relative;
+		}
+		.pay-badge {
+			width: 44px; height: 44px; margin: 0 auto 10px;
+			display: flex; align-items: center; justify-content: center;
+			background: #c2f0e1; color: #00846b; border-radius: 11px;
+		}
 		.pay-title { font-size: 17px; font-weight: 700; color: #0f172a; margin: 0; }
-		.pay-sub { font-size: 13px; color: #64748b; margin: 2px 0 0; }
 		.pay-close {
-			background: none; border: none; cursor: pointer; color: #64748b;
-			font-size: 26px; line-height: 1; padding: 0 4px; min-width: 44px; min-height: 44px;
+			position: absolute; top: 10px; right: 10px;
+			background: none; border: none; cursor: pointer; color: #94a3b8;
+			font-size: 24px; line-height: 1; min-width: 44px; min-height: 44px;
 		}
-		.pay-amount {
-			margin: 16px 0; padding: 14px 16px; border-radius: 10px;
-			background: #f8fafc; border: 1px solid #e2e8f0;
-			display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+		.pay-body { padding: 18px 20px 20px; }
+		.pay-status {
+			display: none; border-left: 3px solid #94a3b8;
+			background: #f9fafb; border-radius: 0 8px 8px 0;
+			padding: 11px 14px; margin-bottom: 16px;
 		}
-		.pay-amount span:first-child { font-size: 13px; color: #64748b; }
-		.pay-amount strong { font-size: 20px; color: #0f172a; }
-		.pay-label { display: block; font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 6px; }
+		.pay-status[data-on] { display: block; }
+		.pay-status.is-wait { border-left-color: #0984e3; }
+		.pay-status.is-ok   { border-left-color: #00b894; }
+		.pay-status.is-bad  { border-left-color: #ff7675; }
+		.pay-status-row { display: flex; align-items: center; gap: 8px; }
+		.pay-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; flex: none; }
+		.is-wait .pay-dot { background: #0984e3; }
+		.is-ok   .pay-dot { background: #00b894; }
+		.is-bad  .pay-dot { background: #ff7675; }
+		.pay-status-label {
+			font-size: 11px; font-weight: 700; letter-spacing: .07em;
+			text-transform: uppercase; color: #64748b;
+		}
+		.pay-status-value { font-size: 12px; font-weight: 700; color: #0f172a; }
+		.pay-status-msg { font-size: 13px; color: #475569; margin: 7px 0 0; }
+		.is-ok  .pay-status-msg { color: #00846b; }
+		.is-bad .pay-status-msg { color: #d63031; }
+		.pay-label {
+			display: block; font-size: 11px; font-weight: 700; letter-spacing: .07em;
+			text-transform: uppercase; color: #64748b; margin: 0 0 6px;
+		}
+		.pay-field { position: relative; margin-bottom: 16px; }
+		.pay-field svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
 		.pay-input {
-			width: 100%; box-sizing: border-box; padding: 13px 14px;
-			border: 1px solid #cbd5e1; border-radius: 10px;
-			font-size: 16px; /* 16px stops iOS zooming the page on focus */
-			font-family: inherit; color: #0f172a;
+			width: 100%; box-sizing: border-box; padding: 12px 14px 12px 36px;
+			border: 1px solid #e2e8f0; border-radius: 9px; background: #fff;
+			font-size: 16px; /* 16px keeps iOS from zooming the page on focus */
+			font-family: inherit; font-weight: 600; color: #0f172a;
 		}
-		.pay-input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
-		.pay-hint { font-size: 12px; color: #64748b; margin: 6px 0 0; }
+		.pay-input:focus { outline: none; border-color: #00b894; box-shadow: 0 0 0 3px rgba(0, 184, 148, .14); }
+		.pay-input:disabled { background: #f9fafb; color: #64748b; }
+		.pay-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+		.pay-meta .pay-input { padding-left: 14px; font-size: 13px; font-weight: 500; }
+		.pay-total {
+			border: 1px solid #eef1f5; border-radius: 10px; background: #f9fafb;
+			padding: 14px 16px; margin-bottom: 16px;
+		}
+		.pay-total-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+		.pay-total-row + .pay-total-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eef1f5; }
+		.pay-total-row span { font-size: 13px; color: #64748b; }
+		.pay-total-row strong { font-size: 14px; color: #0f172a; }
+		.pay-total-row.is-grand strong { font-size: 17px; color: #00b894; }
 		.pay-go {
-			width: 100%; margin-top: 16px; padding: 14px 16px; min-height: 48px;
-			border: none; border-radius: 10px; cursor: pointer;
-			background: #16a34a; color: #fff; font-size: 15px; font-weight: 600; font-family: inherit;
+			width: 100%; padding: 13px 16px; min-height: 48px;
+			border: none; border-radius: 9px; cursor: pointer;
+			background: #00b894; color: #fff; font-size: 15px; font-weight: 700; font-family: inherit;
+			display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 		}
-		.pay-go:disabled { opacity: .6; cursor: default; }
-		.pay-state { margin-top: 16px; text-align: center; display: none; }
-		.pay-state[data-on] { display: block; }
-		.pay-spin {
-			width: 30px; height: 30px; margin: 0 auto 10px; display: block;
-			border: 3px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%;
-			animation: pay-rotate .9s linear infinite;
-		}
-		@keyframes pay-rotate { to { transform: rotate(360deg); } }
-		.pay-msg { font-size: 14px; color: #475569; }
-		.pay-msg.ok { color: #15803d; font-weight: 600; }
-		.pay-msg.bad { color: #b91c1c; font-weight: 600; }
+		.pay-go:hover { background: #00a082; }
+		.pay-go:disabled { opacity: .55; cursor: default; }
+		.pay-go.is-retry { background: #ff7675; }
+		.pay-go.is-retry:hover { background: #d63031; }
+		.pay-hint { font-size: 12px; color: #94a3b8; margin: 10px 0 0; text-align: center; }
 		@media (max-width: 520px) {
 			.pay-scrim { padding: 0; align-items: flex-end; }
 			.pay-sheet {
-				max-width: none; border-radius: 16px 16px 0 0;
-				max-height: 92dvh; padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+				max-width: none; border-radius: 16px 16px 0 0; max-height: 94dvh;
 			}
+			.pay-top { border-radius: 16px 16px 0 0; }
+			.pay-body { padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); }
+			.pay-meta { grid-template-columns: 1fr; }
 		}
 		@media print { .pay-scrim { display: none !important; } }
 
@@ -367,25 +404,31 @@
 <script>
 	// The whole payment happens in the sheet: no hand-off to another page, so
 	// the customer never loses sight of the document they are paying for.
-	let PAY = { token: '{{ token }}', request_id: null, poll: null, deadline: 0 };
+	let PAY = { token: '{{ token }}', request_id: null, poll: null, deadline: 0, done: false };
 
 	function pay_el(id) { return document.getElementById(id); }
 
-	function pay_show_state(message, kind) {
-		pay_el('pay-form').style.display = 'none';
-		pay_el('pay-state').setAttribute('data-on', '1');
-		pay_el('pay-spin').style.display = kind ? 'none' : 'block';
-		const msg = pay_el('pay-msg');
-		msg.textContent = message;
-		msg.className = 'pay-msg' + (kind ? ' ' + kind : '');
+	// status: 'wait' | 'ok' | 'bad' | null to hide
+	function pay_status(kind, value, message) {
+		const box = pay_el('pay-status');
+		if (!kind) { box.removeAttribute('data-on'); return; }
+		box.className = 'pay-status is-' + kind;
+		box.setAttribute('data-on', '1');
+		pay_el('pay-status-value').textContent = value;
+		pay_el('pay-status-msg').textContent = message || '';
+	}
+
+	function pay_busy(on, label) {
+		pay_el('pay-go').disabled = on;
+		pay_el('pay-phone').disabled = on;
+		if (label) { pay_el('pay-go-text').textContent = label; }
 	}
 
 	function pay_close() {
 		if (PAY.poll) { clearInterval(PAY.poll); PAY.poll = null; }
 		pay_el('pay-scrim').removeAttribute('data-open');
 		document.body.style.overflow = '';
-		// A completed payment changes what the page should show.
-		if (pay_el('pay-msg').classList.contains('ok')) { window.location.reload(); }
+		if (PAY.done) { window.location.reload(); }
 	}
 
 	async function pay_with_mpesa(btn, gateway, shortcode) {
@@ -402,9 +445,13 @@
 			if (!res.ok || !data.message || !data.message.request_id) { throw new Error('start failed'); }
 
 			PAY.request_id = data.message.request_id;
-			pay_el('pay-sub').textContent = shortcode ? 'Paybill ' + shortcode : '';
-			pay_el('pay-form').style.display = '';
-			pay_el('pay-state').removeAttribute('data-on');
+			PAY.done = false;
+			pay_el('pay-shortcode').value = shortcode || '';
+			pay_el('pay-go-text').textContent = 'Pay with M-Pesa';
+			pay_el('pay-go').classList.remove('is-retry');
+			pay_el('pay-hint').style.display = '';
+			pay_busy(false);
+			pay_status(null);
 			pay_el('pay-scrim').setAttribute('data-open', '1');
 			document.body.style.overflow = 'hidden';
 			pay_el('pay-phone').focus();
@@ -420,11 +467,11 @@
 		const phone = (pay_el('pay-phone').value || '').replace(/\D/g, '');
 		if (phone.length < 9) {
 			pay_el('pay-phone').focus();
-			alert('Please enter your M-Pesa phone number.');
+			pay_status('bad', 'CHECK NUMBER', 'Enter the M-Pesa number to send the prompt to.');
 			return;
 		}
-		pay_el('pay-go').disabled = true;
-		pay_show_state('Sending a prompt to your phone...');
+		pay_busy(true, 'Sending...');
+		pay_status('wait', 'SENDING', 'Sending a payment prompt to your phone...');
 
 		try {
 			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.initiate_stk_push', {
@@ -434,19 +481,26 @@
 			});
 			if (!res.ok) { throw new Error('push failed'); }
 		} catch (e) {
-			pay_show_state('We could not reach M-Pesa. Please try again.', 'bad');
+			pay_busy(false, 'Try again');
+			pay_status('bad', 'NOT SENT', 'We could not reach M-Pesa. Please try again.');
 			return;
 		}
 
-		pay_show_state('Check your phone and enter your M-Pesa PIN.');
+		pay_el('pay-hint').style.display = 'none';
+		pay_status('wait', 'PENDING', 'Check your phone and enter your M-Pesa PIN.');
 		PAY.deadline = Date.now() + 120000;
 		PAY.poll = setInterval(pay_check, 3000);
 	}
 
+	function pay_stop_polling() { clearInterval(PAY.poll); PAY.poll = null; }
+
 	async function pay_check() {
 		if (Date.now() > PAY.deadline) {
-			clearInterval(PAY.poll); PAY.poll = null;
-			pay_show_state('We did not get a confirmation. If you paid, it will still be recorded.', 'bad');
+			pay_stop_polling();
+			pay_busy(false, 'Try again');
+			pay_el('pay-go').classList.add('is-retry');
+			pay_status('bad', 'NO ANSWER',
+				'We did not get a confirmation. If you completed the payment it will still be recorded.');
 			return;
 		}
 		try {
@@ -456,15 +510,19 @@
 				body: JSON.stringify({ request_id: PAY.request_id })
 			});
 			const data = await res.json();
-			const status = data && data.message && data.message.status;
-			if (status === 'Completed') {
-				clearInterval(PAY.poll); PAY.poll = null;
-				pay_show_state('Payment received. Thank you!', 'ok');
-			} else if (status === 'Failed') {
-				clearInterval(PAY.poll); PAY.poll = null;
-				pay_show_state(
-					(data.message.response_description || 'The payment did not go through.') +
-					' You can close this and try again.', 'bad');
+			const m = (data && data.message) || {};
+			if (m.status === 'Completed') {
+				pay_stop_polling();
+				PAY.done = true;
+				pay_busy(true, 'Paid');
+				pay_status('ok', 'PAID', 'Payment received. Thank you!');
+			} else if (m.status === 'Failed') {
+				pay_stop_polling();
+				pay_busy(false, 'Try again');
+				pay_el('pay-go').classList.add('is-retry');
+				// result_desc is the outcome from Safaricom; response_description
+				// only says the push was accepted, so it reads "Success" even here.
+				pay_status('bad', 'FAILED', m.result_desc || 'The payment did not go through.');
 			}
 		} catch (e) { /* transient - the next tick retries */ }
 	}
@@ -478,30 +536,58 @@
 </script>
 	<div class="pay-scrim" id="pay-scrim" role="dialog" aria-modal="true" aria-labelledby="pay-title">
 		<div class="pay-sheet" role="document">
-			<div class="pay-head">
-				<div>
-					<p class="pay-title" id="pay-title">Pay with M-Pesa</p>
-					<p class="pay-sub" id="pay-sub"></p>
-				</div>
+			<div class="pay-top">
 				<button class="pay-close" onclick="pay_close()" aria-label="Close">&times;</button>
+				<div class="pay-badge">
+					<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
+				</div>
+				<p class="pay-title" id="pay-title">{{ reference_doctype }} {{ reference_docname }}</p>
 			</div>
 
-			<div class="pay-amount">
-				<span>Amount</span>
-				<strong>{{ mpesa_amount_display }}</strong>
-			</div>
+			<div class="pay-body">
+				<div class="pay-status" id="pay-status">
+					<div class="pay-status-row">
+						<span class="pay-dot"></span>
+						<span class="pay-status-label">Status</span>
+						<span class="pay-status-value" id="pay-status-value"></span>
+					</div>
+					<p class="pay-status-msg" id="pay-status-msg"></p>
+				</div>
 
-			<div id="pay-form">
-				<label class="pay-label" for="pay-phone">M-Pesa phone number</label>
-				<input class="pay-input" id="pay-phone" type="tel" inputmode="numeric"
-					autocomplete="tel" placeholder="07XX XXX XXX" />
-				<p class="pay-hint">You will get a prompt on this phone. Enter your PIN to pay.</p>
-				<button class="pay-go" id="pay-go" onclick="pay_send()">Send payment request</button>
-			</div>
+				<label class="pay-label" for="pay-phone">Phone Number</label>
+				<div class="pay-field">
+					<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+					<input class="pay-input" id="pay-phone" type="tel" inputmode="numeric"
+						autocomplete="tel" placeholder="07XX XXX XXX" />
+				</div>
 
-			<div class="pay-state" id="pay-state">
-				<span class="pay-spin" id="pay-spin"></span>
-				<p class="pay-msg" id="pay-msg"></p>
+				<div class="pay-meta">
+					<div>
+						<label class="pay-label">Paybill</label>
+						<input class="pay-input" id="pay-shortcode" value="" disabled />
+					</div>
+					<div>
+						<label class="pay-label">Reference</label>
+						<input class="pay-input" value="{{ reference_docname }}" disabled />
+					</div>
+				</div>
+
+				<div class="pay-total">
+					<div class="pay-total-row">
+						<span>Amount</span>
+						<strong>{{ mpesa_amount_display }}</strong>
+					</div>
+					<div class="pay-total-row is-grand">
+						<span>Total to Pay</span>
+						<strong>{{ mpesa_amount_display }}</strong>
+					</div>
+				</div>
+
+				<button class="pay-go" id="pay-go" onclick="pay_send()">
+					<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
+					<span id="pay-go-text">Pay with M-Pesa</span>
+				</button>
+				<p class="pay-hint" id="pay-hint">A prompt will be sent to this phone. Enter your M-Pesa PIN to pay.</p>
 			</div>
 		</div>
 	</div>
