@@ -61,6 +61,26 @@
 		}
 		/* The button is a flex container with no gap allowance, which collapsed
 		   the icon to zero width - the control rendered as an empty square. */
+		.pp-due {
+			display: inline-block; margin-left: 10px; padding: 3px 9px; border-radius: 999px;
+			background: rgba(0, 184, 148, .12); color: #00846b;
+			font-size: 12px; font-weight: 700; white-space: nowrap;
+		}
+		:root[data-theme="dark"] .pp-due { background: rgba(0, 184, 148, .16); color: #34d399; }
+		.pp-btn-pay { background: #00b894; color: #fff; border: 1px solid #00b894; }
+		.pp-btn-pay:hover { background: #00a082; border-color: #00a082; }
+
+		.pay-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 16px; }
+		.pay-choice {
+			display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+			padding: 9px 11px; cursor: pointer; font-family: inherit; text-align: left;
+			background: var(--pp-surface); border: 1px solid var(--pp-border); border-radius: 9px;
+		}
+		.pay-choice:hover { border-color: #00b894; }
+		.pay-choice[data-on] { border-color: #00b894; background: rgba(0, 184, 148, .07); box-shadow: 0 0 0 2px rgba(0, 184, 148, .15); }
+		.pay-choice-code { font-size: 14px; font-weight: 700; color: var(--pp-text); }
+		.pay-choice-type { font-size: 11px; color: var(--pp-muted); }
+
 		.pp-theme svg { width: 15px; height: 15px; flex: none; }
 		.pp-theme .moon { display: none; }
 		:root[data-theme="dark"] .pp-theme .moon { display: block; }
@@ -416,6 +436,9 @@
 				<div class="pp-doc-meta">
 					<span class="pp-doc-type">{{ reference_doctype }}</span>
 					<span class="pp-doc-name">{{ reference_docname }}</span>
+					{% if mpesa_payable %}
+					<span class="pp-due">{{ mpesa_amount_display }} due</span>
+					{% endif %}
 				</div>
 				<div class="pp-actions">
 					<button class="pp-btn pp-btn-outline pp-theme" onclick="pp_toggle_theme()" aria-label="Toggle dark mode" title="Toggle dark mode">
@@ -426,12 +449,12 @@
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><rect x="6" y="17" width="12" height="5"/><path d="M6 13H4a2 2 0 0 0-2 2v4h4v-3h12v3h4v-4a2 2 0 0 0-2-2h-2"/></svg>
 						Print
 					</button>
-					{% if mpesa_payable %}{% for gw in mpesa_gateways %}
-					<button class="pp-btn pp-btn-primary" onclick="pay_with_mpesa(this, '{{ gw.gateway }}', '{{ gw.shortcode }}')">
+					{% if mpesa_payable %}
+					<button class="pp-btn pp-btn-pay" onclick="pay_open()">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
-						Pay {{ mpesa_amount_display }}{% if mpesa_gateways|length > 1 %} to {{ gw.shortcode }}{% else %} with M-Pesa{% endif %}
+						Pay with M-Pesa
 					</button>
-					{% endfor %}{% endif %}
+					{% endif %}
 					<a class="pp-btn pp-btn-primary" href="{{ target_url }}" target="_blank" rel="noopener">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
 						Open
@@ -499,7 +522,7 @@
 <script>
 	// The whole payment happens in the sheet: no hand-off to another page, so
 	// the customer never loses sight of the document they are paying for.
-	let PAY = { token: '{{ token }}', request_id: null, poll: null, deadline: 0, done: false };
+	let PAY = { token: '{{ token }}', gateway: null, request_id: null, poll: null, deadline: 0, done: false };
 
 	function pay_el(id) { return document.getElementById(id); }
 
@@ -526,39 +549,42 @@
 		if (PAY.done) { window.location.reload(); }
 	}
 
-	async function pay_with_mpesa(btn, gateway, shortcode) {
-		const original = btn.innerHTML;
-		btn.disabled = true;
-		btn.innerHTML = 'Preparing...';
-		try {
-			const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ token: PAY.token, gateway: gateway })
-			});
-			const data = await res.json();
-			if (!res.ok || !data.message || !data.message.request_id) { throw new Error('start failed'); }
+	function pay_choose(btn) {
+		document.querySelectorAll('.pay-choice').forEach(function (el) { el.removeAttribute('data-on'); });
+		btn.setAttribute('data-on', '1');
+		PAY.gateway = btn.getAttribute('data-gateway');
+		pay_el('pay-shortcode').value = btn.getAttribute('data-shortcode') || '';
+		pay_status(null);
+	}
 
-			PAY.request_id = data.message.request_id;
-			PAY.done = false;
-			pay_el('pay-shortcode').value = shortcode || '';
-			pay_el('pay-go-text').textContent = 'Pay with M-Pesa';
-			pay_el('pay-go').classList.remove('is-retry');
-			pay_el('pay-hint').style.display = '';
-			pay_busy(false);
-			pay_status(null);
-			pay_el('pay-scrim').setAttribute('data-open', '1');
-			document.body.style.overflow = 'hidden';
-			pay_el('pay-phone').focus();
-		} catch (e) {
-			alert('Sorry, M-Pesa payment is not available for this document right now.');
-		} finally {
-			btn.disabled = false;
-			btn.innerHTML = original;
+	// Opening the sheet creates nothing. The request is raised on Pay, so a
+	// customer who opens it and changes their mind leaves no row behind.
+	function pay_open() {
+		PAY.request_id = null;
+		PAY.done = false;
+		const choices = document.querySelectorAll('.pay-choice');
+		if (choices.length) {
+			// More than one paybill: make them pick, rather than guessing.
+			choices.forEach(function (el) { el.removeAttribute('data-on'); });
+			PAY.gateway = null;
+		} else {
+			PAY.gateway = {{ mpesa_gateways[0].gateway | tojson if mpesa_gateways else 'null' }};
 		}
+		pay_el('pay-go-text').textContent = 'Pay with M-Pesa';
+		pay_el('pay-go').classList.remove('is-retry');
+		pay_el('pay-hint').style.display = '';
+		pay_busy(false);
+		pay_status(null);
+		pay_el('pay-scrim').setAttribute('data-open', '1');
+		document.body.style.overflow = 'hidden';
+		if (!choices.length) { pay_el('pay-phone').focus(); }
 	}
 
 	async function pay_send() {
+		if (!PAY.gateway) {
+			pay_status('bad', 'CHOOSE ONE', 'Pick which M-Pesa number to pay.');
+			return;
+		}
 		const phone = (pay_el('pay-phone').value || '').replace(/\D/g, '');
 		if (phone.length < 9) {
 			pay_el('pay-phone').focus();
@@ -567,6 +593,24 @@
 		}
 		pay_busy(true, 'Sending...');
 		pay_status('wait', 'SENDING', 'Sending a payment prompt to your phone...');
+
+		// Raise (or reuse) the request now that they have committed to paying.
+		if (!PAY.request_id) {
+			try {
+				const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ token: PAY.token, gateway: PAY.gateway })
+				});
+				const data = await res.json();
+				if (!res.ok || !data.message || !data.message.request_id) { throw new Error('start failed'); }
+				PAY.request_id = data.message.request_id;
+			} catch (e) {
+				pay_busy(false, 'Try again');
+				pay_status('bad', 'NOT SENT', 'We could not start the payment. Please try again.');
+				return;
+			}
+		}
 
 		try {
 			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.initiate_stk_push', {
@@ -649,6 +693,19 @@
 					<p class="pay-status-msg" id="pay-status-msg"></p>
 				</div>
 
+				{% if mpesa_gateways|length > 1 %}
+				<label class="pay-label">Pay To</label>
+				<div class="pay-choices" id="pay-choices">
+					{% for gw in mpesa_gateways %}
+					<button type="button" class="pay-choice" data-gateway="{{ gw.gateway }}"
+						data-shortcode="{{ gw.shortcode }}" onclick="pay_choose(this)">
+						<span class="pay-choice-code">{{ gw.shortcode }}</span>
+						<span class="pay-choice-type">{{ gw.paybill_type }}</span>
+					</button>
+					{% endfor %}
+				</div>
+				{% endif %}
+
 				<label class="pay-label" for="pay-phone">Phone Number</label>
 				<div class="pay-field">
 					<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -657,9 +714,10 @@
 				</div>
 
 				<div class="pay-meta">
-					<div>
+					<div{% if mpesa_gateways|length > 1 %} style="display:none"{% endif %}>
 						<label class="pay-label">Paybill</label>
-						<input class="pay-input" id="pay-shortcode" value="" disabled />
+						<input class="pay-input" id="pay-shortcode"
+							value="{% if mpesa_gateways %}{{ mpesa_gateways[0].shortcode }}{% endif %}" disabled />
 					</div>
 					<div>
 						<label class="pay-label">Reference</label>
