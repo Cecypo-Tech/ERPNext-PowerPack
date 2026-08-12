@@ -134,6 +134,7 @@
 
 		.pp-actions {
 			display: flex;
+			flex-wrap: wrap;
 			gap: 8px;
 			flex-shrink: 0;
 		}
@@ -167,6 +168,71 @@
 		.pp-btn-primary:hover { background: var(--pp-accent-h); }
 
 		/* ── Iframe ──────────────────────────────────────────────────── */
+
+		/* Payment lightbox */
+		.pay-scrim {
+			position: fixed; inset: 0; z-index: 1000;
+			background: rgba(15, 23, 42, .55);
+			display: none; align-items: center; justify-content: center;
+			padding: 16px;
+			-webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+		}
+		.pay-scrim[data-open] { display: flex; }
+		.pay-sheet {
+			background: #fff; border-radius: 14px; width: 100%; max-width: 420px;
+			max-height: calc(100dvh - 32px); overflow-y: auto;
+			box-shadow: 0 20px 50px rgba(15, 23, 42, .28);
+			padding: 22px 20px 20px;
+		}
+		.pay-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+		.pay-title { font-size: 17px; font-weight: 700; color: #0f172a; margin: 0; }
+		.pay-sub { font-size: 13px; color: #64748b; margin: 2px 0 0; }
+		.pay-close {
+			background: none; border: none; cursor: pointer; color: #64748b;
+			font-size: 26px; line-height: 1; padding: 0 4px; min-width: 44px; min-height: 44px;
+		}
+		.pay-amount {
+			margin: 16px 0; padding: 14px 16px; border-radius: 10px;
+			background: #f8fafc; border: 1px solid #e2e8f0;
+			display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+		}
+		.pay-amount span:first-child { font-size: 13px; color: #64748b; }
+		.pay-amount strong { font-size: 20px; color: #0f172a; }
+		.pay-label { display: block; font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 6px; }
+		.pay-input {
+			width: 100%; box-sizing: border-box; padding: 13px 14px;
+			border: 1px solid #cbd5e1; border-radius: 10px;
+			font-size: 16px; /* 16px stops iOS zooming the page on focus */
+			font-family: inherit; color: #0f172a;
+		}
+		.pay-input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+		.pay-hint { font-size: 12px; color: #64748b; margin: 6px 0 0; }
+		.pay-go {
+			width: 100%; margin-top: 16px; padding: 14px 16px; min-height: 48px;
+			border: none; border-radius: 10px; cursor: pointer;
+			background: #16a34a; color: #fff; font-size: 15px; font-weight: 600; font-family: inherit;
+		}
+		.pay-go:disabled { opacity: .6; cursor: default; }
+		.pay-state { margin-top: 16px; text-align: center; display: none; }
+		.pay-state[data-on] { display: block; }
+		.pay-spin {
+			width: 30px; height: 30px; margin: 0 auto 10px; display: block;
+			border: 3px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%;
+			animation: pay-rotate .9s linear infinite;
+		}
+		@keyframes pay-rotate { to { transform: rotate(360deg); } }
+		.pay-msg { font-size: 14px; color: #475569; }
+		.pay-msg.ok { color: #15803d; font-weight: 600; }
+		.pay-msg.bad { color: #b91c1c; font-weight: 600; }
+		@media (max-width: 520px) {
+			.pay-scrim { padding: 0; align-items: flex-end; }
+			.pay-sheet {
+				max-width: none; border-radius: 16px 16px 0 0;
+				max-height: 92dvh; padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+			}
+		}
+		@media print { .pay-scrim { display: none !important; } }
+
 		.pp-iframe {
 			width: 100%;
 			height: 78vh;
@@ -205,6 +271,10 @@
 			.pp-doc-name { font-size: 15px; }
 			.pp-btn { padding: 7px 12px; font-size: 12px; }
 			.pp-iframe { height: 70vh; }
+			/* Stack on a phone: several paybills will not sit on one row. */
+			.pp-card-toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+			.pp-actions { width: 100%; }
+			.pp-actions .pp-btn { flex: 1 1 auto; justify-content: center; min-height: 40px; }
 		}
 	</style>
 </head>
@@ -234,7 +304,7 @@
 			</div>
 		{% endif %}
 	{% elif header_content %}
-		<div class="pp-header-content">{{ header_content }}</div>
+		<div class="pp-header-content">{{ header_content | safe }}</div>
 	{% endif %}
 
 	<!-- Main content -->
@@ -253,7 +323,7 @@
 						Print
 					</button>
 					{% if mpesa_payable %}{% for gw in mpesa_gateways %}
-					<button class="pp-btn pp-btn-primary" onclick="pay_with_mpesa(this, '{{ gw.gateway }}')">
+					<button class="pp-btn pp-btn-primary" onclick="pay_with_mpesa(this, '{{ gw.gateway }}', '{{ gw.shortcode }}')">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
 						Pay {{ mpesa_amount_display }}{% if mpesa_gateways|length > 1 %} to {{ gw.shortcode }}{% else %} with M-Pesa{% endif %}
 					</button>
@@ -279,7 +349,7 @@
 	<!-- Footer -->
 	<footer class="pp-footer">
 		{% if footer_content %}
-			<div class="pp-footer-content">{{ footer_content }}</div>
+			<div class="pp-footer-content">{{ footer_content | safe }}</div>
 		{% endif %}
 		<div>Powered by <a href="https://cecypo.tech" target="_blank" rel="noopener">Cecypo PowerPack</a></div>
 	</footer>
@@ -295,7 +365,30 @@
 	});
 </script>
 <script>
-	async function pay_with_mpesa(btn, gateway) {
+	// The whole payment happens in the sheet: no hand-off to another page, so
+	// the customer never loses sight of the document they are paying for.
+	let PAY = { token: '{{ token }}', request_id: null, poll: null, deadline: 0 };
+
+	function pay_el(id) { return document.getElementById(id); }
+
+	function pay_show_state(message, kind) {
+		pay_el('pay-form').style.display = 'none';
+		pay_el('pay-state').setAttribute('data-on', '1');
+		pay_el('pay-spin').style.display = kind ? 'none' : 'block';
+		const msg = pay_el('pay-msg');
+		msg.textContent = message;
+		msg.className = 'pay-msg' + (kind ? ' ' + kind : '');
+	}
+
+	function pay_close() {
+		if (PAY.poll) { clearInterval(PAY.poll); PAY.poll = null; }
+		pay_el('pay-scrim').removeAttribute('data-open');
+		document.body.style.overflow = '';
+		// A completed payment changes what the page should show.
+		if (pay_el('pay-msg').classList.contains('ok')) { window.location.reload(); }
+	}
+
+	async function pay_with_mpesa(btn, gateway, shortcode) {
 		const original = btn.innerHTML;
 		btn.disabled = true;
 		btn.innerHTML = 'Preparing...';
@@ -303,19 +396,114 @@
 			const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ token: '{{ token }}', gateway: gateway })
+				body: JSON.stringify({ token: PAY.token, gateway: gateway })
 			});
 			const data = await res.json();
-			if (!res.ok || !data.message || !data.message.redirect_to) {
-				throw new Error('no redirect');
-			}
-			window.location.href = data.message.redirect_to;
+			if (!res.ok || !data.message || !data.message.request_id) { throw new Error('start failed'); }
+
+			PAY.request_id = data.message.request_id;
+			pay_el('pay-sub').textContent = shortcode ? 'Paybill ' + shortcode : '';
+			pay_el('pay-form').style.display = '';
+			pay_el('pay-state').removeAttribute('data-on');
+			pay_el('pay-scrim').setAttribute('data-open', '1');
+			document.body.style.overflow = 'hidden';
+			pay_el('pay-phone').focus();
 		} catch (e) {
+			alert('Sorry, M-Pesa payment is not available for this document right now.');
+		} finally {
 			btn.disabled = false;
 			btn.innerHTML = original;
-			alert('Sorry, M-Pesa payment is not available for this document right now.');
 		}
 	}
+
+	async function pay_send() {
+		const phone = (pay_el('pay-phone').value || '').replace(/\D/g, '');
+		if (phone.length < 9) {
+			pay_el('pay-phone').focus();
+			alert('Please enter your M-Pesa phone number.');
+			return;
+		}
+		pay_el('pay-go').disabled = true;
+		pay_show_state('Sending a prompt to your phone...');
+
+		try {
+			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.initiate_stk_push', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ request_id: PAY.request_id, phone_number: phone })
+			});
+			if (!res.ok) { throw new Error('push failed'); }
+		} catch (e) {
+			pay_show_state('We could not reach M-Pesa. Please try again.', 'bad');
+			return;
+		}
+
+		pay_show_state('Check your phone and enter your M-Pesa PIN.');
+		PAY.deadline = Date.now() + 120000;
+		PAY.poll = setInterval(pay_check, 3000);
+	}
+
+	async function pay_check() {
+		if (Date.now() > PAY.deadline) {
+			clearInterval(PAY.poll); PAY.poll = null;
+			pay_show_state('We did not get a confirmation. If you paid, it will still be recorded.', 'bad');
+			return;
+		}
+		try {
+			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.check_payment_status', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ request_id: PAY.request_id })
+			});
+			const data = await res.json();
+			const status = data && data.message && data.message.status;
+			if (status === 'Completed') {
+				clearInterval(PAY.poll); PAY.poll = null;
+				pay_show_state('Payment received. Thank you!', 'ok');
+			} else if (status === 'Failed') {
+				clearInterval(PAY.poll); PAY.poll = null;
+				pay_show_state(
+					(data.message.response_description || 'The payment did not go through.') +
+					' You can close this and try again.', 'bad');
+			}
+		} catch (e) { /* transient - the next tick retries */ }
+	}
+
+	document.addEventListener('keydown', function (e) {
+		if (e.key === 'Escape') { pay_close(); }
+	});
+	document.getElementById('pay-scrim').addEventListener('click', function (e) {
+		if (e.target === this) { pay_close(); }
+	});
 </script>
+	<div class="pay-scrim" id="pay-scrim" role="dialog" aria-modal="true" aria-labelledby="pay-title">
+		<div class="pay-sheet" role="document">
+			<div class="pay-head">
+				<div>
+					<p class="pay-title" id="pay-title">Pay with M-Pesa</p>
+					<p class="pay-sub" id="pay-sub"></p>
+				</div>
+				<button class="pay-close" onclick="pay_close()" aria-label="Close">&times;</button>
+			</div>
+
+			<div class="pay-amount">
+				<span>Amount</span>
+				<strong>{{ mpesa_amount_display }}</strong>
+			</div>
+
+			<div id="pay-form">
+				<label class="pay-label" for="pay-phone">M-Pesa phone number</label>
+				<input class="pay-input" id="pay-phone" type="tel" inputmode="numeric"
+					autocomplete="tel" placeholder="07XX XXX XXX" />
+				<p class="pay-hint">You will get a prompt on this phone. Enter your PIN to pay.</p>
+				<button class="pay-go" id="pay-go" onclick="pay_send()">Send payment request</button>
+			</div>
+
+			<div class="pay-state" id="pay-state">
+				<span class="pay-spin" id="pay-spin"></span>
+				<p class="pay-msg" id="pay-msg"></p>
+			</div>
+		</div>
+	</div>
 </body>
 </html>

@@ -216,7 +216,12 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
             if changes:
                 frappe.db.set_value(EXPRESS_REQUEST, existing.name, changes)
                 frappe.db.commit()
-        return {"redirect_to": f"/mpesa/stkpush?id={existing.request_id}"}
+        return {
+            "request_id": existing.request_id,
+            "amount": payable["amount"],
+            "currency": payable["currency"],
+            "redirect_to": f"/mpesa/stkpush?id={existing.request_id}",
+        }
 
     request = frappe.get_doc(
         {
@@ -237,4 +242,10 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
     request.insert(ignore_permissions=True)
     frappe.db.commit()
 
-    return {"redirect_to": f"/mpesa/stkpush?id={request.request_id}"}
+    return {
+        "request_id": request.request_id,
+        "amount": payable["amount"],
+        "currency": payable["currency"],
+        # Kept so the page still works if scripting is unavailable.
+        "redirect_to": f"/mpesa/stkpush?id={request.request_id}",
+    }
