@@ -542,7 +542,15 @@
 <script>
 	// The whole payment happens in the sheet: no hand-off to another page, so
 	// the customer never loses sight of the document they are paying for.
+	const PAY_CSRF = '{{ csrf_token }}';
 	let PAY = { token: '{{ token }}', gateway: null, request_id: null, poll: null, deadline: 0, done: false };
+
+	function pay_headers() {
+		const h = { 'Content-Type': 'application/json' };
+		// Empty for guests; Frappe exempts them. Required for anyone signed in.
+		if (PAY_CSRF) { h['X-Frappe-CSRF-Token'] = PAY_CSRF; }
+		return h;
+	}
 
 	function pay_el(id) { return document.getElementById(id); }
 
@@ -633,7 +641,7 @@
 			try {
 				const res = await fetch('/api/method/cecypo_powerpack.pay_by_link.start_mpesa_payment', {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
+					headers: pay_headers(),
 					body: JSON.stringify({ token: PAY.token, gateway: PAY.gateway })
 				});
 				const data = await res.json();
@@ -657,7 +665,7 @@
 		try {
 			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.initiate_stk_push', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: pay_headers(),
 				body: JSON.stringify({ request_id: PAY.request_id, phone_number: phone })
 			});
 			if (!res.ok) {
@@ -696,7 +704,7 @@
 		try {
 			const res = await fetch('/api/method/frappe_mpsa_payments.www.mpesa.stkpush.check_payment_status', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: pay_headers(),
 				body: JSON.stringify({ request_id: PAY.request_id })
 			});
 			const data = await res.json();
