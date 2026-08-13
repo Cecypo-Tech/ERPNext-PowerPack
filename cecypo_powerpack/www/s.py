@@ -116,6 +116,26 @@ def get_context(context):
 		else ""
 	)
 
+	# A staff member previewing the link is a logged-in session, and Frappe
+	# enforces CSRF on POST for anyone who is not Guest - without this the
+	# payment calls come back as "Invalid Request". Guests need no token.
+	# Frappe exempts Guest from CSRF, so a paying customer needs no token. A
+	# signed-in viewer does, or the payment calls come back "Invalid Request".
+	context.csrf_token = ""
+	if frappe.session.user != "Guest":
+		try:
+			# Imported here rather than as frappe.sessions: importing frappe
+			# does not bind its submodules.
+			from frappe.sessions import get_csrf_token
+
+			context.csrf_token = get_csrf_token()
+		except Exception:
+			# Never fatal. Without a token a signed-in previewer's payment is
+			# refused, but the page itself must still render for customers.
+			frappe.log_error(
+				frappe.get_traceback(), "Pay by link: could not issue a CSRF token"
+			)
+
 	ps = frappe.get_single("PowerPack Settings")
 	context.top_banner = ps.get("public_link_top_banner") or ""
 	context.top_banner_link = ps.get("public_link_top_banner_link") or ""
