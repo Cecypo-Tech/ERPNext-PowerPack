@@ -163,20 +163,24 @@ def _resolve_gateway(company: str, chosen: str | None) -> str:
 
 
 def _reusable_request(doctype: str, docname: str):
-    """An earlier request for this document that the payer can still use.
+    """A draft raised earlier for this document that was never sent.
 
-    A draft has not been sent yet; a failed one can be retried from the same
-    page. Either way there is no reason to create a second row.
+    Only drafts. A submitted request has already been to Safaricom and carries
+    that attempt's outcome, so handing one back does two wrong things: the
+    checkout endpoint saves and submits, which a submitted document rejects,
+    and the caller polling for a result immediately reads the *previous*
+    attempt's terminal status - reporting "Request Cancelled by user" for a
+    prompt that was never sent. A new attempt needs a new request.
     """
     rows = frappe.get_all(
         EXPRESS_REQUEST,
         filters=[
             ["reference_doctype", "=", doctype],
             ["reference_name", "=", docname],
-            ["docstatus", "<", 2],
-            ["status", "in", ["In Progress", "Failed"]],
+            ["docstatus", "=", 0],
+            ["status", "=", "In Progress"],
         ],
-        fields=["name", "request_id", "docstatus", "base_amount", "payment_gateway"],
+        fields=["name", "request_id", "base_amount", "payment_gateway"],
         order_by="creation desc",
         limit=1,
     )
@@ -197,25 +201,18 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
 
     existing = _reusable_request(link.reference_doctype, link.reference_docname)
 
-    # A submitted request is fixed to the shortcode it was sent against, so it
-    # can only be reused for the same one - otherwise a retry would keep going
-    # to the till the customer just moved away from.
-    if existing and existing.docstatus != 0 and existing.payment_gateway != gateway:
-        existing = None
-
     if existing:
-        # A draft can still be stale: the balance may have moved since, or it
-        # may have been raised against a shortcode no longer being offered.
-        if existing.docstatus == 0:
-            changes = {}
-            if flt(existing.base_amount) != payable["amount"]:
-                changes["base_amount"] = payable["amount"]
-            if existing.payment_gateway != gateway:
-                changes["payment_gateway"] = gateway
-                changes["settings"] = gateway[6:]
-            if changes:
-                frappe.db.set_value(EXPRESS_REQUEST, existing.name, changes)
-                frappe.db.commit()
+        # The draft can be stale: the balance may have moved since it was
+        # raised, or it may name a shortcode the payer has just moved away from.
+        changes = {}
+        if flt(existing.base_amount) != payable["amount"]:
+            changes["base_amount"] = payable["amount"]
+        if existing.payment_gateway != gateway:
+            changes["payment_gateway"] = gateway
+            changes["settings"] = gateway[6:]
+        if changes:
+            frappe.db.set_value(EXPRESS_REQUEST, existing.name, changes)
+            frappe.db.commit()
         return {
             "request_id": existing.request_id,
             "amount": payable["amount"],
