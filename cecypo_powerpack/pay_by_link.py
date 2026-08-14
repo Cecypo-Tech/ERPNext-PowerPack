@@ -104,6 +104,41 @@ def get_payable(doctype: str, docname: str) -> dict | None:
     }
 
 
+def _share_key(doctype: str, docname: str) -> str | None:
+    """A public key for this document, minted once and reused afterwards.
+
+    Two things have to be handled here that frappe's own helper does not.
+    It looks for an existing key carrying no expiry date, but Document Share
+    Key stamps one on insert, so that lookup never matches and every call
+    would mint another key - hence the lookup below. And a page render is a
+    GET, which frappe rolls back, so a freshly minted key has to be committed
+    or the customer is handed a link whose key does not exist.
+    """
+    existing = frappe.get_all(
+        "Document Share Key",
+        filters={"reference_doctype": doctype, "reference_docname": docname},
+        or_filters=[
+            ["expires_on", "is", "not set"],
+            ["expires_on", ">=", frappe.utils.today()],
+        ],
+        fields=["key"],
+        order_by="expires_on desc",
+        limit=1,
+    )
+    if existing:
+        return existing[0].key
+
+    try:
+        key = frappe.get_doc(doctype, docname).get_document_share_key()
+        frappe.db.commit()
+        return key
+    except Exception:
+        # Read-only replica, maintenance mode, anything else: better to drop
+        # the button than to show one that leads nowhere.
+        frappe.log_error(frappe.get_traceback(), "Pay by link: share key")
+        return None
+
+
 def receipt_for(doctype: str, docname: str) -> dict | None:
     """The invoice to show once there is nothing left to pay.
 
@@ -133,13 +168,10 @@ def receipt_for(doctype: str, docname: str) -> dict | None:
     if not invoice:
         return None
 
-    doc = frappe.get_doc("Sales Invoice", invoice)
-    # Reuses an existing key rather than minting one per page view.
-    key = (
-        doc.get_document_share_key()
-        if hasattr(doc, "get_document_share_key")
-        else doc.get_signature()
-    )
+    key = _share_key("Sales Invoice", invoice)
+    if not key:
+        return None
+
     return {
         "name": invoice,
         "url": f"{frappe.utils.get_url()}/Sales%20Invoice/{invoice}?key={key}",
