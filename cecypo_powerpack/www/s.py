@@ -96,7 +96,7 @@ def get_context(context):
 	# PowerPack banner / footer config
 	# Offer M-Pesa only while the document is actually awaiting payment. No
 	# payment request is created here - that happens if the customer presses Pay.
-	from cecypo_powerpack.pay_by_link import get_payable, payable_gateways
+	from cecypo_powerpack.pay_by_link import get_payable, payable_gateways, receipt_for
 
 	context.mpesa_payable = get_payable(
 		short_link.reference_doctype, short_link.reference_docname
@@ -141,6 +141,13 @@ def get_context(context):
 			frappe.log_error(
 				frappe.get_traceback(), "Pay by link: could not issue a CSRF token"
 			)
+
+	# Nothing left to pay: offer the receipt instead of a dead toolbar.
+	context.mpesa_receipt = (
+		None
+		if context.mpesa_payable
+		else receipt_for(short_link.reference_doctype, short_link.reference_docname)
+	)
 
 	ps = frappe.get_single("PowerPack Settings")
 	context.top_banner = ps.get("public_link_top_banner") or ""
