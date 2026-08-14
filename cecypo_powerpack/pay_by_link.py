@@ -138,6 +138,32 @@ def payable_gateways(company: str) -> list[dict]:
     ]
 
 
+def _resolve_amount(requested, outstanding: float) -> float:
+    """How much to collect now, defaulting to the whole balance.
+
+    Part payments exist so several people can settle one sale between them,
+    so anything from a penny up to the balance is allowed. More than the
+    balance is refused: an overpayment has no invoice to allocate against and
+    becomes a credit somebody has to unpick later.
+    """
+    if requested in (None, ""):
+        return outstanding
+
+    amount = flt(requested)
+    if amount <= 0:
+        frappe.throw(_("Enter an amount greater than zero."))
+
+    # A penny of rounding either way should not block a payer settling in full.
+    if amount - outstanding > 0.005:
+        frappe.throw(
+            _("That is more than the {0} still owed on this document.").format(
+                frappe.utils.fmt_money(outstanding)
+            )
+        )
+
+    return amount
+
+
 def _resolve_gateway(company: str, chosen: str | None) -> str:
     """Which shortcode to collect through, honouring the customer's choice."""
     options = payable_gateways(company)
@@ -189,7 +215,9 @@ def _reusable_request(doctype: str, docname: str):
 
 @frappe.whitelist(allow_guest=True)
 @rate_limit(key="token", limit=10, seconds=60)
-def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
+def start_mpesa_payment(
+    token: str, gateway: str | None = None, amount=None
+) -> dict:
     """Hand the customer an M-Pesa checkout page for the linked document."""
     link = _short_link(token)
     payable = get_payable(link.reference_doctype, link.reference_docname)
@@ -198,15 +226,21 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
         frappe.throw(_("This document is not awaiting payment."))
 
     gateway = _resolve_gateway(payable["company"], gateway)
+    # Never take the client's word for it: the amount is re-checked against
+    # what the document actually still owes, on every attempt.
+    amount = _resolve_amount(amount, payable["amount"])
 
     existing = _reusable_request(link.reference_doctype, link.reference_docname)
+
+    # With several people settling one sale, a draft raised for someone else's
+    # figure must not be handed over and quietly rewritten.
+    if existing and flt(existing.base_amount) != amount:
+        existing = None
 
     if existing:
         # The draft can be stale: the balance may have moved since it was
         # raised, or it may name a shortcode the payer has just moved away from.
         changes = {}
-        if flt(existing.base_amount) != payable["amount"]:
-            changes["base_amount"] = payable["amount"]
         if existing.payment_gateway != gateway:
             changes["payment_gateway"] = gateway
             changes["settings"] = gateway[6:]
@@ -215,7 +249,7 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
             frappe.db.commit()
         return {
             "request_id": existing.request_id,
-            "amount": payable["amount"],
+            "amount": amount,
             "currency": payable["currency"],
             "redirect_to": f"/mpesa/stkpush?id={existing.request_id}",
         }
@@ -227,7 +261,7 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
             "reference_doctype": payable["doctype"],
             "reference_name": payable["docname"],
             "account_reference": payable["docname"],
-            "base_amount": payable["amount"],
+            "base_amount": amount,
             "currency": payable["currency"],
             "status": "In Progress",
             "transaction_title": f"{payable['doctype']} {payable['docname']}",
@@ -241,7 +275,7 @@ def start_mpesa_payment(token: str, gateway: str | None = None) -> dict:
 
     return {
         "request_id": request.request_id,
-        "amount": payable["amount"],
+        "amount": amount,
         "currency": payable["currency"],
         # Kept so the page still works if scripting is unavailable.
         "redirect_to": f"/mpesa/stkpush?id={request.request_id}",

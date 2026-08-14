@@ -108,6 +108,12 @@ def get_context(context):
 	)
 	if not context.mpesa_gateways:
 		context.mpesa_payable = None
+	# The raw figure as well as the formatted one: the sheet lets the payer edit
+	# what they send, so the script needs a number to validate against.
+	context.mpesa_amount = context.mpesa_payable["amount"] if context.mpesa_payable else 0
+	context.mpesa_currency = (
+		context.mpesa_payable["currency"] if context.mpesa_payable else ""
+	)
 	context.mpesa_amount_display = (
 		frappe.utils.fmt_money(
 			context.mpesa_payable["amount"], currency=context.mpesa_payable["currency"]
