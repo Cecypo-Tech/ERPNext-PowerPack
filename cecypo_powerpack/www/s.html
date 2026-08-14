@@ -67,6 +67,10 @@
 			font-size: 12px; font-weight: 700; white-space: nowrap;
 		}
 		:root[data-theme="dark"] .pp-due { background: rgba(0, 184, 148, .16); color: #34d399; }
+		.pp-btn-receipt { background: var(--pp-accent); color: #fff; border: 1px solid var(--pp-accent); }
+		.pp-btn-receipt:hover { background: var(--pp-accent-h); border-color: var(--pp-accent-h); }
+		.pp-due.is-paid { background: rgba(37, 99, 235, .12); color: #1d4ed8; }
+		:root[data-theme="dark"] .pp-due.is-paid { background: rgba(96, 165, 250, .18); color: #93c5fd; }
 		.pp-btn-pay { background: #00b894; color: #fff; border: 1px solid #00b894; }
 		.pp-btn-pay:hover { background: #00a082; border-color: #00a082; }
 
@@ -458,6 +462,8 @@
 					<span class="pp-doc-name">{{ reference_docname }}</span>
 					{% if mpesa_payable %}
 					<span class="pp-due">{{ mpesa_amount_display }} due</span>
+					{% elif mpesa_receipt %}
+					<span class="pp-due is-paid">Paid</span>
 					{% endif %}
 				</div>
 				<div class="pp-actions">
@@ -465,6 +471,13 @@
 						<svg class="sun" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
 						<svg class="moon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
 					</button>
+					{% if mpesa_receipt %}
+					<a class="pp-btn pp-btn-receipt" href="{{ mpesa_receipt.url }}"
+						target="_blank" rel="noopener">
+						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>
+						Open Receipt
+					</a>
+					{% endif %}
 					{% if mpesa_payable %}
 					<button class="pp-btn pp-btn-pay" onclick="pay_open()">
 						<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 21h12a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3z"/></svg>
@@ -558,6 +571,7 @@
 		} catch (e) {}
 	})();
 </script>
+{% if mpesa_payable %}
 <script>
 	// The whole payment happens in the sheet: no hand-off to another page, so
 	// the customer never loses sight of the document they are paying for.
@@ -872,5 +886,6 @@
 			</div>
 		</div>
 	</div>
+{% endif %}
 </body>
 </html>

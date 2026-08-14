@@ -104,6 +104,48 @@ def get_payable(doctype: str, docname: str) -> dict | None:
     }
 
 
+def receipt_for(doctype: str, docname: str) -> dict | None:
+    """The invoice to show once there is nothing left to pay.
+
+    A paid Sales Order has its receipt on the invoice raised from it, not on
+    the order, so follow that through. Anything still owed returns nothing -
+    the payer is being asked to pay, not handed a receipt.
+    """
+    invoice = None
+
+    if doctype == "Sales Invoice":
+        row = frappe.db.get_value(
+            doctype, docname, ["name", "docstatus", "outstanding_amount"], as_dict=True
+        )
+        if row and row.docstatus == 1 and flt(row.outstanding_amount) <= 0:
+            invoice = row.name
+
+    elif doctype == "Sales Order":
+        rows = frappe.get_all(
+            "Sales Invoice Item",
+            filters={"sales_order": docname, "docstatus": 1},
+            fields=["parent"],
+            order_by="creation desc",
+            limit=1,
+        )
+        invoice = rows[0].parent if rows else None
+
+    if not invoice:
+        return None
+
+    doc = frappe.get_doc("Sales Invoice", invoice)
+    # Reuses an existing key rather than minting one per page view.
+    key = (
+        doc.get_document_share_key()
+        if hasattr(doc, "get_document_share_key")
+        else doc.get_signature()
+    )
+    return {
+        "name": invoice,
+        "url": f"{frappe.utils.get_url()}/Sales%20Invoice/{invoice}?key={key}",
+    }
+
+
 def payable_gateways(company: str) -> list[dict]:
     """The M-Pesa shortcodes this company can collect through.
 
