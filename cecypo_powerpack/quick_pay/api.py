@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 
 from cecypo_powerpack.quick_pay import builders, validators
-from cecypo_powerpack.utils import is_feature_enabled
+from cecypo_powerpack.utils import is_feature_enabled, mpesa_app_installed
 
 
 def _user_permitted_mops(user: str) -> list[str] | None:
@@ -310,6 +310,13 @@ def _phone_mop_for_company(company: str) -> str | None:
 
 
 def _mpesa_shortcode_for_company(company: str) -> str | None:
+	# Every Quick Pay M-Pesa path resolves a shortcode before it touches the
+	# register, so a site without the app stops here: the availability check
+	# reports unavailable, the pending list comes back empty, and the reconcile
+	# call throws "No Mpesa Settings" rather than querying a missing table.
+	if not mpesa_app_installed():
+		return None
+
 	settings = frappe.get_all(
 		"Mpesa Settings",
 		filters={"company": company},
@@ -520,11 +527,15 @@ def create_mpesa_payment_request(
 	if safe_amount <= 0:
 		frappe.throw(_("No outstanding amount on this Sales Order"))
 
-	settings = frappe.get_all(
-		"Mpesa Settings",
-		filters={"company": so.company},
-		fields=["name", "payment_gateway_name"],
-		limit=1,
+	settings = (
+		frappe.get_all(
+			"Mpesa Settings",
+			filters={"company": so.company},
+			fields=["name", "payment_gateway_name"],
+			limit=1,
+		)
+		if mpesa_app_installed()
+		else []
 	)
 	if not settings:
 		frappe.throw(_("No Mpesa Settings for {0}").format(so.company))

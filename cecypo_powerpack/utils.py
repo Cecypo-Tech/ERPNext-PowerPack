@@ -95,3 +95,21 @@ def is_feature_enabled(feature_name: str) -> bool:
     except Exception as e:
         frappe.log_error(f"Error checking feature {feature_name}: {str(e)}")
         return False
+
+
+MPESA_APP = "frappe_mpsa_payments"
+
+
+def mpesa_app_installed() -> bool:
+    """Whether the app that owns the M-Pesa doctypes is on this site.
+
+    PowerPack refers to Mpesa Settings, Mpesa C2B Payment Register and Mpesa
+    Express Request by name rather than importing them, so nothing else stands
+    between a site without the app and a query against a table that does not
+    exist. Callers use this to report "M-Pesa is not available" instead, which
+    is the truth on such a site.
+
+    frappe caches the installed-app list per request, so this is cheap to call
+    from a query path.
+    """
+    return MPESA_APP in frappe.get_installed_apps()
