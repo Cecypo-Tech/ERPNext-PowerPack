@@ -96,9 +96,19 @@ def get_context(context):
 	# PowerPack banner / footer config
 	# Offer M-Pesa only while the document is actually awaiting payment. No
 	# payment request is created here - that happens if the customer presses Pay.
-	from cecypo_powerpack.pay_by_link import get_payable, payable_gateways, receipt_for
+	from cecypo_powerpack.pay_by_link import (
+		document_status,
+		get_payable,
+		payable_gateways,
+		receipt_for,
+	)
 
 	context.mpesa_payable = get_payable(
+		short_link.reference_doctype, short_link.reference_docname
+	)
+	# Shown whatever the payment state: when there is nothing to pay, this is
+	# the only thing on the page that says why.
+	context.doc_status = document_status(
 		short_link.reference_doctype, short_link.reference_docname
 	)
 	# Several shortcodes can collect for one company. Offer the choice rather
@@ -148,6 +158,16 @@ def get_context(context):
 		if context.mpesa_payable
 		else receipt_for(short_link.reference_doctype, short_link.reference_docname)
 	)
+
+	# A settled invoice reads "Paid" in both pills; one of them is enough. A
+	# settled order reads "Paid" and "Completed", which are different facts and
+	# both stay.
+	if (
+		context.mpesa_receipt
+		and context.doc_status
+		and context.doc_status["label"] == "Paid"
+	):
+		context.doc_status = None
 
 	ps = frappe.get_single("PowerPack Settings")
 	context.top_banner = ps.get("public_link_top_banner") or ""

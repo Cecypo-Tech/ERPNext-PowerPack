@@ -71,6 +71,13 @@
 		.pp-btn-receipt:hover { background: var(--pp-accent-h); border-color: var(--pp-accent-h); }
 		.pp-due.is-paid { background: rgba(37, 99, 235, .12); color: #1d4ed8; }
 		:root[data-theme="dark"] .pp-due.is-paid { background: rgba(96, 165, 250, .18); color: #93c5fd; }
+		/* The document's own status. Deliberately quieter than the amount-due
+		   pill it sits beside - it is context, not the call to action. */
+		.pp-status { font-weight: 600; }
+		.pp-status.is-open { background: rgba(100, 116, 139, .14); color: #475569; }
+		:root[data-theme="dark"] .pp-status.is-open { background: rgba(148, 163, 184, .18); color: #cbd5e1; }
+		.pp-status.is-closed { background: rgba(100, 116, 139, .1); color: #64748b; }
+		:root[data-theme="dark"] .pp-status.is-closed { background: rgba(148, 163, 184, .12); color: #94a3b8; }
 		.pp-btn-pay { background: #00b894; color: #fff; border: 1px solid #00b894; }
 		.pp-btn-pay:hover { background: #00a082; border-color: #00a082; }
 
@@ -464,6 +471,9 @@
 					<span class="pp-due">{{ mpesa_amount_display }} due</span>
 					{% elif mpesa_receipt %}
 					<span class="pp-due is-paid">Paid</span>
+					{% endif %}
+					{% if doc_status %}
+					<span class="pp-due pp-status is-{{ doc_status.tone }}">{{ doc_status.label }}</span>
 					{% endif %}
 				</div>
 				<div class="pp-actions">

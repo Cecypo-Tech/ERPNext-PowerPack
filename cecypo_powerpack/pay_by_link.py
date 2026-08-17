@@ -17,6 +17,9 @@ from frappe.utils import flt
 
 EXPRESS_REQUEST = "Mpesa Express Request"
 
+# The only documents a short link will ever put a Pay button on.
+PAYABLE_DOCTYPES = ("Sales Invoice", "Sales Order", "Quotation")
+
 # A quotation carries no payment state of its own, so a completed request
 # against one is what we treat as "already paid".
 NO_PAYMENT_STATE = ("Quotation",)
@@ -26,6 +29,20 @@ DEAD_STATUSES = {
     "Sales Order": ("Closed", "Completed"),
     "Quotation": ("Lost", "Expired", "Ordered"),
 }
+
+# How the status pill on the public page should read. Anything unlisted is a
+# document still in play and renders neutral.
+PAID_LIKE_STATUSES = ("Paid", "Completed")
+CLOSED_STATUSES = (
+    "Expired",
+    "Lost",
+    "Ordered",
+    "Closed",
+    "Cancelled",
+    "Draft",
+    "Return",
+    "Credit Note Issued",
+)
 
 
 def _short_link(token: str):
@@ -66,7 +83,7 @@ def get_payable(doctype: str, docname: str) -> dict | None:
     Returns amount in the document's own currency; the Express Request converts
     to KES itself when the gateway is configured for it.
     """
-    if doctype not in ("Sales Invoice", "Sales Order", "Quotation"):
+    if doctype not in PAYABLE_DOCTYPES:
         return None
 
     fields = ["name", "company", "currency", "grand_total", "docstatus", "status"]
@@ -102,6 +119,54 @@ def get_payable(doctype: str, docname: str) -> dict | None:
         "currency": doc.currency,
         "amount": amount,
     }
+
+
+def document_status(doctype: str, docname: str) -> dict | None:
+    """The document's own status, for the pill on the public page.
+
+    The page shows what is owed and offers a Pay button. When it offers
+    neither, the reason is always the document's state - an expired quotation,
+    a closed order, a draft that was never submitted - and without it the payer
+    just sees a missing button. Naming the status turns that absence into an
+    explanation.
+
+    Returns ``{"label": str, "tone": str}``, where tone is one of ``paid``,
+    ``closed`` or ``open``.
+    """
+    if doctype not in PAYABLE_DOCTYPES:
+        return None
+
+    doc = frappe.db.get_value(doctype, docname, ["status", "docstatus"], as_dict=True)
+    if not doc:
+        return None
+
+    # docstatus outranks the status field: a cancelled document can be left
+    # carrying whatever status it held when it was cancelled.
+    if doc.docstatus == 2:
+        label = "Cancelled"
+    elif doc.docstatus == 0:
+        label = "Draft"
+    elif doctype in NO_PAYMENT_STATE and _settled_by_a_previous_request(doctype, docname):
+        # A quotation has no payment state of its own, so a completed request
+        # against it is the only evidence it was ever paid.
+        label = "Paid"
+    else:
+        label = doc.status
+
+    if not label:
+        return None
+
+    return {"label": label, "tone": _status_tone(label)}
+
+
+def _status_tone(label: str) -> str:
+    if label in PAID_LIKE_STATUSES:
+        return "paid"
+
+    if label in CLOSED_STATUSES:
+        return "closed"
+
+    return "open"
 
 
 def _share_key(doctype: str, docname: str) -> str | None:
