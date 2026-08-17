@@ -106,7 +106,20 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 
 		make_item("_MSP Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
 		# Set cost fields directly so they persist regardless of field read-only rules.
-		frappe.db.set_value("Item", "_MSP Item", {"valuation_rate": 100, "last_purchase_rate": 100})
+		# item_group is forced for a different reason: make_item only applies its
+		# arguments when it *creates* the item, so an item left behind by an earlier
+		# run keeps whatever group it had. Every rule here is scoped to the _MSP
+		# groups, so the wrong group takes them all out of play - the blocking tests
+		# fail, and the "allows" tests pass without anything having been enforced.
+		frappe.db.set_value(
+			"Item",
+			"_MSP Item",
+			{"item_group": "_MSP Child", "valuation_rate": 100, "last_purchase_rate": 100},
+		)
+		# All of the above was created after the base class flushed its own test
+		# records, so it is still uncommitted. tearDown rolls back after every test,
+		# which would otherwise take the item groups with it.
+		frappe.db.commit()
 		frappe.clear_cache(doctype="Item")
 
 	def setUp(self):
@@ -204,13 +217,32 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 			user.insert()
 		self._configure(override_role=role,
 						rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+
+		# The rate is below the floor, so the rule has something to act on. Totals
+		# are computed here, as Administrator, because saving the order as the test
+		# user is not a property of the rule under test: on a bench running ERPNext
+		# Express the customer's Address is readable only by Express roles, and that
+		# app forbids an Express user from holding any other role - so no user could
+		# hold the override role and still save the order. Calling the rule directly
+		# keeps this test about the override, not about the other apps installed.
+		from cecypo_powerpack.min_selling_price import validate_min_selling_price
+
+		so = self._make_so(105)
+		so.run_method("set_missing_values")
+		so.calculate_taxes_and_totals()
+
 		frappe.set_user(test_user)
 		try:
-			so = self._make_so(105)
-			so.save()  # below floor, but override role -> allowed
-			self.assertTrue(so.name)
+			# Must not raise: the floor is breached, but the role may override it.
+			validate_min_selling_price(so)
 		finally:
 			frappe.set_user("Administrator")
+
+		# Guard against a vacuous pass. If the order did not actually breach the
+		# floor, the call above would be silent for the wrong reason - so the same
+		# order, with no override role configured, must be blocked.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		self.assertRaises(frappe.ValidationError, validate_min_selling_price, so)
 
 	def test_free_item_skipped(self):
 		# Direct call with a free-item line: our validation must skip it (no raise).
@@ -253,9 +285,11 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 
 
 class TestPowerPackSettingsTabs(FrappeTestCase):
-	EXPECTED_TABS = ["appearance_tab", "sales_pos_tab", "items_tab", "system_tab"]
+	# Kept in step with the shipped doctype JSON. pricing_tab was added after this
+	# test was written, so the assertion named a tab order the app no longer had.
+	EXPECTED_TABS = ["appearance_tab", "sales_pos_tab", "pricing_tab", "items_tab", "system_tab"]
 
-	def test_four_tabs_present_in_order(self):
+	def test_tabs_present_in_order(self):
 		meta = frappe.get_meta("PowerPack Settings")
 		tab_order = [df.fieldname for df in meta.fields if df.fieldtype == "Tab Break"]
 		self.assertEqual(tab_order, self.EXPECTED_TABS)
