@@ -22,6 +22,11 @@ class TestResolveBillNumbersForCredit(FrappeTestCase):
 		cls.supplier = _ensure_supplier(TEST_SUPPLIER)
 		cls.supplier_other = _ensure_supplier(TEST_SUPPLIER_OTHER)
 		cls.item_code = make_item(TEST_ITEM, {"is_stock_item": 0}).name
+		# These are created after the base class has flushed its own test
+		# records, so they are still uncommitted here. tearDown rolls back after
+		# every test, which would take them with it and leave every test but the
+		# first unable to find its own supplier and item.
+		frappe.db.commit()
 
 	def setUp(self):
 		settings = frappe.get_single("PowerPack Settings")
