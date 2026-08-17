@@ -13,6 +13,7 @@ a raiser, so a passing test proves the query was never reached - not merely
 that the return value happened to look right.
 """
 
+import json
 import unittest
 from unittest.mock import patch
 
@@ -91,6 +92,30 @@ class TestQuickPayWithoutMpesa(unittest.TestCase):
         with _with_mpesa(), patch("frappe.get_all", return_value=rows) as get_all:
             self.assertEqual(_mpesa_shortcode_for_company("Some Co"), "898102")
         get_all.assert_called_once()
+
+
+class TestShippedPrintFormat(unittest.TestCase):
+    """The receipt must not reach for an M-Pesa doctype at all.
+
+    Print-format Jinja runs in a sandbox with no table_exists, so a lookup in
+    there is awkward to guard. It is also unnecessary: the payment row already
+    carries the receipt number in reference_no, which is what the lookup was
+    trying to recover.
+    """
+
+    def _html(self) -> str:
+        path = frappe.get_app_path("cecypo_powerpack", "fixtures", "print_format.json")
+        with open(path) as f:
+            data = json.load(f)
+
+        entry = data[0] if isinstance(data, list) else data
+        return entry["html"]
+
+    def test_names_no_mpesa_doctype(self):
+        self.assertNotIn("Mpesa C2B Payment Register", self._html())
+
+    def test_prints_the_receipt_number_it_already_has(self):
+        self.assertIn("{{ payment.reference_no }}", self._html())
 
 
 if __name__ == "__main__":
