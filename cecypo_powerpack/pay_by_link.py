@@ -15,6 +15,8 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import flt
 
+from cecypo_powerpack.utils import mpesa_app_installed
+
 EXPRESS_REQUEST = "Mpesa Express Request"
 
 # The only documents a short link will ever put a Pay button on.
@@ -65,6 +67,11 @@ def _short_link(token: str):
 
 
 def _settled_by_a_previous_request(doctype: str, docname: str) -> bool:
+    # No M-Pesa app means no Express Requests to have settled anything, and the
+    # table to ask is not there either.
+    if not mpesa_app_installed():
+        return False
+
     return bool(
         frappe.db.exists(
             EXPRESS_REQUEST,
@@ -251,7 +258,15 @@ def payable_gateways(company: str) -> list[dict]:
     be attached to a request, so both are excluded. Live shortcodes win outright
     when any exist - a sandbox entry alongside them is a test leftover, not a
     choice worth offering a paying customer.
+
+    This is the single chokepoint for collecting by M-Pesa: the page asks it
+    whether to show a Pay button, and ``_resolve_gateway`` asks it again before
+    any request is raised. Returning nothing when the app is absent is
+    therefore enough to keep the whole payment path off a site without it.
     """
+    if not mpesa_app_installed():
+        return []
+
     rows = frappe.get_all(
         "Mpesa Settings",
         filters={"company": company, "business_shortcode": ["is", "set"]},
