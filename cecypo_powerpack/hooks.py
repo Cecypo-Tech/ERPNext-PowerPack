@@ -101,7 +101,10 @@ website_route_rules = [
 
 # add methods and filters to jinja environment
 jinja = {
-	"methods": "cecypo_powerpack.api.get_document_public_link",
+	"methods": [
+		"cecypo_powerpack.api.get_document_public_link",
+		"cecypo_powerpack.barcode.qr_data_uri",
+	],
 }
 
 # Installation
