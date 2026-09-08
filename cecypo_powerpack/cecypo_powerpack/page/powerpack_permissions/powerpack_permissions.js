@@ -117,8 +117,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			if (q && !(`${row.doctype} ${row.role} ${row.module}`.toLowerCase().includes(q))) return false;
 			return true;
 		});
+		// The datatable keeps its checkbox map across refresh(), so a selection made under
+		// one filter would silently apply to whatever rows occupy those indexes under the
+		// next. A filter change always drops the selection.
+		if (this.datatable.rowmanager) this.datatable.rowmanager.checkAll(false);
 		this.datatable.refresh(this.view, this.columns);
 		this.page.set_indicator(__("{0} rules", [this.view.length]), "blue");
+		this.update_footer();
 	}
 
 	// ── table ──────────────────────────────────────────────────────────────────
