@@ -1,11 +1,34 @@
 /**
  * Cecypo PowerPack - Global Client Scripts
- * 
- * Include in hooks.py:
- * app_include_js = "/assets/cecypo_powerpack/js/cecypo_powerpack.js"
+ *
+ * Bundled via cecypo_powerpack.bundle.js (see hooks.py app_include_js).
  */
 
 window.CecypoPowerPack = window.CecypoPowerPack || {};
+
+/**
+ * PowerPack's own compact number formatter.
+ *
+ * Lives here because bulk_selection.js and point_of_sale_powerpack.js both need it.
+ * It used to be a bare top-level `function format_number()` in bulk_selection.js,
+ * which in a classic script overwrote frappe's core `window.format_number`
+ * (number_format.js:90) for EVERY desk page -- frappe's and erpnext's own rendering
+ * included. That version ignores the site number format, hardcodes en-US, defaults
+ * to 2 decimals instead of float_precision, and returns an em dash for null, so the
+ * clobber quietly changed numbers well outside PowerPack.
+ *
+ * Deliberately unchanged in behaviour: both callers render exactly as they did
+ * before. The only difference is that frappe's global is no longer replaced.
+ */
+CecypoPowerPack.formatNumber = function (value, format, decimals) {
+    if (value === null || value === undefined) return '—';
+    // toFixed-style formatting, deliberately independent of frappe's formatter system
+    const precision = decimals || 2;
+    return parseFloat(value).toLocaleString('en-US', {
+        minimumFractionDigits: precision,
+        maximumFractionDigits: precision
+    });
+};
 
 $(document).ready(function () {
     // Apply compact theme if enabled

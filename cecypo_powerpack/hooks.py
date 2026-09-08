@@ -25,23 +25,18 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-app_include_css = [
-    "/assets/cecypo_powerpack/css/cecypo_powerpack.css",
-    "/assets/cecypo_powerpack/css/point_of_sale_powerpack.css",
-    "/assets/cecypo_powerpack/css/sales_powerup.css",
-    "/assets/cecypo_powerpack/css/quick_pay.css",
-    "/assets/cecypo_powerpack/css/lens_powerup.css",
-]
-app_include_js = [
-    "/assets/cecypo_powerpack/js/cecypo_powerpack.js",
-    "/assets/cecypo_powerpack/js/point_of_sale_powerpack.js",
-    "/assets/cecypo_powerpack/js/profit_calculator.js",
-    "/assets/cecypo_powerpack/js/sales_powerup.js",
-    "/assets/cecypo_powerpack/js/bulk_selection.js",
-    "/assets/cecypo_powerpack/js/payment_reconciliation_powerup.js",
-    "/assets/cecypo_powerpack/js/lens_powerup.js",
-    "/assets/cecypo_powerpack/js/price_import_powerup.js",
-]
+#
+# These are BARE BUNDLE NAMES, not /assets/... paths, and that distinction matters.
+# Frappe resolves a name containing ".bundle." through assets.json to a
+# content-hashed file (bundled_asset(), frappe/utils/jinja_globals.py:147); a
+# literal /assets path is served verbatim, with no hash and no ?ver=, so browsers
+# cache it indefinitely and deployed changes never reach anyone who does not
+# manually hard-reload. The individual source files are imported, in order, by the
+# two bundle entry points. The CSS entry is authored as .scss (so sass can
+# resolve its sibling imports) but esbuild emits .css, and assets.json is keyed
+# by the OUTPUT name -- hence ".bundle.css" here, same as erpnext.
+app_include_css = "cecypo_powerpack.bundle.css"
+app_include_js = "cecypo_powerpack.bundle.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/cecypo_powerpack/css/cecypo_powerpack.css"

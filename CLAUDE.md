@@ -67,7 +67,44 @@ The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory an
 | `cecypo_powerpack/custom_payment_reconciliation.py` | `CustomPaymentReconciliation` class extending ERPNext's `PaymentReconciliation` |
 | `cecypo_powerpack/cecypo_powerpack/doctype/powerpack_settings/` | Singleton DocType definition |
 
-**Public JS files** (all globally included via `hooks.py`):
+### Asset bundling (read before adding a JS or CSS file)
+
+`hooks.py` declares exactly two desk assets, and they are **bare bundle names**, not
+`/assets/...` paths:
+
+```python
+app_include_css = "cecypo_powerpack.bundle.css"   # built from public/css/cecypo_powerpack.bundle.scss
+app_include_js  = "cecypo_powerpack.bundle.js"    # public/js/cecypo_powerpack.bundle.js
+```
+
+Frappe resolves a bundle name through `assets.json` to a **content-hashed** filename
+(`bundled_asset()`, `frappe/utils/jinja_globals.py:147`). A literal `/assets` path is
+served verbatim with no hash and no `?ver=`, so browsers cache it indefinitely and a
+deployed change never reaches anyone who does not manually hard-reload. Never go back
+to listing raw paths.
+
+**To add a file:** create it under `public/js` or `public/css`, then add an `import`
+to the matching bundle entry point. Import order is load order.
+
+Two consequences to respect:
+
+- **CSS sources are `.scss`.** They are plain CSS with a renamed extension. The
+  rename exists only so sass resolves the bundle's extensionless sibling imports —
+  frappe's postcss plugin copies a bundle entry to a temp dir without its siblings,
+  so importing a `.css` file by full name fails to resolve.
+- **Bundled files get module scope, not global scope.** A top-level `function foo()`
+  in a bundled file is NOT on `window`. Anything shared between files must go on
+  `window.CecypoPowerPack` or a `frappe.provide()` namespace — see
+  `CecypoPowerPack.formatNumber`, which was previously a bare `format_number()` in
+  `bulk_selection.js` that silently overwrote frappe's core `window.format_number`
+  for every desk page.
+
+Known quirk: the CSS hash changes on every `bench build` even with no source change,
+because frappe stages CSS through a randomly-named temp dir that lands in the
+sourcemap. Harmless (one extra ~32KB download per deploy) and not specific to this
+app. The JS hash is stable.
+
+**Public JS files** (all bundled via `cecypo_powerpack.bundle.js`):
 - `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning
 - `point_of_sale_powerpack.js` — POS compact/thumbnail view toggle, enhanced search (wildcard `%` + multi-word), keyboard nav, barcode feedback
 - `sales_powerup.js` — Injects stock/valuation/purchase history info into item lines on Quotation/SO/SI/POS Invoice
@@ -101,9 +138,14 @@ POS search reads from `POS Settings.pos_search_fields` (child table) to extend t
 
 ### CSS
 
-- `cecypo_powerpack.css` — global compact theme (`body.compact-theme`)
-- `point_of_sale_powerpack.css` — POS compact/thumbnail view layouts
-- `sales_powerup.css` — Sales powerup info panels
+Plain CSS with a `.scss` extension, imported by `cecypo_powerpack.bundle.scss` — see
+**Asset bundling** above for why the extension matters.
+
+- `cecypo_powerpack.scss` — global compact theme (`body.compact-theme`)
+- `point_of_sale_powerpack.scss` — POS compact/thumbnail view layouts
+- `sales_powerup.scss` — Sales powerup info panels
+- `quick_pay.scss` — Quick Pay dialog
+- `lens_powerup.scss` — Lens powerup panels
 
 ## Skill routing
 

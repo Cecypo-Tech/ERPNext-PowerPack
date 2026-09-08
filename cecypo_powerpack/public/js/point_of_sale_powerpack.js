@@ -361,7 +361,7 @@
             if (valuationMap[itemCode] && valuationMap[itemCode] > 0) {
                 const valuationRate = valuationMap[itemCode];
                 const precision = flt(valuationRate, 2) % 1 != 0 ? 2 : 0;
-                $costCol.html(format_number(valuationRate, null, precision));
+                $costCol.html(CecypoPowerPack.formatNumber(valuationRate, null, precision));
             } else {
                 $costCol.html('—');
             }
@@ -441,7 +441,7 @@
                 ${cost_column}
 
                 <div class="compact-item-price">
-                    ${format_number(price_list_rate, null, precision)} / ${uom}
+                    ${CecypoPowerPack.formatNumber(price_list_rate, null, precision)} / ${uom}
                 </div>
 
                 <div class="compact-item-info">
