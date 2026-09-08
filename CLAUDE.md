@@ -53,6 +53,8 @@ CecypoPowerPack.Settings.isEnabled('enable_some_feature', function(enabled) {
 
 The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory and is cleared `after_save` on the PowerPack Settings form.
 
+**Never read PowerPack Settings from the client with `frappe.client.get` / `get_single_value` / `get_value`.** Those permission-check the singleton, and `frappe.permissions.has_user_permission()` walks the Link fields of its *child* rows — so one User Permission on Item Group or Company makes the whole singleton unreadable and every gated feature dies with "No permission for PowerPack Settings". Go through `CecypoPowerPack.Settings.get()` / `.isEnabled()`, which call `cecypo_powerpack.api.get_settings_for_client`. Any new Link field on a Settings child table needs `"ignore_user_permissions": 1`, since those rows are configuration, not scoped data.
+
 ### Key Files
 
 | File | Purpose |

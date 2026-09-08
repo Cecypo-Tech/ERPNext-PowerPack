@@ -33,29 +33,26 @@ cecypo_powerpack.sales_powerup = {
 			cecypo_powerpack.sales_powerup._valuation_cache = {};
 		}
 
-		// Fetch settings first
-		frappe.call({
-			method: 'frappe.client.get',
-			args: {
-				doctype: 'PowerPack Settings',
-				name: 'PowerPack Settings'
-			},
-			callback: function(r) {
-				if (r.message) {
-					cecypo_powerpack.sales_powerup.settings = r.message;
-					cecypo_powerpack.sales_powerup.enabled = cecypo_powerpack.sales_powerup.is_enabled_for_doctype(frm.doctype);
+		// Fetch settings first, through CecypoPowerPack.Settings rather than
+		// frappe.client.get: the latter permission-checks the singleton, and that check
+		// walks the Link fields of its config child rows, so a user scoped by a User
+		// Permission (Item Group, Company) gets "No permission for PowerPack Settings"
+		// and loses the sales powerup entirely.
+		CecypoPowerPack.Settings.get(function(settings) {
+			if (!settings || !Object.keys(settings).length) return;
 
-					// On first load, initialise visibility from the setting.
-					// Subsequent calls within the same session preserve the user's toggle choice.
-					if (frm._powerpack_visible === undefined) {
-						frm._powerpack_visible = r.message.sales_powerup_shown_by_default !== 0;
-						cecypo_powerpack.sales_powerup.update_button_state(frm);
-					}
+			cecypo_powerpack.sales_powerup.settings = settings;
+			cecypo_powerpack.sales_powerup.enabled = cecypo_powerpack.sales_powerup.is_enabled_for_doctype(frm.doctype);
 
-					if (cecypo_powerpack.sales_powerup.enabled) {
-						cecypo_powerpack.sales_powerup.setup_all_items(frm);
-					}
-				}
+			// On first load, initialise visibility from the setting.
+			// Subsequent calls within the same session preserve the user's toggle choice.
+			if (frm._powerpack_visible === undefined) {
+				frm._powerpack_visible = settings.sales_powerup_shown_by_default !== 0;
+				cecypo_powerpack.sales_powerup.update_button_state(frm);
+			}
+
+			if (cecypo_powerpack.sales_powerup.enabled) {
+				cecypo_powerpack.sales_powerup.setup_all_items(frm);
 			}
 		});
 	},
