@@ -1,0 +1,134 @@
+# Copyright (c) 2026, Cecypo.Tech and contributors
+# For license information, please see license.txt
+
+"""PowerPack Permission Manager — server side.
+
+Throwaway doctypes come from frappe's own new_doctype() helper: they are created
+inside the test transaction and rolled back with it, and a fresh doctype is the
+only way to be sure a doctype has standard rules and NO Custom DocPerm rows.
+"""
+
+import frappe
+from frappe.core.doctype.doctype.test_doctype import new_doctype
+from frappe.tests.utils import FrappeTestCase
+
+SM = "Administrator"
+
+
+def make_user(email, roles):
+	if not frappe.db.exists("User", email):
+		user = frappe.get_doc(
+			{"doctype": "User", "email": email, "first_name": "PP Perm", "send_welcome_email": 0}
+		)
+		for r in roles:
+			user.append("roles", {"role": r})
+		user.insert(ignore_permissions=True)
+	return email
+
+
+def perm(role, **flags):
+	"""DocPerm defaults read, write, create AND delete to 1 (docperm.json), so a rule
+	written as {"role": r, "read": 1} silently grants delete. Start every test rule
+	from explicit zeros so a test states exactly what it grants."""
+	return {"role": role, "read": 0, "write": 0, "create": 0, "delete": 0, **flags}
+
+
+def make_role(name, gate_read=False, gate_write=False):
+	"""A role that can (or cannot) read/write the grid's gate doctype, granted the way
+	an admin would grant it: a Custom DocPerm row on READ_GATE_DOCTYPE."""
+	from cecypo_powerpack.permission_manager import READ_GATE_DOCTYPE
+
+	if not frappe.db.exists("Role", name):
+		frappe.get_doc({"doctype": "Role", "role_name": name, "desk_access": 1}).insert(
+			ignore_permissions=True
+		)
+	if gate_read or gate_write:
+		from frappe.permissions import add_permission, update_permission_property
+
+		add_permission(READ_GATE_DOCTYPE, name, 0)
+		update_permission_property(READ_GATE_DOCTYPE, name, 0, "read", 1 if gate_read else 0)
+		update_permission_property(READ_GATE_DOCTYPE, name, 0, "write", 1 if gate_write else 0)
+	return name
+
+
+class TestReadRules(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.dt = new_doctype(permissions=[perm("Sales User", read=1, write=1)])
+		self.dt.insert()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def test_row_shape(self):
+		from cecypo_powerpack.permission_manager import FLAGS, get_permission_rules
+
+		out = get_permission_rules()
+		self.assertTrue(out["can_edit"])
+		rows = [r for r in out["rows"] if r["doctype"] == self.dt.name]
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row["role"], "Sales User")
+		self.assertEqual(row["permlevel"], 0)
+		self.assertEqual(row["if_owner"], 0)
+		self.assertEqual(row["module"], "Core")
+		self.assertEqual(row["is_submittable"], 0)
+		for flag in FLAGS:
+			self.assertIn(flag, row)
+		self.assertEqual(row["read"], 1)
+		self.assertEqual(row["write"], 1)
+		self.assertEqual(row["delete"], 0)
+
+	def test_standard_rows_reported_as_not_custom(self):
+		from cecypo_powerpack.permission_manager import get_permission_rules
+
+		row = next(r for r in get_permission_rules()["rows"] if r["doctype"] == self.dt.name)
+		self.assertEqual(row["is_custom"], 0)
+
+	def test_custom_rows_replace_standard_rows(self):
+		"""Frappe semantics: once a doctype has any Custom DocPerm, those rows ARE its
+		permissions and the standard rows no longer apply. The grid must mirror that."""
+		from frappe.permissions import update_permission_property
+
+		from cecypo_powerpack.permission_manager import get_permission_rules
+
+		update_permission_property(self.dt.name, "Sales User", 0, "delete", 1)
+		rows = [r for r in get_permission_rules()["rows"] if r["doctype"] == self.dt.name]
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["is_custom"], 1)
+		self.assertEqual(rows[0]["delete"], 1)
+
+	def test_child_tables_excluded(self):
+		from cecypo_powerpack.permission_manager import get_permission_rules
+
+		child = new_doctype(istable=1)
+		child.insert()
+		self.assertFalse(any(r["doctype"] == child.name for r in get_permission_rules()["rows"]))
+
+
+class TestReadGate(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.viewer_role = make_role("PP Perm Viewer", gate_read=True)
+		self.nobody_role = make_role("PP Perm Nobody")
+		self.viewer = make_user("pp-perm-viewer@example.com", [self.viewer_role])
+		self.nobody = make_user("pp-perm-nobody@example.com", [self.nobody_role])
+		frappe.clear_cache()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def test_role_with_gate_read_can_view_but_not_edit(self):
+		from cecypo_powerpack.permission_manager import get_permission_rules
+
+		frappe.set_user(self.viewer)
+		out = get_permission_rules()
+		self.assertGreater(len(out["rows"]), 0)
+		self.assertFalse(out["can_edit"])
+
+	def test_role_without_gate_read_is_rejected(self):
+		from cecypo_powerpack.permission_manager import get_permission_rules
+
+		frappe.set_user(self.nobody)
+		with self.assertRaises(frappe.PermissionError):
+			get_permission_rules()
