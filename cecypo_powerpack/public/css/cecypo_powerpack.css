@@ -21,6 +21,14 @@ body.compact-theme .grid-body .grid-static-col[data-fieldtype="Text Editor"] .ql
     font-size: 10px;
 }
 
+/* Quill zeroes its padding only on `.ql-editor.read-mode` (the idle cell). The live
+   editor keeps Quill's stock 12px/15px, which would make a focused Text Editor cell
+   ~24px taller than the same cell when idle. Match the idle cell instead; .input-area
+   below still supplies the 2px side gutter. */
+body.compact-theme .grid-body .grid-static-col[data-fieldtype="Text Editor"] .ql-editor:not(.read-mode) {
+    padding: 0 !important;
+}
+
 /* Filter row: shrink the match-type (=/like) button to match the compact input */
 body.compact-theme .match-type-dropdown-btn {
     min-height: var(--input-height);
@@ -167,6 +175,44 @@ body.compact-theme .grid-body .editable-row .input-with-feedback {
 body.compact-theme .grid-body .editable-row .form-control:focus {
 	box-shadow: none !important;
 }
+
+/* Multi-line cells keep sizing to content while the row is focused.
+   The --input-height pin above is correct for single-line controls (Data, Link,
+   Currency, Select) but wrong for Text Editor / Small Text / Text / Long Text / Code:
+   it clamps the live control to one line, so clicking a row with a 3-line description
+   made that row SHRINK to 32px while every idle row around it stayed 92px tall. These
+   rules mirror the `height: unset !important; max-height: 200px` applied to
+   .grid-static-col above, so a focused row is the same height as its idle self. */
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Text Editor"] .field-area,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Small Text"] .field-area,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Text"] .field-area,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Long Text"] .field-area,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Code"] .field-area {
+	height: auto !important;
+	max-height: 200px;
+}
+/* Frappe zeroes .grid-static-col padding on editable rows so inputs fill the cell, and
+   re-adds var(--grid-padding) for the fieldtypes that render bare (Button, row-index).
+   Text Editor is bare too — Quill draws no input chrome in a grid — so without this the
+   focused cell is 16px wider than its idle self and the same text wraps to one line
+   fewer, leaving the row 22px shorter on focus even once it is free to grow. */
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Text Editor"] {
+	padding: var(--grid-padding) !important;
+}
+
+/* Small Text / Text / Long Text / Code render a <textarea class="form-control">, which
+   the blanket rule above pins to one line; Text Editor renders Quill and is unaffected. */
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Small Text"] .form-control,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Text"] .form-control,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Long Text"] .form-control,
+body.compact-theme .grid-body .editable-row .grid-static-col[data-fieldtype="Code"] .form-control {
+	height: auto !important;
+	min-height: var(--input-height) !important;
+	max-height: 200px;
+	overflow-y: auto !important;
+	padding: 2px 8px !important;
+}
+
 body.compact-theme .grid-body .editable-row .frappe-control[data-fieldtype="Select"].form-group .select-icon {
 	top: 0;
 }
