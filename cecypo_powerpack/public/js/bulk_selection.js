@@ -875,7 +875,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 }
 
                 let stock_cell = warehouse
-                    ? `<td class="text-right ${(item.actual_qty || 0) <= 0 ? 'text-danger' : ''}">${format_number(item.actual_qty || 0, null, 2)}</td>`
+                    ? `<td class="text-right ${(item.actual_qty || 0) <= 0 ? 'text-danger' : ''}">${CecypoPowerPack.formatNumber(item.actual_qty || 0, null, 2)}</td>`
                     : '';
 
                 let sell_price_cell = has_price
@@ -943,7 +943,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                         </div>
                         <div class="stat-item">
                             <span class="stat-label">Total Qty:</span>
-                            <span class="stat-value" id="stat-qty">${format_number(totals.qty, null, 2)}</span>
+                            <span class="stat-value" id="stat-qty">${CecypoPowerPack.formatNumber(totals.qty, null, 2)}</span>
                         </div>
                     </div>
                     <button class="btn btn-add-selected" id="btn-add-selected">
@@ -985,7 +985,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                     </div>
                     <div class="stat-item">
                         <span class="stat-label">Total Qty:</span>
-                        <span class="stat-value" id="stat-qty">${format_number(totals.qty, null, 2)}</span>
+                        <span class="stat-value" id="stat-qty">${CecypoPowerPack.formatNumber(totals.qty, null, 2)}</span>
                     </div>
                     <div class="stat-item grand-total">
                         <span class="stat-label">Grand Total:</span>
@@ -1545,7 +1545,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     function update_summary() {
         let totals = calculate_totals();
         d.$wrapper.find('#stat-selected').text(totals.count);
-        d.$wrapper.find('#stat-qty').text(format_number(totals.qty, null, 2));
+        d.$wrapper.find('#stat-qty').text(CecypoPowerPack.formatNumber(totals.qty, null, 2));
 
         if (is_stock) {
             // Stock docs: no grand total or profit to update
@@ -2180,14 +2180,4 @@ function _bulk_fmt_currency(value) {
     // Get currency symbol from frappe settings
     let currency = frappe.defaults.get_default('currency') || frappe.boot.sysdefaults.currency || '';
     return currency ? `${currency} ${formatted}` : formatted;
-}
-
-function format_number(value, format, decimals) {
-    if (value === null || value === undefined) return '\u2014';
-    // Use toFixed to avoid recursion with frappe's formatter system
-    let precision = decimals || 2;
-    return parseFloat(value).toLocaleString('en-US', {
-        minimumFractionDigits: precision,
-        maximumFractionDigits: precision
-    });
 }
