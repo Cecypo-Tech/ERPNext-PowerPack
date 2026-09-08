@@ -67,6 +67,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 					this.by_key[row.key] = row;
 				});
 				this.dirty = {};
+				this.original = {};
 				this.render();
 			},
 			error: () => {
@@ -307,6 +308,87 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		this.$footer.find(".pp-discard").prop("disabled", !n);
 	}
 
-	// Filled in by Task 7.
-	review() {}
+	// ── review + commit ────────────────────────────────────────────────────────
+
+	review() {
+		const changes = this.change_payload();
+		if (!changes.length) return;
+		frappe.call({
+			method: "cecypo_powerpack.permission_manager.preview_changes",
+			args: { changes },
+			callback: (r) => this.render_review(r.message, changes),
+		});
+	}
+
+	render_review(preview, changes) {
+		const by_doctype = {};
+		preview.rules.forEach((rule) => (by_doctype[rule.doctype] = by_doctype[rule.doctype] || []).push(rule));
+
+		const flag_list = (rule) =>
+			Object.entries(rule.changes)
+				.map(([f, v]) => `<code>${frappe.unscrub(f)} ${v ? "on" : "off"}</code>`)
+				.join(" ");
+
+		let html = "";
+		if (preview.detaching.length) {
+			html += `<div class="pp-review-detach">
+				<b>${__("{0} document type(s) will be detached from app updates", [preview.detaching.length])}</b>
+				<p class="small">${__(
+					"Their standard rules get copied into Custom DocPerm and, from then on, permission changes shipped by Frappe, ERPNext or any app on bench migrate no longer apply to them. This is permanent until reset in Frappe's Role Permissions Manager."
+				)}</p>
+				<ul>${preview.detaching
+					.map((d) => `<li>${frappe.utils.escape_html(d.doctype)} <span class="text-muted">(${__("{0} standard rules frozen", [d.standard_rules])})</span></li>`)
+					.join("")}</ul>
+			</div>`;
+		}
+		html += Object.entries(by_doctype)
+			.map(
+				([doctype, rules]) => `<div class="mb-3"><b>${frappe.utils.escape_html(doctype)}</b><ul>${rules
+					.map(
+						(rule) => `<li>${frappe.utils.escape_html(rule.role)}${
+							rule.permlevel ? ` (level ${rule.permlevel})` : ""
+						}${rule.if_owner ? ` (${__("only if creator")})` : ""}: ${flag_list(rule)}</li>`
+					)
+					.join("")}</ul></div>`
+			)
+			.join("");
+
+		const d = new frappe.ui.Dialog({
+			title: __("Review {0} rule change(s) across {1} document type(s)", [
+				preview.rules.length,
+				Object.keys(by_doctype).length,
+			]),
+			size: "large",
+			fields: [{ fieldtype: "HTML", fieldname: "body", options: `<div class="pp-perm-review">${html}</div>` }],
+			primary_action_label: __("Commit"),
+			primary_action: () => {
+				d.hide();
+				this.commit(changes);
+			},
+		});
+		d.show();
+	}
+
+	commit(changes) {
+		frappe.call({
+			method: "cecypo_powerpack.permission_manager.commit_changes",
+			args: { changes },
+			freeze: true,
+			freeze_message: __("Committing permission changes…"),
+			callback: (r) => {
+				const out = r.message;
+				frappe.show_alert(
+					{
+						message: __("Committed {0} rule change(s) across {1} document type(s)", [out.rules, out.doctypes]),
+						indicator: "green",
+					},
+					7
+				);
+				// Reload from the server so is_custom flags and any server-side normalisation
+				// (e.g. validate_permissions zeroing create at level > 0) are reflected.
+				this.load();
+			},
+			// On error the server has already shown the offending rule; nothing was written.
+		});
+	}
 };
