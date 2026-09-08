@@ -41,17 +41,14 @@
         // Always patch item details description field (runs regardless of PowerPack Settings)
         patchItemDetailsDescription();
 
-        // Check if PowerPack enabled via PowerPack Settings
-        frappe.call({
-            method: 'frappe.client.get_single_value',
-            args: {
-                doctype: 'PowerPack Settings',
-                field: 'enable_pos_powerup'
-            },
-            callback: (r) => {
-                if (r.message) {
-                    loadPowerPackSettings();
-                }
+        // Check if PowerPack enabled via PowerPack Settings.
+        // Read through CecypoPowerPack.Settings, never frappe.client.*: those run a
+        // server-side permission check on the singleton, and that check walks the
+        // Link fields of its config child rows. A user scoped by a User Permission
+        // (Item Group, Company) fails it and loses the whole POS powerup.
+        CecypoPowerPack.Settings.isEnabled('enable_pos_powerup', (enabled) => {
+            if (enabled) {
+                loadPowerPackSettings();
             }
         });
 
@@ -105,43 +102,35 @@
     }
 
     function loadPowerPackSettings() {
-        frappe.call({
-            method: 'frappe.client.get',
-            args: {
-                doctype: 'PowerPack Settings',
-                name: 'PowerPack Settings'
-            },
-            callback: (r) => {
-                if (r.message) {
-                    const settings = r.message;
+        // Same reason as above: the cached app endpoint, not frappe.client.get.
+        CecypoPowerPack.Settings.get((settings) => {
+            if (!settings || !Object.keys(settings).length) return;
 
-                    // Load default view mode
-                    if (settings.pos_default_view) {
-                        const savedView = localStorage.getItem('pos_powerpack_view_mode');
-                        if (!savedView) {
-                            currentViewMode = settings.pos_default_view.toLowerCase();
-                            localStorage.setItem('pos_powerpack_view_mode', currentViewMode);
-                        }
-                    }
-
-                    // Load column configuration
-                    columnConfig = {
-                        cost: settings.pos_show_cost_price || false
-                    };
-
-                    // Load enhanced search setting
-                    enhancedSearchEnabled = settings.pos_enable_custom_search || false;
-
-                    // Check cost permission
-                    canSeeCost = hasCostPermission();
-
-                    // Load POS Profile search fields
-                    loadPOSSearchFields();
-
-                    // Enable features
-                    enablePowerPackFeatures();
+            // Load default view mode
+            if (settings.pos_default_view) {
+                const savedView = localStorage.getItem('pos_powerpack_view_mode');
+                if (!savedView) {
+                    currentViewMode = settings.pos_default_view.toLowerCase();
+                    localStorage.setItem('pos_powerpack_view_mode', currentViewMode);
                 }
             }
+
+            // Load column configuration
+            columnConfig = {
+                cost: settings.pos_show_cost_price || false
+            };
+
+            // Load enhanced search setting
+            enhancedSearchEnabled = settings.pos_enable_custom_search || false;
+
+            // Check cost permission
+            canSeeCost = hasCostPermission();
+
+            // Load POS Profile search fields
+            loadPOSSearchFields();
+
+            // Enable features
+            enablePowerPackFeatures();
         });
     }
 
