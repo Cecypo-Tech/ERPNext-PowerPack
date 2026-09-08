@@ -7,6 +7,7 @@ frappe.ui.form.on('PowerPack Settings', {
 		cecypo_check_min_price_conflict(frm);
 		cecypo_add_load_group_buttons(frm);
 		cecypo_refresh_min_price_grid(frm);
+		cecypo_add_permission_manager_button(frm);
 	},
 
 	min_selling_price_rules_add: function(frm) { cecypo_refresh_min_price_grid(frm); },
@@ -138,5 +139,14 @@ function cecypo_load_item_groups(frm, is_group) {
 		} else {
 			frappe.show_alert({ message: __('No new item groups to add.'), indicator: 'blue' });
 		}
+	});
+}
+
+function cecypo_add_permission_manager_button(frm) {
+	// Reading the page is gated server-side on User Permission read; only System
+	// Managers can change anything, so that is who gets the shortcut.
+	if (!frappe.user.has_role('System Manager')) return;
+	frm.add_custom_button(__('Permission Manager'), function () {
+		frappe.set_route('powerpack-permissions');
 	});
 }
