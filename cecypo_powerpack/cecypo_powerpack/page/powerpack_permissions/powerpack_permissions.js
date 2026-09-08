@@ -81,7 +81,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		this.make_filters();
 		this.$table = $('<div class="pp-perm-table"></div>').appendTo(this.$body);
 		this.make_table();
+		this.make_footer();
 		this.apply_filters();
+		this.update_footer();
 	}
 
 	// ── filters ────────────────────────────────────────────────────────────────
@@ -182,13 +184,124 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	refresh_row(row) {
 		const index = this.view.indexOf(row);
 		if (index < 0) return;
+		// refreshRow repaints the row's DOM, which only exists inside the virtual window
+		// (~50 rows); for any other row CellManager.refreshCell sets innerHTML on null and
+		// throws, which silently aborted a bulk apply mid-loop. Off-screen rows need no
+		// repaint: every formatter reads the live object in data[], so they show current
+		// values the moment they scroll into view.
+		const first_col = this.datatable.columnmanager.getFirstColumnIndex();
+		if (!this.datatable.cellmanager.getCell$(first_col, index)) return;
 		// refreshRow wants an ARRAY of cell values (DataManager.updateRow -> prepareRow
 		// calls row.map), not the row object. The object is still what format() sees:
 		// the datatable keeps our objects in data[] untouched and we mutate them in place.
 		this.datatable.refreshRow(this.columns.map((c) => row[c.id]), index);
 	}
 
-	// Filled in by Task 6.
-	set_flag() {}
-	update_footer() {}
+	// ── dirty store ────────────────────────────────────────────────────────────
+
+	set_flag(row, flag, value) {
+		if (!row || !this.can_edit) return;
+		if (this.constructor.SUBMIT_FLAGS.includes(flag) && !row.is_submittable) return;
+
+		this.original = this.original || {};
+		this.original[row.key] = this.original[row.key] || {};
+		if (!(flag in this.original[row.key])) this.original[row.key][flag] = row[flag] ? 1 : 0;
+
+		row[flag] = value ? 1 : 0;
+
+		const changes = (this.dirty[row.key] = this.dirty[row.key] || {});
+		if (row[flag] === this.original[row.key][flag]) {
+			delete changes[flag];
+			if (!Object.keys(changes).length) delete this.dirty[row.key];
+		} else {
+			changes[flag] = row[flag];
+		}
+		this.refresh_row(row);
+		this.update_footer();
+	}
+
+	checked_rows() {
+		return this.datatable.rowmanager.getCheckedRows().map((i) => this.view[i]).filter(Boolean);
+	}
+
+	bulk_apply(flag, value) {
+		const rows = this.checked_rows();
+		if (!rows.length) {
+			frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
+			return;
+		}
+		rows.forEach((row) => this.set_flag(row, flag, value));
+		frappe.show_alert({
+			message: __("{0} set to {1} on {2} rows", [frappe.unscrub(flag), value ? __("on") : __("off"), rows.length]),
+			indicator: "blue",
+		});
+	}
+
+	change_payload() {
+		return Object.entries(this.dirty).map(([key, changes]) => {
+			const row = this.by_key[key];
+			return {
+				doctype: row.doctype, role: row.role, permlevel: row.permlevel, if_owner: row.if_owner,
+				changes: { ...changes },
+			};
+		});
+	}
+
+	discard() {
+		Object.keys(this.dirty).forEach((key) => {
+			const row = this.by_key[key];
+			Object.entries(this.original[key] || {}).forEach(([flag, v]) => (row[flag] = v));
+		});
+		this.dirty = {};
+		this.original = {};
+		this.datatable.refresh(this.view, this.columns);
+		this.update_footer();
+	}
+
+	// ── footer + bulk menu ─────────────────────────────────────────────────────
+
+	make_footer() {
+		if (!this.can_edit) return;
+		this.$footer = $(`
+			<div class="pp-perm-footer">
+				<span class="pp-perm-count"></span>
+				<button class="btn btn-default btn-sm pp-discard">${__("Discard")}</button>
+				<button class="btn btn-default btn-sm pp-review">${__("Review")}</button>
+				<button class="btn btn-primary btn-sm pp-commit">${__("Commit")}</button>
+			</div>`).appendTo(this.$body);
+		this.$footer.find(".pp-discard").on("click", () => this.discard());
+		this.$footer.find(".pp-review").on("click", () => this.review());
+		this.$footer.find(".pp-commit").on("click", () => this.review());
+
+		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
+		// checked rows. (Fifteen flags x set/clear as a dropdown would be thirty items.)
+		this.$bulk = $(`
+			<span class="pp-perm-bulk">
+				<select class="form-control input-sm pp-bulk-flag"></select>
+				<button class="btn btn-default btn-sm pp-bulk-set">${__("Set on selected")}</button>
+				<button class="btn btn-default btn-sm pp-bulk-clear">${__("Clear on selected")}</button>
+			</span>`).insertAfter(this.$footer.find(".pp-perm-count"));
+		const $select = this.$bulk.find(".pp-bulk-flag");
+		this.constructor.FLAGS.forEach((flag) =>
+			$select.append(`<option value="${flag}">${frappe.unscrub(flag)}</option>`)
+		);
+		this.$bulk.find(".pp-bulk-set").on("click", () => this.bulk_apply($select.val(), 1));
+		this.$bulk.find(".pp-bulk-clear").on("click", () => this.bulk_apply($select.val(), 0));
+	}
+
+	update_footer() {
+		if (!this.$footer) return;
+		const n = Object.keys(this.dirty).length;
+		const selected = this.checked_rows().length;
+		this.$footer.find(".pp-perm-count").text(
+			n
+				? __("{0} unsaved rule change(s), {1} row(s) selected", [n, selected])
+				: __("No unsaved changes, {0} row(s) selected", [selected])
+		);
+		this.$footer.find(".pp-review, .pp-commit").prop("disabled", !n);
+		this.$footer.find(".pp-discard").prop("disabled", !n);
+	}
+
+	// Filled in by Task 7.
+	review() {}
 };
