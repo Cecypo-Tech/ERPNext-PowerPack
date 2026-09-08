@@ -16,7 +16,9 @@ role; we always include if_owner.
 
 import frappe
 from frappe import _
-from frappe.permissions import std_rights
+from frappe.core.doctype.doctype.doctype import validate_permissions
+from frappe.desk.notifications import delete_notification_count_for
+from frappe.permissions import setup_custom_perms, std_rights
 
 # The 14 std_rights plus mask, which is a Custom DocPerm field but deliberately not a
 # std right. if_owner is NOT here: it is part of a rule's identity, not a flag on it.
@@ -169,3 +171,108 @@ def preview_changes(changes) -> dict:
 	_check_can_edit()
 	parsed = _parse_changes(changes)
 	return {"rules": parsed, "detaching": _detaching_doctypes(parsed)}
+
+
+_SAVEPOINT = "pp_permission_commit"
+
+
+@frappe.whitelist()
+def commit_changes(changes) -> dict:
+	"""Apply a whole change set in one transaction.
+
+	Per doctype: detach once (setup_custom_perms), write each changed row, validate
+	that doctype's custom rules once. Then clear caches once for the whole commit.
+	Any failure rolls the entire payload back — never a partial application.
+	"""
+	_check_can_edit()
+	parsed = _drop_noops(_parse_changes(changes))
+	if not parsed:
+		return {"doctypes": 0, "rules": 0, "detached": []}
+
+	by_doctype: dict[str, list[dict]] = {}
+	for rule in parsed:
+		by_doctype.setdefault(rule["doctype"], []).append(rule)
+
+	detached = []
+	frappe.db.savepoint(_SAVEPOINT)
+	try:
+		for doctype, rules in by_doctype.items():
+			if setup_custom_perms(doctype):
+				detached.append(doctype)
+			_apply_to_doctype(doctype, rules)
+			_validate_custom_rules(doctype)
+	except Exception:
+		frappe.db.rollback(save_point=_SAVEPOINT)
+		raise
+
+	# Once per commit, not once per checkbox. CustomDocPerm.on_update already cleared
+	# each doctype's own cache on save; this is the site-wide part frappe's page
+	# repeats for every single tick.
+	from frappe.cache_manager import clear_user_cache
+
+	for doctype in by_doctype:
+		delete_notification_count_for(doctype)
+	clear_user_cache()
+
+	return {"doctypes": len(by_doctype), "rules": len(parsed), "detached": detached}
+
+
+def _drop_noops(parsed: list[dict]) -> list[dict]:
+	"""Remove flags that already hold the requested value, then rules left empty.
+	Keeps a no-op commit from detaching a doctype for nothing."""
+	out = []
+	for rule in parsed:
+		table = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": rule["doctype"]}) else "DocPerm"
+		current = frappe.db.get_value(
+			table,
+			{
+				"parent": rule["doctype"],
+				"role": rule["role"],
+				"permlevel": rule["permlevel"],
+				"if_owner": rule["if_owner"],
+			},
+			list(rule["changes"]),
+			as_dict=True,
+		)
+		real = {f: v for f, v in rule["changes"].items() if int(current.get(f) or 0) != v}
+		if real:
+			out.append({**rule, "changes": real})
+	return out
+
+
+def _apply_to_doctype(doctype: str, rules: list[dict]):
+	for rule in rules:
+		name = frappe.db.get_value(
+			"Custom DocPerm",
+			{
+				"parent": doctype,
+				"role": rule["role"],
+				"permlevel": rule["permlevel"],
+				"if_owner": rule["if_owner"],
+			},
+			"name",
+		)
+		if not name:
+			frappe.throw(
+				_("No permission rule for {0} on {1} at level {2}").format(
+					rule["role"], doctype, rule["permlevel"]
+				),
+				frappe.ValidationError,
+			)
+		doc = frappe.get_doc("Custom DocPerm", name)
+		doc.update(rule["changes"])
+		doc.save(ignore_permissions=True)
+
+
+def _validate_custom_rules(doctype: str):
+	"""Run frappe's own permission rules over the rows that are actually in force.
+
+	frappe.get_doc("DocType") loads the STANDARD DocPerm rows; only get_meta merges
+	Custom DocPerm (frappe/model/meta.py:641). So validate_permissions_for_doctype()
+	would validate the wrong rows. We hand validate_permissions() the DocType doc
+	with its permissions swapped for the custom rows, which is all it reads.
+	"""
+	dt = frappe.get_doc("DocType", doctype)
+	names = frappe.get_all("Custom DocPerm", filters={"parent": doctype}, pluck="name", order_by="idx")
+	dt.permissions = [frappe.get_doc("Custom DocPerm", n) for n in names]
+	validate_permissions(dt)

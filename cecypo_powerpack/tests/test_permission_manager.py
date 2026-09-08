@@ -194,3 +194,102 @@ class TestPreview(FrappeTestCase):
 		frappe.set_user(viewer)
 		with self.assertRaises(frappe.PermissionError):
 			preview_changes([{**self.rule, "changes": {"write": 1}}])
+
+
+def custom_flag(doctype, role, flag, permlevel=0, if_owner=0):
+	return frappe.db.get_value(
+		"Custom DocPerm",
+		{"parent": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner},
+		flag,
+	)
+
+
+class TestCommit(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.a = new_doctype(permissions=[perm("Sales User", read=1), perm("Stock User", read=1)])
+		self.a.insert()
+		self.b = new_doctype(permissions=[perm("Sales User", read=1)])
+		self.b.insert()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def rule(self, dt, role, **changes):
+		return {"doctype": dt.name, "role": role, "permlevel": 0, "if_owner": 0, "changes": changes}
+
+	def test_commit_applies_every_change_across_doctypes(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		out = commit_changes(
+			[
+				self.rule(self.a, "Sales User", write=1, delete=1),
+				self.rule(self.a, "Stock User", write=1),
+				self.rule(self.b, "Sales User", write=1),
+			]
+		)
+		self.assertEqual(out["doctypes"], 2)
+		self.assertEqual(out["rules"], 3)
+		self.assertEqual(sorted(out["detached"]), sorted([self.a.name, self.b.name]))
+		self.assertEqual(custom_flag(self.a.name, "Sales User", "write"), 1)
+		self.assertEqual(custom_flag(self.a.name, "Sales User", "delete"), 1)
+		self.assertEqual(custom_flag(self.a.name, "Stock User", "write"), 1)
+		self.assertEqual(custom_flag(self.b.name, "Sales User", "write"), 1)
+		# untouched rows on a detached doctype are copied verbatim, not lost
+		self.assertEqual(custom_flag(self.a.name, "Stock User", "read"), 1)
+
+	def test_commit_detaches_the_doctype_once(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		commit_changes([self.rule(self.a, "Sales User", write=1)])
+		self.assertEqual(frappe.db.count("Custom DocPerm", {"parent": self.a.name}), 2)
+
+	def test_failure_rolls_back_every_doctype_in_the_payload(self):
+		"""Second doctype's change breaks a frappe rule (cancel without submit).
+		The first doctype must come out untouched — not even detached."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			commit_changes(
+				[
+					self.rule(self.a, "Sales User", write=1),
+					self.rule(self.b, "Sales User", cancel=1),
+				]
+			)
+		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.a.name}))
+		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.b.name}))
+
+	def test_clearing_last_basic_right_is_rejected(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			commit_changes([self.rule(self.a, "Sales User", read=0)])
+
+	def test_noop_payload_writes_nothing(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		out = commit_changes([self.rule(self.a, "Sales User", read=1)])  # already 1
+		self.assertEqual(out, {"doctypes": 0, "rules": 0, "detached": []})
+		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.a.name}))
+
+	def test_grid_reflects_the_commit(self):
+		from cecypo_powerpack.permission_manager import commit_changes, get_permission_rules
+
+		commit_changes([self.rule(self.a, "Sales User", write=1)])
+		row = next(
+			r
+			for r in get_permission_rules()["rows"]
+			if r["doctype"] == self.a.name and r["role"] == "Sales User"
+		)
+		self.assertEqual((row["is_custom"], row["write"]), (1, 1))
+
+	def test_commit_requires_system_manager_even_with_gate_write(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		editor = make_user(
+			"pp-perm-editor@example.com",
+			[make_role("PP Perm Editor", gate_read=True, gate_write=True)],
+		)
+		frappe.set_user(editor)
+		with self.assertRaises(frappe.PermissionError):
+			commit_changes([self.rule(self.a, "Sales User", write=1)])
