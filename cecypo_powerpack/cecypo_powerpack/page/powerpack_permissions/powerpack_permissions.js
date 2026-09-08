@@ -142,7 +142,20 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 
 		this.columns = [
 			text("module", __("Module"), 130),
-			text("doctype", __("Document Type"), 200),
+			{
+				...text("doctype", __("Document Type"), 200),
+				// Editing a standard (not-yet-custom) row detaches its doctype from app
+				// permission updates on commit; mark it so that detachment risk is
+				// visible in the grid.
+				format: (value, row, column, data) => {
+					const name = frappe.utils.escape_html(String(value ?? ""));
+					return data.is_custom
+						? name
+						: `<span class="pp-standard" title="${__(
+								"Standard rule — editing it detaches this doctype from app permission updates"
+						  )}">${name}</span>`;
+				},
+			},
 			text("role", __("Role"), 150),
 			{ id: "permlevel", name: __("Lvl"), width: 44, align: "center", editable: false, dropdown: false },
 			{
@@ -178,6 +191,11 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		if (this.constructor.SUBMIT_FLAGS.includes(flag) && !row.is_submittable) {
 			return '<span class="pp-flag-na">·</span>';
 		}
+		// Server-enforced invariant (_parse_changes): Report cannot be set on a row
+		// that is Only If Creator. Show it the same way as an inapplicable submit flag.
+		if (flag === "report" && row.if_owner) {
+			return '<span class="pp-flag-na">·</span>';
+		}
 		const value = row[flag] ? 1 : 0;
 		const dirty = this.dirty[row.key] && flag in this.dirty[row.key];
 		const cls = `pp-flag${dirty ? " pp-dirty" : ""}`;
@@ -201,6 +219,14 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// calls row.map), not the row object. The object is still what format() sees:
 		// the datatable keeps our objects in data[] untouched and we mutate them in place.
 		this.datatable.refreshRow(this.columns.map((c) => row[c.id]), index);
+		// DataManager.updateRow pads our (shorter) row to the datatable's column count
+		// with a hardcoded unchecked '<input type="checkbox" />' for the _checkbox
+		// column, and refreshRow repaints column 0 with it — even though
+		// rowmanager.checkMap[index] still says the row is selected. Left alone, a bulk
+		// apply visually un-selects every on-screen selected row while the footer still
+		// reports them as selected. Restore the visual state from the model.
+		const rm = this.datatable.rowmanager;
+		if (rm.checkMap && rm.checkMap[index]) rm.checkRow(index, true);
 	}
 
 	// ── dirty store ────────────────────────────────────────────────────────────
@@ -385,7 +411,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 					7
 				);
 				// Reload from the server so is_custom flags and any server-side normalisation
-				// (e.g. validate_permissions zeroing create at level > 0) are reflected.
+				// (e.g. validate_permissions zeroing create at level > 0) are reflected — the
+				// server persists that normalisation now, so this reload shows the actual
+				// values Custom DocPerm holds, not a stale pre-normalisation echo of ours.
 				this.load();
 			},
 			// On error the server has already shown the offending rule; nothing was written.

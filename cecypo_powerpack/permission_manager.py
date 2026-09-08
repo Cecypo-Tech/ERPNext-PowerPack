@@ -16,6 +16,7 @@ role; we always include if_owner.
 
 import frappe
 from frappe import _
+from frappe.cache_manager import clear_user_cache
 from frappe.core.doctype.doctype.doctype import validate_permissions
 from frappe.desk.notifications import delete_notification_count_for
 from frappe.permissions import setup_custom_perms, std_rights
@@ -23,9 +24,6 @@ from frappe.permissions import setup_custom_perms, std_rights
 # The 14 std_rights plus mask, which is a Custom DocPerm field but deliberately not a
 # std right. if_owner is NOT here: it is part of a rule's identity, not a flag on it.
 FLAGS = tuple(std_rights) + ("mask",)
-
-# Only meaningful on submittable doctypes; the client blanks them out elsewhere.
-SUBMIT_FLAGS = ("submit", "cancel", "amend")
 
 # Reading the grid reuses an existing doctype permission instead of a new role field:
 # to let another role view the grid, grant it Read on this doctype in frappe's Role
@@ -138,6 +136,13 @@ def _parse_changes(changes) -> list[dict]:
 				_("No permission rule for {0} on {1} at level {2}").format(role, doctype, permlevel),
 				frappe.ValidationError,
 			)
+		# frappe enforces this only in its own page endpoint
+		# (frappe/core/page/permission_manager/permission_manager.py:147), not in
+		# validate_permissions(), so we never inherited it from there.
+		if flags.get("report") and if_owner:
+			frappe.throw(
+				_("Cannot set 'Report' permission when 'Only If Creator' is set"), frappe.ValidationError
+			)
 		out.append(
 			{"doctype": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner, "changes": flags}
 		)
@@ -207,9 +212,11 @@ def commit_changes(changes) -> dict:
 
 	# Once per commit, not once per checkbox. CustomDocPerm.on_update already cleared
 	# each doctype's own cache on save; this is the site-wide part frappe's page
-	# repeats for every single tick.
-	from frappe.cache_manager import clear_user_cache
-
+	# repeats for every single tick. One global clear_user_cache() here is enough even
+	# though we also saved a row per doctype above: CustomDocPerm.on_update calls
+	# frappe.clear_cache(doctype=...), which self-registers an after_commit callback to
+	# re-clear that doctype's cache (frappe/cache_manager.py:131-133) once this request
+	# commits, so the per-doctype clears effectively repeat after commit regardless.
 	for doctype in by_doctype:
 		delete_notification_count_for(doctype)
 	clear_user_cache()
@@ -276,3 +283,9 @@ def _validate_custom_rules(doctype: str):
 	names = frappe.get_all("Custom DocPerm", filters={"parent": doctype}, pluck="name", order_by="idx")
 	dt.permissions = [frappe.get_doc("Custom DocPerm", n) for n in names]
 	validate_permissions(dt)
+	# validate_permissions() mutates rows in place (e.g. zeroes create/submit/cancel/amend
+	# at permlevel > 0, zeroes report/import/export on Single doctypes) but never saves
+	# them. Stock frappe persists via db_update() in validate_permissions_for_doctype();
+	# we must do the same here or the corrections are silently dropped.
+	for perm in dt.permissions:
+		perm.db_update()

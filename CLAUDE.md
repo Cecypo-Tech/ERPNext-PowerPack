@@ -135,6 +135,9 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
   the custom rules with frappe's `validate_permissions()`, and clears the user cache once.
 - The page JS is loaded by frappe's page loader and is a classic script; its SCSS goes
   through the bundle like everything else.
+- Deploying this feature needs `bench migrate` (it ships a new Page record — the route
+  404s without it) and `bench build --app cecypo_powerpack` (new bundle entry;
+  `public/dist` is gitignored).
 
 ### Fixtures
 
@@ -165,6 +168,7 @@ SCSS sources (plain CSS or nested), imported by `cecypo_powerpack.bundle.scss` �
 - `sales_powerup.scss` — Sales powerup info panels
 - `quick_pay.scss` — Quick Pay dialog
 - `lens_powerup.scss` — Lens powerup panels
+- `powerpack_permissions.scss` — Permission Manager page
 
 ## Skill routing
 

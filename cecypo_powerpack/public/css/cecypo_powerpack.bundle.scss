@@ -14,8 +14,9 @@
  * The sources are .scss purely so sass resolves these imports: frappe's postcss
  * plugin copies a bundle entry into a temp dir without its siblings, so importing
  * a plain .css file by its full name cannot resolve. SCSS is a superset of CSS, so
- * the files themselves are unchanged plain CSS with a renamed extension. The
- * extensionless imports below match erpnext/public/scss/erpnext.bundle.scss.
+ * the files are SCSS (plain CSS or nested); the extension exists so sass can
+ * resolve these sibling imports. The extensionless imports below match
+ * erpnext/public/scss/erpnext.bundle.scss.
  *
  * Import order matches the old app_include_css list exactly; later files rely on
  * winning the cascade against earlier ones.

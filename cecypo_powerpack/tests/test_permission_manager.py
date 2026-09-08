@@ -195,6 +195,19 @@ class TestPreview(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			preview_changes([{**self.rule, "changes": {"write": 1}}])
 
+	def test_report_rejected_when_if_owner_is_set(self):
+		"""I-3: frappe enforces this invariant only in its own page endpoint
+		(frappe/core/page/permission_manager/permission_manager.py:147), not in
+		validate_permissions(), so committing straight to Custom DocPerm never inherits
+		it. We must enforce it ourselves."""
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		dt = new_doctype(permissions=[{**perm("Sales User", read=1), "if_owner": 1}])
+		dt.insert()
+		rule = {"doctype": dt.name, "role": "Sales User", "permlevel": 0, "if_owner": 1}
+		with self.assertRaises(frappe.ValidationError):
+			preview_changes([{**rule, "changes": {"report": 1}}])
+
 
 def custom_flag(doctype, role, flag, permlevel=0, if_owner=0):
 	return frappe.db.get_value(
@@ -293,3 +306,59 @@ class TestCommit(FrappeTestCase):
 		frappe.set_user(editor)
 		with self.assertRaises(frappe.PermissionError):
 			commit_changes([self.rule(self.a, "Sales User", write=1)])
+
+	def test_validate_permissions_corrections_are_persisted(self):
+		"""I-2: validate_permissions() zeroes create/submit/cancel/amend at permlevel > 0
+		in place, but never saves the change itself; stock frappe persists it via
+		db_update() in validate_permissions_for_doctype() and we must do the same, or
+		the correction to Custom DocPerm is silently dropped.
+
+		DocType.validate() already runs validate_permissions() on its own standard
+		DocPerm rows before insert, so a permlevel-1 "create": 1 row built through
+		new_doctype() directly would already arrive zeroed — that codepath cannot
+		produce the dirty fixture this test needs. Detach with setup_custom_perms()
+		first (copying the level-0 row across untouched) and insert the level-1
+		Custom DocPerm row directly: Custom DocPerm has no validate() hook of its own,
+		so its `create` reaches us still dirty."""
+		from frappe.permissions import setup_custom_perms
+
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		dt = new_doctype(permissions=[perm("Sales User", read=1)])
+		dt.insert()
+		setup_custom_perms(dt.name)
+		frappe.get_doc(
+			{
+				"doctype": "Custom DocPerm",
+				"parent": dt.name,
+				"parenttype": "DocType",
+				"parentfield": "permissions",
+				**perm("Sales User", create=1),
+				"permlevel": 1,
+			}
+		).insert(ignore_permissions=True)
+		self.assertEqual(custom_flag(dt.name, "Sales User", "create", permlevel=1), 1)
+
+		commit_changes(
+			[{"doctype": dt.name, "role": "Sales User", "permlevel": 1, "if_owner": 0, "changes": {"read": 1}}]
+		)
+		self.assertEqual(custom_flag(dt.name, "Sales User", "read", permlevel=1), 1)
+		self.assertEqual(custom_flag(dt.name, "Sales User", "create", permlevel=1), 0)
+
+	def test_if_owner_disambiguates_identical_role_and_permlevel(self):
+		"""I-5: a doctype can carry both an if_owner=0 and an if_owner=1 rule for the
+		same role and permlevel; committing to one must not touch the other."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		dt = new_doctype(
+			permissions=[
+				perm("Sales User", read=1),
+				{**perm("Sales User", read=1), "if_owner": 1},
+			]
+		)
+		dt.insert()
+		commit_changes(
+			[{"doctype": dt.name, "role": "Sales User", "permlevel": 0, "if_owner": 1, "changes": {"write": 1}}]
+		)
+		self.assertEqual(custom_flag(dt.name, "Sales User", "write", if_owner=0), 0)
+		self.assertEqual(custom_flag(dt.name, "Sales User", "write", if_owner=1), 1)
