@@ -48,7 +48,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	static get SUBMIT_FLAGS() { return ["submit", "cancel", "amend"]; }
 
 	key_of(row) {
-		return `${row.doctype}${row.role}${row.permlevel}${row.if_owner}`;
+		// JSON, not concatenation: "Foo Bar"+"Baz" would collide with "Foo"+"Bar Baz", and
+		// an invisible control-character delimiter gets stripped by copy paths and HTML
+		// parsing. JSON is unambiguous and round-trips through a data- attribute.
+		return JSON.stringify([row.doctype, row.role, row.permlevel, row.if_owner]);
 	}
 
 	load() {
@@ -154,7 +157,12 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// Flag checkboxes are plain HTML inside datatable cells; delegate their clicks.
 		this.$table.on("change", "input.pp-flag", (e) => {
 			const $cb = $(e.currentTarget);
-			this.set_flag(this.by_key[$cb.data("key")], $cb.data("flag"), $cb.prop("checked") ? 1 : 0);
+			// Raw attribute, not $cb.data("key"): jQuery auto-parses a JSON-looking
+			// data-key string into an array, and by_key[array] stringifies it back via
+			// Array.toString() (comma-joined, unquoted) which no longer matches the
+			// JSON.stringify key used to build by_key.
+			const key = e.currentTarget.getAttribute("data-key");
+			this.set_flag(this.by_key[key], $cb.data("flag"), $cb.prop("checked") ? 1 : 0);
 		});
 	}
 
@@ -173,7 +181,11 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 
 	refresh_row(row) {
 		const index = this.view.indexOf(row);
-		if (index >= 0) this.datatable.refreshRow(row, index);
+		if (index < 0) return;
+		// refreshRow wants an ARRAY of cell values (DataManager.updateRow -> prepareRow
+		// calls row.map), not the row object. The object is still what format() sees:
+		// the datatable keeps our objects in data[] untouched and we mutate them in place.
+		this.datatable.refreshRow(this.columns.map((c) => row[c.id]), index);
 	}
 
 	// Filled in by Task 6.
