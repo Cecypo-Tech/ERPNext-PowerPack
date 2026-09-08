@@ -1,0 +1,95 @@
+// cecypo_powerpack/public/css/powerpack_permissions.scss
+// PowerPack Permission Manager page. SCSS with nesting — see CLAUDE.md,
+// Asset bundling, for why the extension matters.
+
+.pp-perm {
+	padding: 0 0 56px 0; // room for the fixed footer
+}
+
+.pp-perm-empty {
+	padding: 40px;
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.pp-perm-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: flex-end;
+	margin-bottom: 8px;
+
+	.frappe-control {
+		margin-bottom: 0;
+		min-width: 160px;
+	}
+}
+
+.pp-perm-table {
+	.dt-cell__content {
+		font-size: var(--text-sm);
+	}
+
+	.pp-flag {
+		margin: 0;
+		cursor: pointer;
+	}
+
+	.pp-flag-na {
+		color: var(--text-light);
+	}
+
+	.pp-dirty {
+		background: var(--yellow-50);
+		box-shadow: inset 0 0 0 1px var(--yellow-300);
+	}
+
+	.pp-standard {
+		font-style: italic;
+	}
+}
+
+.pp-perm-footer {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 8px 16px;
+	background: var(--card-bg);
+	border-top: 1px solid var(--border-color);
+
+	.pp-perm-count {
+		color: var(--text-muted);
+	}
+
+	.pp-perm-bulk {
+		display: inline-flex;
+		gap: 6px;
+		align-items: center;
+		margin-right: auto;
+		margin-left: 16px;
+
+		.pp-bulk-flag {
+			width: 120px;
+		}
+	}
+}
+
+.pp-perm-review {
+	.pp-review-detach {
+		border: 1px solid var(--red-300);
+		background: var(--red-50);
+		border-radius: var(--border-radius);
+		padding: 8px 12px;
+		margin-bottom: 12px;
+	}
+
+	code {
+		font-size: var(--text-xs);
+	}
+}

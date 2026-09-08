@@ -65,6 +65,8 @@ The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory an
 | `cecypo_powerpack/validations.py` | `before_cancel` handler for ETR invoice protection |
 | `cecypo_powerpack/overrides.py` | `Payment Reconciliation` validate hook for zero-allocation support |
 | `cecypo_powerpack/custom_payment_reconciliation.py` | `CustomPaymentReconciliation` class extending ERPNext's `PaymentReconciliation` |
+| `cecypo_powerpack/permission_manager.py` | Server side of the Permission Manager page: read all rules, preview/commit a batched change set |
+| `cecypo_powerpack/cecypo_powerpack/page/powerpack_permissions/` | The Permission Manager desk page (`/app/powerpack-permissions`) |
 | `cecypo_powerpack/cecypo_powerpack/doctype/powerpack_settings/` | Singleton DocType definition |
 
 ### Asset bundling (read before adding a JS or CSS file)
@@ -88,7 +90,7 @@ to the matching bundle entry point. Import order is load order.
 
 Two consequences to respect:
 
-- **CSS sources are `.scss`.** They are plain CSS with a renamed extension. The
+- **CSS sources are `.scss`.** Most are plain CSS with a renamed extension; Sass nesting is fine and `powerpack_permissions.scss` uses it. The
   rename exists only so sass resolves the bundle's extensionless sibling imports —
   frappe's postcss plugin copies a bundle entry to a temp dir without its siblings,
   so importing a `.css` file by full name fails to resolve.
@@ -117,6 +119,26 @@ app. The JS hash is stable.
 - **`override_doctype_class`** in `hooks.py`: `Payment Reconciliation` is overridden with `CustomPaymentReconciliation` to add a `zero_reconcile()` method without touching the standard reconcile path.
 - **`doc_events`**: `before_cancel` on Sales Invoice and POS Invoice; `validate` on Payment Reconciliation.
 
+### Permission Manager
+
+`/app/powerpack-permissions` replaces the per-checkbox saving of frappe's Role
+Permissions Manager with one virtualized grid and a single commit. Rules are keyed by
+`(doctype, role, permlevel, if_owner)` — `if_owner` included, because frappe's own
+`update_permission_property()` omits it and can hit the wrong row.
+
+- Read: gated on `frappe.has_permission("User Permission", "read")` (`READ_GATE_DOCTYPE`). Not
+  Custom DocPerm: frappe never honours custom perms on that doctype itself (`meta.py:645`).
+  Grant a role Read on User Permission to let it view the grid.
+- Write: `only_for("System Manager")`, unconditionally.
+- Commit groups changes by doctype, calls `setup_custom_perms` once per doctype (which
+  **detaches** it from app permission updates — the review step lists these), validates
+  the custom rules with frappe's `validate_permissions()`, and clears the user cache once.
+- The page JS is loaded by frappe's page loader and is a classic script; its SCSS goes
+  through the bundle like everything else.
+- Deploying this feature needs `bench migrate` (it ships a new Page record — the route
+  404s without it) and `bench build --app cecypo_powerpack` (new bundle entry;
+  `public/dist` is gitignored).
+
 ### Fixtures
 
 `hooks.py` exports these as fixtures (synced with `bench export-fixtures`):
@@ -138,7 +160,7 @@ POS search reads from `POS Settings.pos_search_fields` (child table) to extend t
 
 ### CSS
 
-Plain CSS with a `.scss` extension, imported by `cecypo_powerpack.bundle.scss` — see
+SCSS sources (plain CSS or nested), imported by `cecypo_powerpack.bundle.scss` — see
 **Asset bundling** above for why the extension matters.
 
 - `cecypo_powerpack.scss` — global compact theme (`body.compact-theme`)
@@ -146,6 +168,7 @@ Plain CSS with a `.scss` extension, imported by `cecypo_powerpack.bundle.scss` �
 - `sales_powerup.scss` — Sales powerup info panels
 - `quick_pay.scss` — Quick Pay dialog
 - `lens_powerup.scss` — Lens powerup panels
+- `powerpack_permissions.scss` — Permission Manager page
 
 ## Skill routing
 
