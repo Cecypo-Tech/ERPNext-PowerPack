@@ -132,3 +132,65 @@ class TestReadGate(FrappeTestCase):
 		frappe.set_user(self.nobody)
 		with self.assertRaises(frappe.PermissionError):
 			get_permission_rules()
+
+
+class TestPreview(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.dt = new_doctype(permissions=[perm("Sales User", read=1)])
+		self.dt.insert()
+		self.rule = {"doctype": self.dt.name, "role": "Sales User", "permlevel": 0, "if_owner": 0}
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def test_preview_lists_rules_and_newly_detached_doctypes(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		out = preview_changes([{**self.rule, "changes": {"write": 1}}])
+		self.assertEqual(len(out["rules"]), 1)
+		self.assertEqual(out["rules"][0]["changes"], {"write": 1})
+		self.assertEqual(out["detaching"], [{"doctype": self.dt.name, "standard_rules": 1}])
+
+	def test_already_custom_doctype_is_not_listed_as_detaching(self):
+		from frappe.permissions import update_permission_property
+
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		update_permission_property(self.dt.name, "Sales User", 0, "write", 1)
+		out = preview_changes([{**self.rule, "changes": {"delete": 1}}])
+		self.assertEqual(out["detaching"], [])
+
+	def test_accepts_json_string_payload(self):
+		"""frappe.call sends nested args as JSON strings."""
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		out = preview_changes(frappe.as_json([{**self.rule, "changes": {"write": 1}}]))
+		self.assertEqual(len(out["rules"]), 1)
+
+	def test_unknown_flag_rejected(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			preview_changes([{**self.rule, "changes": {"if_owner": 1}}])
+		with self.assertRaises(frappe.ValidationError):
+			preview_changes([{**self.rule, "changes": {"launch_missiles": 1}}])
+
+	def test_unknown_rule_rejected(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			preview_changes([{**self.rule, "role": "Stock User", "changes": {"read": 1}}])
+
+	def test_empty_changes_dropped(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		self.assertEqual(preview_changes([{**self.rule, "changes": {}}])["rules"], [])
+
+	def test_preview_requires_system_manager(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		viewer = make_user("pp-perm-viewer@example.com", [make_role("PP Perm Viewer", gate_read=True)])
+		frappe.set_user(viewer)
+		with self.assertRaises(frappe.PermissionError):
+			preview_changes([{**self.rule, "changes": {"write": 1}}])

@@ -105,3 +105,67 @@ def get_permission_rules() -> dict:
 
 	rows.sort(key=lambda r: (r["doctype"], r["role"], r["permlevel"], r["if_owner"]))
 	return {"rows": rows, "can_edit": _can_edit()}
+
+
+def _parse_changes(changes) -> list[dict]:
+	"""Normalise the client payload. Rejects anything that is not a known flag on a
+	rule that exists, so nothing downstream has to defend against the payload."""
+	if isinstance(changes, str):
+		changes = frappe.parse_json(changes)
+	if not isinstance(changes, list):
+		frappe.throw(_("changes must be a list"), frappe.ValidationError)
+
+	merged: dict[tuple, dict] = {}
+	for item in changes:
+		for required in ("doctype", "role"):
+			if not item.get(required):
+				frappe.throw(_("Each change needs a doctype and a role"), frappe.ValidationError)
+		key = _rule_key(item)
+		flags = item.get("changes") or {}
+		for flag, value in flags.items():
+			if flag not in FLAGS:
+				frappe.throw(_("{0} is not an editable permission").format(flag), frappe.ValidationError)
+			merged.setdefault(key, {})[flag] = 1 if int(value) else 0
+
+	out = []
+	for (doctype, role, permlevel, if_owner), flags in merged.items():
+		if not flags:
+			continue
+		if not _rule_exists(doctype, role, permlevel, if_owner):
+			frappe.throw(
+				_("No permission rule for {0} on {1} at level {2}").format(role, doctype, permlevel),
+				frappe.ValidationError,
+			)
+		out.append(
+			{"doctype": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner, "changes": flags}
+		)
+	return out
+
+
+def _rule_exists(doctype, role, permlevel, if_owner) -> bool:
+	"""A rule exists if it is in force: custom if the doctype is detached, else standard."""
+	filters = {"parent": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner}
+	if frappe.db.exists("Custom DocPerm", {"parent": doctype}):
+		return bool(frappe.db.exists("Custom DocPerm", filters))
+	return bool(frappe.db.exists("DocPerm", filters))
+
+
+def _detaching_doctypes(parsed: list[dict]) -> list[dict]:
+	"""Doctypes in the payload that have no Custom DocPerm yet. Committing will copy
+	every one of their standard rules into Custom DocPerm (setup_custom_perms), after
+	which permission changes shipped by apps on bench migrate no longer reach them."""
+	out = []
+	for doctype in sorted({c["doctype"] for c in parsed}):
+		if frappe.db.exists("Custom DocPerm", {"parent": doctype}):
+			continue
+		out.append(
+			{"doctype": doctype, "standard_rules": frappe.db.count("DocPerm", {"parent": doctype})}
+		)
+	return out
+
+
+@frappe.whitelist()
+def preview_changes(changes) -> dict:
+	_check_can_edit()
+	parsed = _parse_changes(changes)
+	return {"rules": parsed, "detaching": _detaching_doctypes(parsed)}
