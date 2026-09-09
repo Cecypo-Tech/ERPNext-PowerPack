@@ -210,6 +210,47 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		});
 
 		this.bind_shift_select();
+		this.bind_header_sort();
+	}
+
+	// ── header sort ────────────────────────────────────────────────────────────
+
+	/**
+	 * frappe-datatable's own sort UI is the header dropdown, but its items always
+	 * include "Remove column" (and Freeze/Unfreeze): DataTable.buildOptions
+	 * concatenates whatever `headerDropdown` we pass AFTER its own DEFAULT_OPTIONS
+	 * list (dist frappe-datatable.cjs.js:5933-5936 — `this.options.headerDropdown =
+	 * [...this.DEFAULT_OPTIONS.headerDropdown, ...options.headerDropdown]`), so the
+	 * defaults can never be excluded that way. refresh_row() maps cell values by
+	 * `this.columns` index, so letting a column be removed would desync every
+	 * later cell — passing `dropdown: true` (design (a)) is therefore not safe.
+	 *
+	 * Every column keeps `dropdown: false` (no header dropdown is rendered at all —
+	 * getCellContent, dist :3427-3429 — so `.dt-dropdown__toggle` never exists) and
+	 * sorting is driven directly: a delegated click on the header cell calls
+	 * `datatable.sortColumn(colIndex, order)` (ColumnManager.sortColumn, dist
+	 * :3767-3779), cycling none -> asc -> desc -> none. sortColumn() already calls
+	 * refreshHeader() (dist :3771) which re-renders the header and, since every one
+	 * of our columns has `sortable !== false`, repaints the built-in sort-indicator
+	 * span from `cell.sortOrder` (getCellContent, dist :3418-3423) — no extra CSS
+	 * needed for the arrow.
+	 */
+	bind_header_sort() {
+		this.$table.on("click", ".dt-cell--header", (e) => {
+			// The resize handle and, for can_edit, the select-all checkbox both live
+			// inside the header cell and bubble a click here; leave them alone.
+			if (e.target.closest('.dt-cell__resize-handle, [type="checkbox"]')) return;
+			const cell = e.currentTarget;
+			const col_index = parseInt(cell.dataset.colIndex, 10);
+			if (isNaN(col_index)) return;
+			// Column 0 (the checkbox column, when can_edit) and the serial-number
+			// column frappe-datatable always prepends are not part of `this.columns`
+			// and are not in the sortable set the brief asks for.
+			if (col_index < this.datatable.columnmanager.getFirstColumnIndex()) return;
+			const column = this.datatable.columnmanager.getColumn(col_index);
+			const next = { none: "asc", asc: "desc", desc: "none" }[column.sortOrder] || "asc";
+			this.datatable.sortColumn(col_index, next);
+		});
 	}
 
 	// ── shift-click range select ───────────────────────────────────────────────
@@ -433,7 +474,11 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			return;
 		}
 		// First load failed, or is still in flight: it will render on its own.
-		if (this._loading || !this.rows) return;
+		// A commit is in flight too: commit() already called hide_stale_notice()
+		// and will call load() itself once it settles, so treat it the same way —
+		// reloading here would race the commit and could repaint the stale notice
+		// commit() just suppressed, right before its own callback clears this.dirty.
+		if (this._loading || this._committing || !this.rows) return;
 
 		if (!Object.keys(this.dirty).length) {
 			this.load();
@@ -593,12 +638,18 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	commit(changes) {
+		// A page navigated away and back while this call is in flight must not show
+		// "unsaved changes from earlier": there aren't any yet — they are mid-commit.
+		// on_show() checks this._committing and does nothing while it is true.
+		this.hide_stale_notice();
+		this._committing = true;
 		frappe.call({
 			method: "cecypo_powerpack.permission_manager.commit_changes",
 			args: { changes },
 			freeze: true,
 			freeze_message: __("Committing permission changes…"),
 			callback: (r) => {
+				this._committing = false;
 				const out = r.message;
 				frappe.show_alert(
 					{
@@ -613,7 +664,12 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				// values Custom DocPerm holds, not a stale pre-normalisation echo of ours.
 				this.load();
 			},
-			// On error the server has already shown the offending rule; nothing was written.
+			error: () => {
+				// The server already showed the offending rule; nothing was written, so
+				// this.dirty must survive untouched — the user's change set is still valid
+				// and still needs a Commit.
+				this._committing = false;
+			},
 		});
 	}
 };

@@ -130,6 +130,12 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
   Custom DocPerm: frappe never honours custom perms on that doctype itself (`meta.py:645`).
   Grant a role Read on User Permission to let it view the grid.
 - Write: `only_for("System Manager")`, unconditionally.
+- Stricter than frappe's page on purpose: the engine validates the rules actually in force
+  (the custom rows), whereas frappe's page validates the *standard* rows. A doctype whose
+  custom rows already break an invariant (e.g. submit/cancel/amend ticked on a
+  non-submittable doctype — dev has one: `API Request Log` / `Express Admin`) rejects
+  *any* commit touching it until those flags are cleared in the same commit. The error
+  names the offending rule.
 - Commit groups changes by doctype, calls `setup_custom_perms` once per doctype (which
   **detaches** it from app permission updates — the review step lists these), validates
   the custom rules with frappe's `validate_permissions()`, and clears the user cache once.
