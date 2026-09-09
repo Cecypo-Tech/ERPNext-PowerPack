@@ -63,6 +63,34 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 	static get SUBMIT_FLAGS() { return ["submit", "cancel", "amend"]; }
 
+	// Lucide icon per flag, for the column headers. All fifteen are one icon set so the
+	// stroke weight matches; every id was checked to resolve against the sprite the desk
+	// loads (a <use> pointing at a missing symbol renders an invisible blank, not an error).
+	// import/export follow Frappe's own metaphor: you UPLOAD a file to import, and
+	// DOWNLOAD the file you export.
+	static get FLAG_ICONS() {
+		return {
+			select: "mouse-pointer", read: "eye", write: "pencil", create: "plus",
+			delete: "trash", submit: "check", cancel: "ban", amend: "rotate-ccw",
+			print: "printer", email: "mail", report: "file-text", import: "upload",
+			export: "download", share: "share-2", mask: "eye-off",
+		};
+	}
+
+	/**
+	 * Index of our first real column in the datatable's own column list.
+	 *
+	 * The datatable prepends synthetic columns: `_checkbox`, and `_rowIndex` when the
+	 * serial column is enabled. Its `getFirstColumnIndex()` derives that offset as
+	 * `getColumnIndexById('_rowIndex') + 1` (dist :3976-3978) — with the serial column
+	 * off that lookup returns -1 and the helper answers 0, which silently stops
+	 * excluding the `_checkbox` column. Derive the offset from our own first column so
+	 * it stays correct whatever synthetic columns are in play.
+	 */
+	first_data_col_index() {
+		return this.datatable.datamanager.getColumnIndexById(this.columns[0].id);
+	}
+
 	key_of(row) {
 		// JSON, not concatenation: "Foo Bar"+"Baz" would collide with "Foo"+"Bar Baz", and
 		// an invisible control-character delimiter gets stripped by copy paths and HTML
@@ -157,11 +185,25 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			id, name, width, editable: false, dropdown: false, resizable: true,
 			format: (value) => frappe.utils.escape_html(String(value ?? "")),
 		});
-		const flag = (id) => ({
-			id, name: __(frappe.unscrub(id)).slice(0, 3), width: 44, align: "center",
-			editable: false, dropdown: false, sortable: true,
-			format: (value, row, column, data) => this.render_flag(data, id),
-		});
+		// Icon headers, not text. At 44px the 3-character labels truncated to "S…" for BOTH
+		// Select and Submit and "C…" for BOTH Create and Cancel, so you could not tell which
+		// column you were ticking. The icon carries the meaning; title= carries the full word
+		// on hover and aria-label carries it for screen readers.
+		// frappe-datatable injects a header's content unescaped (getCellContent returns
+		// cell.content as-is when isHeader), so this markup renders as markup. Everything
+		// interpolated here is an internal constant or a translation of one, never user input,
+		// and the label is escaped anyway.
+		const flag = (id) => {
+			const label = frappe.utils.escape_html(__(frappe.unscrub(id)));
+			const icon = frappe.utils.icon(this.constructor.FLAG_ICONS[id], "sm");
+			return {
+				id,
+				name: `<span class="pp-flag-head" title="${label}" aria-label="${label}">${icon}</span>`,
+				width: 32, align: "center",
+				editable: false, dropdown: false, sortable: true,
+				format: (value, row, column, data) => this.render_flag(data, id),
+			};
+		};
 
 		this.columns = [
 			text("module", __("Module"), 130),
@@ -182,7 +224,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			text("role", __("Role"), 150),
 			{ id: "permlevel", name: __("Lvl"), width: 44, align: "center", editable: false, dropdown: false },
 			{
-				id: "if_owner", name: __("Own"), width: 44, align: "center", editable: false, dropdown: false,
+				// Same icon treatment as the flags: "Own" truncated to "O…" at 44px, and the
+				// full name ("Only If Creator") is what an admin actually needs to see.
+				id: "if_owner",
+				name: ((label) =>
+					`<span class="pp-flag-head" title="${label}" aria-label="${label}">${frappe.utils.icon("user", "sm")}</span>`
+				)(frappe.utils.escape_html(__("Only If Creator"))),
+				width: 36, align: "center", editable: false, dropdown: false,
 				format: (v) => (v ? "✓" : ""),
 			},
 			...this.constructor.FLAGS.map(flag),
@@ -192,6 +240,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			columns: this.columns,
 			data: [],
 			checkboxColumn: this.can_edit,
+			// No serial-number column: it costs 59px, and because frappe-datatable keeps a
+			// row's ORIGINAL index there, the numbers jump (3, 7, 8, 10 …) as soon as you
+			// sort — misleading rather than useful. The page header already shows the count.
+			serialNoColumn: false,
 			inlineFilters: false,
 			cellHeight: 28,
 			noDataMessage: __("No permission rules match"),
@@ -246,7 +298,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			// Column 0 (the checkbox column, when can_edit) and the serial-number
 			// column frappe-datatable always prepends are not part of `this.columns`
 			// and are not in the sortable set the brief asks for.
-			if (col_index < this.datatable.columnmanager.getFirstColumnIndex()) return;
+			if (col_index < this.first_data_col_index()) return;
 			const column = this.datatable.columnmanager.getColumn(col_index);
 			const next = { none: "asc", asc: "desc", desc: "none" }[column.sortOrder] || "asc";
 			this.datatable.sortColumn(col_index, next);
@@ -361,7 +413,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// throws, which silently aborted a bulk apply mid-loop. Off-screen rows need no
 		// repaint: every formatter reads the live object in data[], so they show current
 		// values the moment they scroll into view.
-		const first_col = this.datatable.columnmanager.getFirstColumnIndex();
+		const first_col = this.first_data_col_index();
 		if (!this.datatable.cellmanager.getCell$(first_col, index)) return;
 		// refreshRow wants an ARRAY of cell values (DataManager.updateRow -> prepareRow
 		// calls row.map), not the row object. The object is still what format() sees:

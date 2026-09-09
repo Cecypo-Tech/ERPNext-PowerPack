@@ -54,6 +54,30 @@
 		user-select: none;
 	}
 
+	// frappe-datatable reserves 16px of right padding on every cell's content for the
+	// header dropdown toggle — which these columns never render (dropdown: false). On a
+	// 36px icon column that padding pushed the glyph into overflow, so the cell's
+	// text-overflow: ellipsis painted a stray "…" beside every icon. Reclaim it for the
+	// flag columns, header and body alike; it also re-centres the body checkboxes.
+	.dt-cell__content:has(.pp-flag-head),
+	.dt-cell__content:has(.pp-flag) {
+		padding-left: 0;
+		padding-right: 0;
+		text-overflow: clip;
+	}
+
+	// Icon column headers: centre the glyph and let it inherit the header's muted colour.
+	.pp-flag-head {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+
+		.icon {
+			width: 14px;
+			height: 14px;
+		}
+	}
+
 	.pp-flag {
 		margin: 0;
 		cursor: pointer;
