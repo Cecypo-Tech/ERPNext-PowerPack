@@ -3,7 +3,7 @@
 // Asset bundling, for why the extension matters.
 
 .pp-perm {
-	padding: 0 0 56px 0; // room for the fixed footer
+	padding: 0;
 }
 
 .pp-perm-empty {
@@ -74,9 +74,14 @@
 }
 
 .pp-perm-footer {
-	position: fixed;
-	left: 0;
-	right: 0;
+	// Sticky, not fixed. A fixed footer is positioned against the VIEWPORT, so it began
+	// at x=0 and ran underneath the desk sidebar — which paints over it (sidebar
+	// z-index 1020 vs 5), cutting off the left of the count text. Sticky keeps the
+	// footer in the content column automatically, and stays correct whether the sidebar
+	// is collapsed (50px, in flow), expanded (220px absolute overlay + placeholder,
+	// frappe/public/scss/desk/sidebar.scss:36-49,168-210) or dragged to a custom width.
+	// No magic numbers, no --sidebar-width dependency, no resize listener.
+	position: sticky;
 	bottom: 0;
 	z-index: 5;
 	display: flex;
