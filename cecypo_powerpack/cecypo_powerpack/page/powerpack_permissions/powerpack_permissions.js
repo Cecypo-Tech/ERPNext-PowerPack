@@ -227,7 +227,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				// Same icon treatment as the flags: "Own" truncated to "O…" at 44px, and the
 				// full name ("Only If Creator") is what an admin actually needs to see.
 				id: "if_owner",
-				name: `<span class="pp-flag-head" title="${frappe.utils.escape_html(__("Only If Creator"))}" aria-label="${frappe.utils.escape_html(__("Only If Creator"))}">${frappe.utils.icon("user", "sm")}</span>`,
+				name: ((label) =>
+					`<span class="pp-flag-head" title="${label}" aria-label="${label}">${frappe.utils.icon("user", "sm")}</span>`
+				)(frappe.utils.escape_html(__("Only If Creator"))),
 				width: 36, align: "center", editable: false, dropdown: false,
 				format: (v) => (v ? "✓" : ""),
 			},
