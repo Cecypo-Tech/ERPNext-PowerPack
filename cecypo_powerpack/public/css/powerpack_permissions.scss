@@ -110,7 +110,10 @@
 	z-index: 5;
 	display: flex;
 	align-items: center;
-	justify-content: flex-end;
+	// Count first, then the bulk controls. (This row used to end with Discard/Review/
+	// Commit, which have moved to the page's action area; without them a flex-end row
+	// plus an auto margin just left a dead gap.)
+	justify-content: flex-start;
 	gap: 8px;
 	padding: 8px 16px;
 	background: var(--card-bg);
@@ -124,7 +127,6 @@
 		display: inline-flex;
 		gap: 6px;
 		align-items: center;
-		margin-right: auto;
 		margin-left: 16px;
 
 		.pp-bulk-flag {

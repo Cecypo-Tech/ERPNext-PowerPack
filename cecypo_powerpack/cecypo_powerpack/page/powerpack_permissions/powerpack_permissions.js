@@ -143,6 +143,18 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		const add = (df) => {
 			const field = frappe.ui.form.make_control({ df, parent: this.$filters, render_input: true });
 			field.$wrapper.addClass("pp-filter");
+			// render() rebuilds these controls from scratch on every load — including the
+			// reload after a commit — but this.filters survives. Re-seed the input, or the
+			// model and the UI diverge: the grid stays filtered while every box looks empty,
+			// and clearing a box cannot undo a filter you can no longer see.
+			//
+			// set_input(), not set_value(): set_value() routes through
+			// validate_and_set_in_model, which fires df.change — and it does so via
+			// frappe.run_serially, i.e. in a microtask AFTER this call stack unwinds, so
+			// assigning df.change below would not outrun it. set_input() writes the value
+			// and the DOM and never reaches df.change (base_control.js:241), so seeding
+			// cannot re-trigger apply_filters() at all.
+			if (this.filters[df.fieldname]) field.set_input(this.filters[df.fieldname]);
 			field.df.change = () => {
 				this.filters[df.fieldname] = field.get_value();
 				this.apply_filters();
@@ -244,6 +256,11 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			// row's ORIGINAL index there, the numbers jump (3, 7, 8, 10 …) as soon as you
 			// sort — misleading rather than useful. The page header already shows the count.
 			serialNoColumn: false,
+			// The datatable floats a persistent "N rows selected" toast over the grid for as
+			// long as anything is checked (RowManager.showCheckStatus, dist :4162-4174 — it
+			// only clears at zero, never on a timer). The footer already reports the count,
+			// so the toast is redundant and sits on top of the rows you are trying to tick.
+			checkedRowStatus: false,
 			inlineFilters: false,
 			cellHeight: 28,
 			noDataMessage: __("No permission rules match"),
@@ -579,17 +596,32 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	// ── footer + bulk menu ─────────────────────────────────────────────────────
 
 	make_footer() {
-		if (!this.can_edit) return;
+		if (!this.can_edit) {
+			// A read-only viewer gets no actions. The page object outlives a reload, so clear
+			// them rather than assume they were never set.
+			this.page.clear_primary_action();
+			this.page.clear_secondary_action();
+			if (this.$discard_btn) this.$discard_btn.hide();
+			return;
+		}
 		this.$footer = $(`
 			<div class="pp-perm-footer">
 				<span class="pp-perm-count"></span>
-				<button class="btn btn-default btn-sm pp-discard">${__("Discard")}</button>
-				<button class="btn btn-default btn-sm pp-review">${__("Review")}</button>
-				<button class="btn btn-primary btn-sm pp-commit">${__("Commit")}</button>
 			</div>`).appendTo(this.$body);
-		this.$footer.find(".pp-discard").on("click", () => this.discard());
-		this.$footer.find(".pp-review").on("click", () => this.review());
-		this.$footer.find(".pp-commit").on("click", () => this.review());
+
+		// Commit / Review / Discard live in the page's own action slots, top right, where
+		// every other Frappe page puts them. Only the grid-scoped controls (the count and
+		// the bulk apply) stay in the footer.
+		this.page.set_primary_action(__("Commit"), () => this.review());
+		this.page.set_secondary_action(__("Review"), () => this.review());
+		// Third action: Frappe fills its one primary and one secondary slot with Commit and
+		// Review, so Discard goes in via add_button(), which appends a real button to the
+		// page's custom-actions group beside them (and registers a mobile menu entry of its
+		// own). Created once and reused: add_button() appends unconditionally, so calling it
+		// on every render would stack up duplicates.
+		if (!this.$discard_btn) {
+			this.$discard_btn = this.page.add_button(__("Discard"), () => this.discard());
+		}
 
 		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
 		// checked rows. (Fifteen flags x set/clear as a dropdown would be thirty items.)
@@ -624,8 +656,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				? __("{0} unsaved rule change(s), {1} row(s) selected", [n, selected])
 				: __("No unsaved changes, {0} row(s) selected", [selected])
 		);
-		this.$footer.find(".pp-review, .pp-commit").prop("disabled", !n);
-		this.$footer.find(".pp-discard").prop("disabled", !n);
+		// The actions now live on the page, not in the footer.
+		this.page.btn_primary.prop("disabled", !n);
+		this.page.btn_secondary.prop("disabled", !n);
+		if (this.$discard_btn) this.$discard_btn.toggle(!!n);
 	}
 
 	// ── review + commit ────────────────────────────────────────────────────────
