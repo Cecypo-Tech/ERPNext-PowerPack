@@ -544,8 +544,8 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		this.$bulk = $(`
 			<span class="pp-perm-bulk">
 				<select class="form-control input-sm pp-bulk-flag"></select>
-				<button class="btn btn-default btn-sm pp-bulk-set">${__("Set on selected")}</button>
-				<button class="btn btn-default btn-sm pp-bulk-clear">${__("Clear on selected")}</button>
+				<button class="btn btn-default btn-sm pp-bulk-set">${__("Set on")}</button>
+				<button class="btn btn-default btn-sm pp-bulk-clear">${__("Set off")}</button>
 			</span>`).insertAfter(this.$footer.find(".pp-perm-count"));
 		const $select = this.$bulk.find(".pp-bulk-flag");
 		this.constructor.FLAGS.forEach((flag) =>
