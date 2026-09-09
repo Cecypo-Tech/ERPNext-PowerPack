@@ -146,9 +146,15 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			// render() rebuilds these controls from scratch on every load — including the
 			// reload after a commit — but this.filters survives. Re-seed the input, or the
 			// model and the UI diverge: the grid stays filtered while every box looks empty,
-			// and clearing a box cannot undo a filter you can no longer see. Seed BEFORE
-			// wiring df.change so this does not re-trigger apply_filters().
-			if (this.filters[df.fieldname]) field.set_value(this.filters[df.fieldname]);
+			// and clearing a box cannot undo a filter you can no longer see.
+			//
+			// set_input(), not set_value(): set_value() routes through
+			// validate_and_set_in_model, which fires df.change — and it does so via
+			// frappe.run_serially, i.e. in a microtask AFTER this call stack unwinds, so
+			// assigning df.change below would not outrun it. set_input() writes the value
+			// and the DOM and never reaches df.change (base_control.js:241), so seeding
+			// cannot re-trigger apply_filters() at all.
+			if (this.filters[df.fieldname]) field.set_input(this.filters[df.fieldname]);
 			field.df.change = () => {
 				this.filters[df.fieldname] = field.get_value();
 				this.apply_filters();
@@ -595,7 +601,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			// them rather than assume they were never set.
 			this.page.clear_primary_action();
 			this.page.clear_secondary_action();
-			if (this.$discard_item) this.$discard_item.parent().hide();
+			if (this.$discard_btn) this.$discard_btn.hide();
 			return;
 		}
 		this.$footer = $(`
@@ -608,11 +614,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// the bulk apply) stay in the footer.
 		this.page.set_primary_action(__("Commit"), () => this.review());
 		this.page.set_secondary_action(__("Review"), () => this.review());
-		// Third action: Frappe has exactly one primary and one secondary slot, so Discard
-		// goes in the ⋯ menu. add_menu_item returns the <a>; its <li> is what we show and
-		// hide, so a clean grid does not offer "Discard changes".
-		if (!this.$discard_item) {
-			this.$discard_item = this.page.add_menu_item(__("Discard changes"), () => this.discard(), false);
+		// Third action: Frappe fills its one primary and one secondary slot with Commit and
+		// Review, so Discard goes in via add_button(), which appends a real button to the
+		// page's custom-actions group beside them (and registers a mobile menu entry of its
+		// own). Created once and reused: add_button() appends unconditionally, so calling it
+		// on every render would stack up duplicates.
+		if (!this.$discard_btn) {
+			this.$discard_btn = this.page.add_button(__("Discard"), () => this.discard());
 		}
 
 		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
@@ -651,7 +659,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// The actions now live on the page, not in the footer.
 		this.page.btn_primary.prop("disabled", !n);
 		this.page.btn_secondary.prop("disabled", !n);
-		if (this.$discard_item) this.$discard_item.parent().toggle(!!n);
+		if (this.$discard_btn) this.$discard_btn.toggle(!!n);
 	}
 
 	// ── review + commit ────────────────────────────────────────────────────────
