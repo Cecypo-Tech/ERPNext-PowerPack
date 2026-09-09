@@ -25,9 +25,33 @@
 	}
 }
 
+.pp-perm-stale {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+	padding: 6px 10px;
+
+	.pp-perm-stale-text {
+		margin-right: auto;
+	}
+
+	.pp-stale-dismiss {
+		font-size: var(--text-lg);
+		line-height: 1;
+		padding: 0 4px;
+	}
+}
+
 .pp-perm-table {
 	.dt-cell__content {
 		font-size: var(--text-sm);
+	}
+
+	// Shift-clicking a row checkbox must not drag a text selection down the grid.
+	// mousedown's preventDefault covers the common path; this covers the rest.
+	.dt-cell--col-0 {
+		user-select: none;
 	}
 
 	.pp-flag {

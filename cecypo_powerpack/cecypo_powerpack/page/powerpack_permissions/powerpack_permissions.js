@@ -23,6 +23,15 @@ frappe.pages["powerpack-permissions"].on_page_load = (wrapper) => {
 	wrapper.permission_manager = new frappe.PowerPackPermissionManager(wrapper, page);
 };
 
+// frappe's router has no cancellable pre-navigation hook: `frappe.router` only ever
+// fires "change" (router.js:152), and it fires it AFTER this.render() has already swapped
+// the page; its emitter (router.js:698 -> event_emitter.js) hands handlers the data only
+// and throws their return value away, so nothing a handler does can stop a route. So the
+// in-app guard cannot block navigation — it preserves the change set instead and says so
+// on the way back. See on_show() / show_stale_notice().
+frappe.pages["powerpack-permissions"].on_page_show = (wrapper) =>
+	wrapper.permission_manager && wrapper.permission_manager.on_show();
+
 frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	constructor(wrapper, page) {
 		this.wrapper = wrapper;
@@ -33,6 +42,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		this.dirty = {};
 		this.filters = {};
 
+		// Anchor for shift-click range select: the rowIndex of the last checkbox clicked.
+		this._last_checked_index = null;
+		// The page container fires "show" immediately after "load" (container.js:80), so the
+		// very first on_show() would re-run the load this constructor is about to start.
+		this._first_show_pending = true;
+
+		this.bind_unload_guard();
 		this.load();
 	}
 
@@ -55,6 +71,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	load() {
+		this._loading = true;
+		this._last_checked_index = null;
+		this.hide_stale_notice();
 		this.$body.html(`<div class="pp-perm-empty">${__("Loading permission rules…")}</div>`);
 		frappe.call({
 			method: "cecypo_powerpack.permission_manager.get_permission_rules",
@@ -68,10 +87,12 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				});
 				this.dirty = {};
 				this.original = {};
+				this._loading = false;
 				this.render();
 			},
 			error: () => {
 				// The server already showed its permission message; leave a stub, not a spinner.
+				this._loading = false;
 				this.$body.html(`<div class="pp-perm-empty">${__("You do not have access to permission rules.")}</div>`);
 			},
 		});
@@ -122,6 +143,8 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// one filter would silently apply to whatever rows occupy those indexes under the
 		// next. A filter change always drops the selection.
 		if (this.datatable.rowmanager) this.datatable.rowmanager.checkAll(false);
+		// The shift anchor is a rowIndex into the old view; it means nothing in the new one.
+		this._last_checked_index = null;
 		this.datatable.refresh(this.view, this.columns);
 		this.page.set_indicator(__("{0} rules", [this.view.length]), "blue");
 		this.update_footer();
@@ -185,6 +208,90 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			const key = e.currentTarget.getAttribute("data-key");
 			this.set_flag(this.by_key[key], $cb.data("flag"), $cb.prop("checked") ? 1 : 0);
 		});
+
+		this.bind_shift_select();
+	}
+
+	// ── shift-click range select ───────────────────────────────────────────────
+
+	/**
+	 * frappe-datatable's own checkbox handler (RowManager.bindCheckbox, dist
+	 * frappe-datatable.cjs.js:4064) delegates `click` on `.dt-cell--col-0 [type="checkbox"]`
+	 * from the SAME element we hand the constructor (DataTable sets `this.wrapper = wrapper`,
+	 * :5891), and it has no shift handling at all. Both listeners are therefore native
+	 * listeners on one element and run in registration order — the datatable's first, since
+	 * it was bound in its constructor above. So by the time we run, the clicked row has
+	 * already been toggled and the checkbox carries its NEW state; we only extend that state
+	 * over the range and never re-toggle the clicked row itself.
+	 */
+	bind_shift_select() {
+		// Shift-clicking inside the grid would otherwise drag a text selection across every
+		// row in between. mousedown's default is what starts that selection; suppressing it
+		// does not stop the checkbox from toggling (activation happens on click).
+		this.$table.on("mousedown", '.dt-cell--col-0 [type="checkbox"]', (e) => {
+			if (e.shiftKey) e.preventDefault();
+		});
+
+		this.$table.on("click", '.dt-cell--col-0 [type="checkbox"]', (e) => {
+			const cell = e.currentTarget.closest(".dt-cell");
+			// The header cell is the select-all box; leave it entirely to the datatable.
+			if (!cell || cell.dataset.isHeader) return;
+			const row_index = parseInt(cell.dataset.rowIndex, 10);
+			if (isNaN(row_index)) return;
+
+			// The clicked box's new state is what the range follows: shift-clicking an
+			// unchecked box checks the range, shift-clicking a checked one clears it.
+			const state = !!e.currentTarget.checked;
+			if (e.shiftKey && this._last_checked_index !== null && this._last_checked_index !== row_index) {
+				this.check_range(this._last_checked_index, row_index, state);
+			}
+			// The anchor always moves to the row just clicked, shift or not, so a second
+			// shift-click extends from the previous one rather than from the original click.
+			this._last_checked_index = row_index;
+		});
+	}
+
+	/**
+	 * rowIndexes in VISUAL order. rowIndex is assigned at load and never changes; sorting only
+	 * reorders `datamanager.rowViewOrder` (DataManager.prepareRowView, dist :2124-2129, and
+	 * _sortRows, :2195), which is exactly what BodyRenderer.renderRows walks to paint the grid
+	 * (dist :4863-4870). So a range that is contiguous on screen is contiguous in rowViewOrder,
+	 * not in rowIndex.
+	 */
+	visual_order() {
+		const dm = this.datatable && this.datatable.datamanager;
+		const order = dm && dm.rowViewOrder;
+		if (!order || !order.length) return this.view.map((_, i) => i);
+		const renderer = this.datatable.bodyRenderer;
+		if (renderer && renderer.visibleRowIndices && renderer.visibleRowIndices.length) {
+			const visible = new Set(renderer.visibleRowIndices);
+			return order.filter((i) => visible.has(i));
+		}
+		return order.slice();
+	}
+
+	check_range(anchor_index, target_index, state) {
+		const order = this.visual_order();
+		const from = order.indexOf(anchor_index);
+		const to = order.indexOf(target_index);
+		if (from < 0 || to < 0) return;
+		const [start, end] = from < to ? [from, to] : [to, from];
+
+		// checkRow fires onCheckRow per row, and update_footer counts the whole checkMap each
+		// time — O(n^2) over a long range. Repaint the footer once, at the end.
+		this._suspend_footer = true;
+		try {
+			for (let i = start; i <= end; i++) {
+				const row_index = order[i];
+				// The datatable already toggled the clicked row; toggling it again here would
+				// undo it.
+				if (row_index === target_index) continue;
+				this.datatable.rowmanager.checkRow(row_index, state);
+			}
+		} finally {
+			this._suspend_footer = false;
+		}
+		this.update_footer();
 	}
 
 	render_flag(row, flag) {
@@ -286,8 +393,90 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		});
 		this.dirty = {};
 		this.original = {};
+		this.hide_stale_notice();
 		this.datatable.refresh(this.view, this.columns);
 		this.update_footer();
+	}
+
+	// ── unsaved-changes guard ──────────────────────────────────────────────────
+
+	/**
+	 * Bound once per instance, and there is no teardown for the page, so it stays for the
+	 * life of the tab. It reads this.dirty live rather than closing over a snapshot, so a
+	 * clean store never prompts.
+	 */
+	bind_unload_guard() {
+		if (this._unload_guard) return;
+		this._unload_guard = (e) => {
+			if (!Object.keys(this.dirty).length) return undefined;
+			// preventDefault() is what modern browsers act on; returnValue is the legacy
+			// spelling older ones still need. Neither shows our text — browsers use their own.
+			e.preventDefault();
+			const message = __("You have {0} unsaved permission change(s).", [
+				Object.keys(this.dirty).length,
+			]);
+			e.returnValue = message;
+			return message;
+		};
+		window.addEventListener("beforeunload", this._unload_guard);
+	}
+
+	/**
+	 * Fired by the page container every time this page is shown (container.js:80 ->
+	 * pageview.js:104-108), including once right after on_page_load. Clean: reload, so the
+	 * grid is never stale. Dirty: keep the change set — the router already navigated away and
+	 * back, and silently discarding edits would be worse than showing them again — and say so.
+	 */
+	on_show() {
+		if (this._first_show_pending) {
+			this._first_show_pending = false;
+			return;
+		}
+		// First load failed, or is still in flight: it will render on its own.
+		if (this._loading || !this.rows) return;
+
+		if (!Object.keys(this.dirty).length) {
+			this.load();
+			return;
+		}
+		this.show_stale_notice();
+		frappe.show_alert({
+			message: __("{0} unsaved permission change(s) are still pending", [
+				Object.keys(this.dirty).length,
+			]),
+			indicator: "orange",
+		});
+	}
+
+	show_stale_notice() {
+		if (!Object.keys(this.dirty).length || !this.$filters) return;
+		// Rebuilt only when it is not on the page: render() empties $body, which detaches it.
+		// on_show() can fire any number of times without stacking notices or handlers.
+		if (!this.$stale || !this.$stale.parent().length) {
+			this.$stale = $(`
+				<div class="pp-perm-stale alert alert-warning">
+					<span class="pp-perm-stale-text"></span>
+					<button class="btn btn-xs btn-default pp-stale-review">${__("Review")}</button>
+					<button class="btn btn-xs btn-default pp-stale-discard">${__("Discard")}</button>
+					<button class="btn btn-xs btn-link pp-stale-dismiss" title="${__("Dismiss")}">&times;</button>
+				</div>`);
+			this.$stale.find(".pp-stale-review").on("click", () => this.review());
+			this.$stale.find(".pp-stale-discard").on("click", () => this.discard());
+			this.$stale.find(".pp-stale-dismiss").on("click", () => this.hide_stale_notice());
+			this.$stale.insertBefore(this.$filters);
+		}
+		this.$stale
+			.find(".pp-perm-stale-text")
+			.text(
+				__("{0} unsaved change(s) from earlier. Review to commit them, or Discard.", [
+					Object.keys(this.dirty).length,
+				])
+			);
+	}
+
+	hide_stale_notice() {
+		if (this.$stale) this.$stale.remove();
+		this.$stale = null;
 	}
 
 	// ── footer + bulk menu ─────────────────────────────────────────────────────
@@ -322,6 +511,14 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	update_footer() {
+		// check_range() sets this while it walks a range: every checkRow fires onCheckRow, and
+		// counting the whole checkMap per row is quadratic. It repaints once when it is done.
+		if (this._suspend_footer) return;
+		// The notice quotes the same count as the footer, so they cannot disagree.
+		if (this.$stale && this.$stale.parent().length) {
+			if (Object.keys(this.dirty).length) this.show_stale_notice();
+			else this.hide_stale_notice();
+		}
 		if (!this.$footer) return;
 		const n = Object.keys(this.dirty).length;
 		const selected = this.checked_rows().length;
