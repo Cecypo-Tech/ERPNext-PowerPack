@@ -507,11 +507,16 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		return [
 			...Object.values(this.pending_removes).map((row) => ({ op: "remove", ...identity(row) })),
 			...Object.values(this.pending_adds).map((row) => ({ op: "add", ...identity(row) })),
-			...Object.entries(this.dirty).map(([key, changes]) => ({
-				op: "update",
-				...identity(this.by_key[key]),
-				changes: { ...changes },
-			})),
+			// stage_remove() already drops a removed row's dirty entry; this filter is the
+			// last line of defence before the server, because a stray update+remove pair
+			// for one identity rolls the entire commit back.
+			...Object.entries(this.dirty)
+				.filter(([key]) => !this.pending_removes[key])
+				.map(([key, changes]) => ({
+					op: "update",
+					...identity(this.by_key[key]),
+					changes: { ...changes },
+				})),
 		];
 	}
 
@@ -564,6 +569,14 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				this.unstage(row.key);
 				return;
 			}
+			// Pending flag edits on a rule you are deleting are moot, and leaving them in
+			// this.dirty would emit BOTH an update and a remove op for one identity. The
+			// server applies removals before updates, so the update would then find no row
+			// and roll the whole commit back. Restore the row's loaded values first so the
+			// grid stops showing an edit that is no longer staged, then forget the edit.
+			Object.entries(this.original[row.key] || {}).forEach(([flag, v]) => (row[flag] = v));
+			delete this.dirty[row.key];
+			delete this.original[row.key];
 			row.is_removed = 1;
 			this.pending_removes[row.key] = row;
 		});
