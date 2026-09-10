@@ -284,19 +284,28 @@ def commit_changes(changes) -> dict:
 	_check_can_edit()
 	parsed = _drop_noops(_parse_changes(changes))
 	if not parsed:
-		return {"doctypes": 0, "rules": 0, "detached": []}
+		return {"doctypes": 0, "rules": 0, "added": 0, "removed": 0, "detached": []}
 
 	by_doctype: dict[str, list[dict]] = {}
 	for rule in parsed:
 		by_doctype.setdefault(rule["doctype"], []).append(rule)
 
 	detached = []
+	added = removed = 0
 	frappe.db.savepoint(_SAVEPOINT)
 	try:
 		for doctype, rules in by_doctype.items():
 			if setup_custom_perms(doctype):
 				detached.append(doctype)
-			_apply_to_doctype(doctype, rules)
+			# Removals first, then additions, then updates: an update in the same payload
+			# may target a rule this payload is adding, so the row has to exist by then.
+			for rule in [r for r in rules if r["op"] == "remove"]:
+				_remove_rule(doctype, rule)
+				removed += 1
+			for rule in [r for r in rules if r["op"] == "add"]:
+				_add_rule(doctype, rule)
+				added += 1
+			_apply_to_doctype(doctype, [r for r in rules if r["op"] == "update"])
 			_validate_custom_rules(doctype)
 	except Exception:
 		frappe.db.rollback(save_point=_SAVEPOINT)
@@ -313,7 +322,13 @@ def commit_changes(changes) -> dict:
 		delete_notification_count_for(doctype)
 	clear_user_cache()
 
-	return {"doctypes": len(by_doctype), "rules": len(parsed), "detached": detached}
+	return {
+		"doctypes": len(by_doctype),
+		"rules": len(parsed),
+		"added": added,
+		"removed": removed,
+		"detached": detached,
+	}
 
 
 def _drop_noops(parsed: list[dict]) -> list[dict]:
@@ -321,6 +336,10 @@ def _drop_noops(parsed: list[dict]) -> list[dict]:
 	Keeps a no-op commit from detaching a doctype for nothing."""
 	out = []
 	for rule in parsed:
+		if rule["op"] != "update":
+			# Only an update can be a no-op; an add or a remove always changes something.
+			out.append(rule)
+			continue
 		table = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": rule["doctype"]}) else "DocPerm"
 		current = frappe.db.get_value(
 			table,
@@ -333,6 +352,11 @@ def _drop_noops(parsed: list[dict]) -> list[dict]:
 			list(rule["changes"]),
 			as_dict=True,
 		)
+		if not current:
+			# The row doesn't exist yet — e.g. this same payload adds it before this
+			# update runs. Nothing to compare against, so it is not a no-op.
+			out.append(rule)
+			continue
 		real = {f: v for f, v in rule["changes"].items() if int(current.get(f) or 0) != v}
 		if real:
 			out.append({**rule, "changes": real})
@@ -361,6 +385,50 @@ def _apply_to_doctype(doctype: str, rules: list[dict]):
 		doc = frappe.get_doc("Custom DocPerm", name)
 		doc.update(rule["changes"])
 		doc.save(ignore_permissions=True)
+
+
+def _add_rule(doctype: str, rule: dict):
+	"""Insert one Custom DocPerm row, seeded read: 1.
+
+	Deliberately not frappe.permissions.add_permission(): that msgprints and silently
+	returns on a duplicate (useless inside a transaction that has to report), and it
+	hardcodes if_owner=0 so it cannot create an if-owner rule at all. The field set
+	below is the same one it builds. read: 1 is its default seed and the minimum that
+	satisfies check_atleast_one_set (frappe/core/doctype/doctype/doctype.py:1859).
+	"""
+	frappe.get_doc(
+		{
+			"doctype": "Custom DocPerm",
+			"parent": doctype,
+			"parenttype": "DocType",
+			"parentfield": "permissions",
+			"role": rule["role"],
+			"permlevel": rule["permlevel"],
+			"if_owner": rule["if_owner"],
+			"read": 1,
+		}
+	).insert(ignore_permissions=True)
+
+
+def _remove_rule(doctype: str, rule: dict):
+	name = frappe.db.get_value(
+		"Custom DocPerm",
+		{
+			"parent": doctype,
+			"role": rule["role"],
+			"permlevel": rule["permlevel"],
+			"if_owner": rule["if_owner"],
+		},
+		"name",
+	)
+	if not name:
+		frappe.throw(
+			_("No permission rule for {0} on {1} at level {2}").format(
+				rule["role"], doctype, rule["permlevel"]
+			),
+			frappe.ValidationError,
+		)
+	frappe.delete_doc("Custom DocPerm", name, ignore_permissions=True, force=True)
 
 
 def _validate_custom_rules(doctype: str):
