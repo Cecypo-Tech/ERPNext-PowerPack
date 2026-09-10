@@ -566,6 +566,34 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		this.update_footer();
 	}
 
+	add_rule_dialog() {
+		const d = new frappe.ui.Dialog({
+			title: __("Add Permission Rule"),
+			fields: [
+				{ fieldtype: "Link", fieldname: "doctype_name", label: __("Document Type"), options: "DocType", reqd: 1 },
+				{ fieldtype: "Link", fieldname: "role", label: __("Role"), options: "Role", reqd: 1 },
+				{ fieldtype: "Int", fieldname: "permlevel", label: __("Level"), default: 0 },
+				{ fieldtype: "Check", fieldname: "if_owner", label: __("Only If Creator"), default: 0 },
+			],
+			primary_action_label: __("Stage Rule"),
+			primary_action: (values) => {
+				const row = this.stage_add({
+					doctype: values.doctype_name,
+					role: values.role,
+					permlevel: values.permlevel,
+					if_owner: values.if_owner,
+				});
+				if (!row) return; // duplicate; stage_add already said so
+				d.hide();
+				frappe.show_alert({
+					message: __("Staged. It is created when you commit."),
+					indicator: "blue",
+				});
+			},
+		});
+		d.show();
+	}
+
 	/** Drop a staged add entirely — it never existed on the server. */
 	unstage(key) {
 		const row = this.by_key[key];
@@ -682,6 +710,8 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			this.page.clear_primary_action();
 			this.page.clear_secondary_action();
 			if (this.$discard_btn) this.$discard_btn.hide();
+			if (this.$add_btn) this.$add_btn.hide();
+			if (this.$remove_btn) this.$remove_btn.hide();
 			return;
 		}
 		this.$footer = $(`
@@ -701,6 +731,22 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// on every render would stack up duplicates.
 		if (!this.$discard_btn) {
 			this.$discard_btn = this.page.add_button(__("Discard"), () => this.discard());
+		}
+
+		// Created once each: add_button() appends unconditionally, so calling it on every
+		// render would stack duplicates.
+		if (!this.$add_btn) {
+			this.$add_btn = this.page.add_button(__("Add Rule"), () => this.add_rule_dialog());
+		}
+		if (!this.$remove_btn) {
+			this.$remove_btn = this.page.add_button(__("Remove Selected"), () => {
+				const rows = this.checked_rows().filter((r) => !r.is_removed);
+				if (!rows.length) {
+					frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
+					return;
+				}
+				this.stage_remove(rows);
+			});
 		}
 
 		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
