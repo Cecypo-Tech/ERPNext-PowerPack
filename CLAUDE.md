@@ -168,6 +168,14 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
 - Adds and removes are staged in the browser (`pending_adds` / `pending_removes`) and
   render as `pp-new` / `pp-removed`. Like flag edits, they reach the server only on
   Commit and are dropped by Discard.
+- The header is **Actions | Review | Commit**. Add Rule, Remove Selected, Restore
+  Selected and Discard are items in the Actions dropdown, built once by
+  `make_actions_menu()` — `page.add_custom_button_group()` appends a new group on every
+  call and `render()` runs on every page load, so the group and its items live on the
+  instance. Each item is added with `standard: true`, which appends in the order
+  written; falsy inserts each above a divider and reverses them.
+  `add_custom_menu_item()` returns the `<a>`, so the toggles in `update_footer` act on
+  `.parent()`. Add Rule and Remove Selected always apply and never toggle.
 - A staged removal is undoable on its own: **Restore Selected** (shown only while
   `pending_removes` is non-empty, like Discard) clears the mark for the selected rows.
   Without it the only undo was Discard, which throws away every other unsaved change
