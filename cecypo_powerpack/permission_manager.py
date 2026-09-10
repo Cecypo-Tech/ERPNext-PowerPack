@@ -183,10 +183,15 @@ def _parse_changes(changes) -> list[dict]:
 
 	_check_doctypes_keep_a_rule(removes, adds)
 
-	for (doctype, role, permlevel, if_owner), flags in updates.items():
+	for key, flags in updates.items():
+		doctype, role, permlevel, if_owner = key
 		if not flags:
 			continue
-		if not _rule_exists(doctype, role, permlevel, if_owner):
+		# A rule this same payload is ADDING does not exist in the database yet — parsing
+		# runs before commit_changes' transaction. commit_changes applies removals, then
+		# additions, then updates per doctype precisely so an update can target a rule the
+		# same payload creates, so accept it here too.
+		if key not in adds and not _rule_exists(doctype, role, permlevel, if_owner):
 			frappe.throw(
 				_("No permission rule for {0} on {1} at level {2}").format(role, doctype, permlevel),
 				frappe.ValidationError,
@@ -227,9 +232,10 @@ def _check_doctypes_keep_a_rule(removes, adds):
 		table = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": doctype}) else "DocPerm"
 		existing = frappe.db.count(table, {"parent": doctype})
 		if existing - removing + added.get(doctype, 0) < 1:
-			# frappe's own wording, from its page endpoint's remove()
+			# frappe's own wording, plus the doctype: in a multi-doctype payload the bare
+			# sentence leaves an admin no way to tell which one blocked the commit.
 			frappe.throw(
-				_("There must be atleast one permission rule."),
+				_("There must be atleast one permission rule ({0}).").format(doctype),
 				frappe.ValidationError,
 				title=_("Cannot Remove"),
 			)

@@ -433,6 +433,19 @@ class TestParseOps(FrappeTestCase):
 		self.assertEqual(len(out), 1)
 		self.assertEqual(out[0]["op"], "remove")
 
+	def test_update_may_target_a_rule_added_in_the_same_payload(self):
+		"""Parsing runs before the transaction, so the added row is not in the DB yet.
+		commit_changes orders removals, additions, updates for exactly this case."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes(
+			[
+				self.op("add", "Accounts User"),
+				self.op("update", "Accounts User", changes={"write": 1}),
+			]
+		)
+		self.assertEqual(sorted(r["op"] for r in out), ["add", "update"])
+
 	def test_preview_reports_adds_and_removes_and_detachment(self):
 		from cecypo_powerpack.permission_manager import preview_changes
 
