@@ -481,6 +481,9 @@ class TestCommitOps(FrappeTestCase):
 		self.assertEqual(custom_flag(self.a.name, "Accounts User", "read"), 1)
 		self.assertEqual(custom_flag(self.a.name, "Accounts User", "write"), 0)
 		self.assertEqual(custom_flag(self.a.name, "Accounts User", "delete"), 0)
+		# Custom DocPerm defaults export to '1' as well as read, so this one is the guard
+		# that a new rule really is Read-only rather than Read plus whatever frappe defaults.
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "export"), 0)
 
 	def test_add_with_if_owner(self):
 		"""frappe's own add_permission hardcodes if_owner=0 and cannot express this."""

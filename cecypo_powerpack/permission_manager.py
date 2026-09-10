@@ -396,6 +396,12 @@ def _add_rule(doctype: str, rule: dict):
 	below is the same one it builds. read: 1 is its default seed and the minimum that
 	satisfies check_atleast_one_set (frappe/core/doctype/doctype/doctype.py:1859).
 	"""
+	# Every flag is set explicitly. Custom DocPerm's own field defaults are read: '1' AND
+	# export: '1' (custom_docperm.json), so passing read alone would silently grant Export
+	# on every new rule — a permission the admin never asked for, and one the review
+	# dialog explicitly promises they are not getting ("starts with Read only").
+	flags = dict.fromkeys(FLAGS, 0)
+	flags["read"] = 1
 	frappe.get_doc(
 		{
 			"doctype": "Custom DocPerm",
@@ -405,7 +411,7 @@ def _add_rule(doctype: str, rule: dict):
 			"role": rule["role"],
 			"permlevel": rule["permlevel"],
 			"if_owner": rule["if_owner"],
-			"read": 1,
+			**flags,
 		}
 	).insert(ignore_permissions=True)
 
