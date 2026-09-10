@@ -155,6 +155,22 @@
 		margin-bottom: 12px;
 	}
 
+	.pp-review-remove {
+		border: 1px solid var(--red-300);
+		background: var(--red-50);
+		border-radius: var(--border-radius);
+		padding: 8px 12px;
+		margin-bottom: 12px;
+	}
+
+	.pp-review-add {
+		border: 1px solid var(--green-300);
+		background: var(--green-50);
+		border-radius: var(--border-radius);
+		padding: 8px 12px;
+		margin-bottom: 12px;
+	}
+
 	code {
 		font-size: var(--text-xs);
 	}

@@ -488,7 +488,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	bulk_apply(flag, value) {
-		const rows = this.checked_rows();
+		// A row staged for deletion is not editable — render_flag already makes its cells
+		// inert, and re-dirtying it here would only inflate change_count().
+		const rows = this.checked_rows().filter((r) => !r.is_removed);
 		if (!rows.length) {
 			frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
 			return;
@@ -566,6 +568,11 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	stage_remove(rows) {
 		rows.forEach((row) => {
 			if (row.is_new) {
+				// unstage() drops the row from by_key and rows, so an edit left in
+				// this.dirty would outlive its row and make change_payload() evaluate
+				// identity(undefined) and throw. Forget the edit before dropping the row.
+				delete this.dirty[row.key];
+				delete this.original[row.key];
 				this.unstage(row.key);
 				return;
 			}
@@ -828,8 +835,17 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	render_review(preview, changes) {
+		const removals = preview.rules.filter((r) => r.op === "remove");
+		const additions = preview.rules.filter((r) => r.op === "add");
 		const by_doctype = {};
-		preview.rules.forEach((rule) => (by_doctype[rule.doctype] = by_doctype[rule.doctype] || []).push(rule));
+		preview.rules
+			.filter((r) => r.op === "update")
+			.forEach((rule) => (by_doctype[rule.doctype] = by_doctype[rule.doctype] || []).push(rule));
+
+		const rule_name = (r) =>
+			`${frappe.utils.escape_html(r.doctype)} → ${frappe.utils.escape_html(r.role)}` +
+			`${r.permlevel ? ` (${__("level {0}", [r.permlevel])})` : ""}` +
+			`${r.if_owner ? ` (${__("only if creator")})` : ""}`;
 
 		const flag_list = (rule) =>
 			Object.entries(rule.changes)
@@ -848,6 +864,20 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 					.join("")}</ul>
 			</div>`;
 		}
+		if (removals.length) {
+			html += `<div class="pp-review-remove">
+				<b>${__("{0} rule(s) will be DELETED", [removals.length])}</b>
+				<p class="small">${__("The role loses this access entirely. Re-creating it later starts from Read only.")}</p>
+				<ul>${removals.map((r) => `<li>${rule_name(r)}</li>`).join("")}</ul>
+			</div>`;
+		}
+		if (additions.length) {
+			html += `<div class="pp-review-add">
+				<b>${__("{0} rule(s) will be created", [additions.length])}</b>
+				<p class="small">${__("Each starts with Read only; set the rest afterwards.")}</p>
+				<ul>${additions.map((r) => `<li>${rule_name(r)}</li>`).join("")}</ul>
+			</div>`;
+		}
 		html += Object.entries(by_doctype)
 			.map(
 				([doctype, rules]) => `<div class="mb-3"><b>${frappe.utils.escape_html(doctype)}</b><ul>${rules
@@ -861,10 +891,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			.join("");
 
 		const d = new frappe.ui.Dialog({
-			title: __("Review {0} rule change(s) across {1} document type(s)", [
-				preview.rules.length,
-				Object.keys(by_doctype).length,
-			]),
+			title: __("Review {0} change(s)", [preview.rules.length]),
 			size: "large",
 			fields: [{ fieldtype: "HTML", fieldname: "body", options: `<div class="pp-perm-review">${html}</div>` }],
 			primary_action_label: __("Commit"),
@@ -890,9 +917,15 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			callback: (r) => {
 				this._committing = false;
 				const out = r.message;
+				const parts = [__("{0} rule change(s)", [out.rules])];
+				if (out.added) parts.push(__("{0} created", [out.added]));
+				if (out.removed) parts.push(__("{0} deleted", [out.removed]));
 				frappe.show_alert(
 					{
-						message: __("Committed {0} rule change(s) across {1} document type(s)", [out.rules, out.doctypes]),
+						message: __("Committed {0} across {1} document type(s)", [
+							parts.join(", "),
+							out.doctypes,
+						]),
 						indicator: "green",
 					},
 					7
