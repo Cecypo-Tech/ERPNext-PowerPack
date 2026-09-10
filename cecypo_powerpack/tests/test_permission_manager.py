@@ -362,3 +362,81 @@ class TestCommit(FrappeTestCase):
 		)
 		self.assertEqual(custom_flag(dt.name, "Sales User", "write", if_owner=0), 0)
 		self.assertEqual(custom_flag(dt.name, "Sales User", "write", if_owner=1), 1)
+
+
+class TestParseOps(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.dt = new_doctype(permissions=[perm("Sales User", read=1), perm("Stock User", read=1)])
+		self.dt.insert()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def op(self, op, role, **extra):
+		return {"op": op, "doctype": self.dt.name, "role": role, "permlevel": 0, "if_owner": 0, **extra}
+
+	def test_missing_op_still_means_update(self):
+		"""The existing client sends no op at all; that contract must not break."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes(
+			[{"doctype": self.dt.name, "role": "Sales User", "permlevel": 0, "if_owner": 0, "changes": {"write": 1}}]
+		)
+		self.assertEqual(len(out), 1)
+		self.assertEqual(out[0]["op"], "update")
+
+	def test_unknown_op_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("obliterate", "Sales User")])
+
+	def test_add_is_parsed(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes([self.op("add", "Accounts User")])
+		self.assertEqual(len(out), 1)
+		self.assertEqual(out[0]["op"], "add")
+		self.assertEqual(out[0]["role"], "Accounts User")
+
+	def test_add_of_an_existing_rule_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("add", "Sales User")])
+
+	def test_remove_of_a_missing_rule_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("remove", "Accounts User")])
+
+	def test_add_and_remove_of_the_same_identity_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("add", "Accounts User"), self.op("remove", "Accounts User")])
+
+	def test_removing_every_rule_of_a_doctype_rejected(self):
+		"""Evaluated across the whole payload: two removes for a two-rule doctype must
+		fail, even though each one alone would leave a rule behind."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("remove", "Sales User"), self.op("remove", "Stock User")])
+
+	def test_removing_all_but_one_is_allowed(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes([self.op("remove", "Sales User")])
+		self.assertEqual(len(out), 1)
+		self.assertEqual(out[0]["op"], "remove")
+
+	def test_preview_reports_adds_and_removes_and_detachment(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		out = preview_changes([self.op("add", "Accounts User"), self.op("remove", "Sales User")])
+		ops = sorted(r["op"] for r in out["rules"])
+		self.assertEqual(ops, ["add", "remove"])
+		self.assertEqual(out["detaching"], [{"doctype": self.dt.name, "standard_rules": 2}])

@@ -25,6 +25,10 @@ from frappe.permissions import setup_custom_perms, std_rights
 # std right. if_owner is NOT here: it is part of a rule's identity, not a flag on it.
 FLAGS = tuple(std_rights) + ("mask",)
 
+# An entry with no `op` is an update: that is what the client sent before add/remove
+# existed, and every pre-existing test relies on it.
+OPS = ("update", "add", "remove")
+
 # Reading the grid reuses an existing doctype permission instead of a new role field:
 # to let another role view the grid, grant it Read on this doctype in frappe's Role
 # Permission Manager. It is NOT Custom DocPerm, although that is the data shown:
@@ -108,27 +112,78 @@ def get_permission_rules() -> dict:
 
 
 def _parse_changes(changes) -> list[dict]:
-	"""Normalise the client payload. Rejects anything that is not a known flag on a
-	rule that exists, so nothing downstream has to defend against the payload."""
+	"""Normalise the client payload into update / add / remove entries.
+
+	This is the single validation gate: nothing downstream defends against the payload.
+	Three of the checks here exist because frappe enforces them only in its own page
+	endpoint, never in validate_permissions(), so a path that bypasses that page
+	inherits nothing — the duplicate check, the "at least one rule" check, and the
+	report/if_owner check.
+	"""
 	if isinstance(changes, str):
 		changes = frappe.parse_json(changes)
 	if not isinstance(changes, list):
 		frappe.throw(_("changes must be a list"), frappe.ValidationError)
 
-	merged: dict[tuple, dict] = {}
+	updates: dict[tuple, dict] = {}
+	adds: dict[tuple, None] = {}
+	removes: dict[tuple, None] = {}
+
 	for item in changes:
 		for required in ("doctype", "role"):
 			if not item.get(required):
 				frappe.throw(_("Each change needs a doctype and a role"), frappe.ValidationError)
+		op = item.get("op") or "update"
+		if op not in OPS:
+			frappe.throw(_("{0} is not a valid operation").format(op), frappe.ValidationError)
 		key = _rule_key(item)
-		flags = item.get("changes") or {}
-		for flag, value in flags.items():
-			if flag not in FLAGS:
-				frappe.throw(_("{0} is not an editable permission").format(flag), frappe.ValidationError)
-			merged.setdefault(key, {})[flag] = 1 if int(value) else 0
+		if op == "add":
+			adds[key] = None
+		elif op == "remove":
+			removes[key] = None
+		else:
+			for flag, value in (item.get("changes") or {}).items():
+				if flag not in FLAGS:
+					frappe.throw(_("{0} is not an editable permission").format(flag), frappe.ValidationError)
+				updates.setdefault(key, {})[flag] = 1 if int(value) else 0
+
+	overlap = set(adds) & set(removes)
+	if overlap:
+		doctype, role, permlevel, _if_owner = next(iter(overlap))
+		frappe.throw(
+			_("Cannot add and remove the same rule in one commit: {0} on {1} at level {2}").format(
+				role, doctype, permlevel
+			),
+			frappe.ValidationError,
+		)
 
 	out = []
-	for (doctype, role, permlevel, if_owner), flags in merged.items():
+
+	for key in adds:
+		doctype, role, permlevel, if_owner = key
+		if _rule_exists(doctype, role, permlevel, if_owner):
+			frappe.throw(
+				_("A rule for {0} on {1} at level {2} already exists").format(role, doctype, permlevel),
+				frappe.ValidationError,
+			)
+		out.append(
+			{"op": "add", "doctype": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner}
+		)
+
+	for key in removes:
+		doctype, role, permlevel, if_owner = key
+		if not _rule_exists(doctype, role, permlevel, if_owner):
+			frappe.throw(
+				_("No permission rule for {0} on {1} at level {2}").format(role, doctype, permlevel),
+				frappe.ValidationError,
+			)
+		out.append(
+			{"op": "remove", "doctype": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner}
+		)
+
+	_check_doctypes_keep_a_rule(removes, adds)
+
+	for (doctype, role, permlevel, if_owner), flags in updates.items():
 		if not flags:
 			continue
 		if not _rule_exists(doctype, role, permlevel, if_owner):
@@ -136,17 +191,48 @@ def _parse_changes(changes) -> list[dict]:
 				_("No permission rule for {0} on {1} at level {2}").format(role, doctype, permlevel),
 				frappe.ValidationError,
 			)
-		# frappe enforces this only in its own page endpoint
-		# (frappe/core/page/permission_manager/permission_manager.py:147), not in
-		# validate_permissions(), so we never inherited it from there.
 		if flags.get("report") and if_owner:
 			frappe.throw(
 				_("Cannot set 'Report' permission when 'Only If Creator' is set"), frappe.ValidationError
 			)
 		out.append(
-			{"doctype": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner, "changes": flags}
+			{
+				"op": "update",
+				"doctype": doctype,
+				"role": role,
+				"permlevel": permlevel,
+				"if_owner": if_owner,
+				"changes": flags,
+			}
 		)
 	return out
+
+
+def _check_doctypes_keep_a_rule(removes, adds):
+	"""Reject a payload that would leave a doctype with no rules at all.
+
+	Counted per doctype over the WHOLE payload: removing both rules of a two-rule
+	doctype passes a row-by-row check and still leaves it with none. Adds in the same
+	payload count towards the survivors, since they land in the same transaction.
+	"""
+	per_doctype: dict[str, int] = {}
+	for doctype, _role, _permlevel, _if_owner in removes:
+		per_doctype[doctype] = per_doctype.get(doctype, 0) + 1
+
+	added: dict[str, int] = {}
+	for doctype, _role, _permlevel, _if_owner in adds:
+		added[doctype] = added.get(doctype, 0) + 1
+
+	for doctype, removing in per_doctype.items():
+		table = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": doctype}) else "DocPerm"
+		existing = frappe.db.count(table, {"parent": doctype})
+		if existing - removing + added.get(doctype, 0) < 1:
+			# frappe's own wording, from its page endpoint's remove()
+			frappe.throw(
+				_("There must be atleast one permission rule."),
+				frappe.ValidationError,
+				title=_("Cannot Remove"),
+			)
 
 
 def _rule_exists(doctype, role, permlevel, if_owner) -> bool:
