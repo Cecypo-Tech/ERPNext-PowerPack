@@ -153,9 +153,30 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
   `(doctype, role, permlevel, if_owner)`; and `report` cannot be set with `if_owner`.
   `frappe.permissions.add_permission()` is deliberately unused — it `msgprint`s and
   returns on a duplicate, and hardcodes `if_owner=0`.
+- A fourth invariant, `BASIC_RIGHTS`, frappe *does* enforce — but in
+  `validate_permissions()`, which `_apply_to_doctype` runs only after every row is
+  written, so one stray checkbox rolls the whole commit back with
+  "<rule>: No basic permissions set" and no hint which rule or flag caused it. A rule
+  needs one of `select` / `read` / `write` / `create` / `submit` / `cancel`; `delete`,
+  `print` or `export` alone does not count. Enforced twice on purpose:
+  `_check_keeps_a_basic_right` in `_parse_changes` (which reads the rule in force and
+  applies the payload's deltas, so read-off-plus-write-on is correctly allowed), and
+  `set_flag` in the browser, which refuses the click and puts the tick back. The
+  commonest way in is unticking Read on a rule you just added, since a new rule starts
+  with Read and nothing else. `test_the_guard_matches_frappe_own_predicate` fails if
+  frappe ever changes the predicate, rather than letting the two drift.
 - Adds and removes are staged in the browser (`pending_adds` / `pending_removes`) and
   render as `pp-new` / `pp-removed`. Like flag edits, they reach the server only on
   Commit and are dropped by Discard.
+- A staged removal is undoable on its own: **Restore Selected** (shown only while
+  `pending_removes` is non-empty, like Discard) clears the mark for the selected rows.
+  Without it the only undo was Discard, which throws away every other unsaved change
+  too. `stage_remove` re-selects the rows it just staged (`reselect`), because
+  `apply_filters` drops the datatable's index-keyed checkbox map — otherwise the rows
+  needing restoring are exactly the ones no longer selected. A restored row comes back
+  as it was *loaded*: `stage_remove` restores its loaded flags and forgets its pending
+  edits (it must, or the payload emits an update and a remove for one identity), so it
+  says how many edits it dropped at the moment that is still true.
 - The page JS is loaded by frappe's page loader and is a classic script; its SCSS goes
   through the bundle like everything else.
 - Deploying this feature needs `bench migrate` (it ships a new Page record — the route

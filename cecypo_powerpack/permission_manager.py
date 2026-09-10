@@ -25,6 +25,14 @@ from frappe.permissions import setup_custom_perms, std_rights
 # std right. if_owner is NOT here: it is part of a rule's identity, not a flag on it.
 FLAGS = tuple(std_rights) + ("mask",)
 
+# frappe's check_atleast_one_set (frappe/core/doctype/doctype/doctype.py:1859) rejects any
+# rule with none of these six set. Mirrored here so the rejection can name the rule and the
+# way out, instead of surfacing as a bare "<rule>: No basic permissions set" from inside
+# validate_permissions() — which runs after the rows are already written, so the whole
+# commit rolls back on it. Note this is not "any flag": delete, print or export alone does
+# NOT satisfy frappe.
+BASIC_RIGHTS = ("select", "read", "write", "create", "submit", "cancel")
+
 # An entry with no `op` is an update: that is what the client sent before add/remove
 # existed, and every pre-existing test relies on it.
 OPS = ("update", "add", "remove")
@@ -137,7 +145,9 @@ def _parse_changes(changes) -> list[dict]:
 	Three of the checks here exist because frappe enforces them only in its own page
 	endpoint, never in validate_permissions(), so a path that bypasses that page
 	inherits nothing — the duplicate check, the "at least one rule" check, and the
-	report/if_owner check.
+	report/if_owner check. A fourth, the basic-rights check, duplicates one frappe DOES
+	make in validate_permissions() — but only after every row is written, which turns a
+	single stray checkbox into a full rollback with an unattributable message.
 	"""
 	if isinstance(changes, str):
 		changes = frappe.parse_json(changes)
@@ -235,6 +245,7 @@ def _parse_changes(changes) -> list[dict]:
 			frappe.throw(
 				_("Cannot set 'Report' permission when 'Only If Creator' is set"), frappe.ValidationError
 			)
+		_check_keeps_a_basic_right(doctype, role, permlevel, if_owner, flags, is_add=key in adds)
 		out.append(
 			{
 				"op": "update",
@@ -282,6 +293,50 @@ def _rule_exists(doctype, role, permlevel, if_owner) -> bool:
 	if frappe.db.exists("Custom DocPerm", {"parent": doctype}):
 		return bool(frappe.db.exists("Custom DocPerm", filters))
 	return bool(frappe.db.exists("DocPerm", filters))
+
+
+def _rule_in_force(doctype, role, permlevel, if_owner) -> dict | None:
+	"""The flags of the rule actually in force, or None if there is none.
+
+	Custom if the doctype is detached, else standard — the same choice _rule_exists()
+	makes, for the same reason (frappe/model/meta.py:641).
+	"""
+	source = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": doctype}) else "DocPerm"
+	rows = frappe.get_all(
+		source,
+		filters={"parent": doctype, "role": role, "permlevel": permlevel, "if_owner": if_owner},
+		fields=list(BASIC_RIGHTS),
+		limit=1,
+	)
+	return rows[0] if rows else None
+
+
+def _check_keeps_a_basic_right(doctype, role, permlevel, if_owner, flags, is_add):
+	"""Reject an edit that would leave a rule with none of frappe's basic rights.
+
+	frappe enforces this in validate_permissions(), which _apply_to_doctype() runs only
+	after every row is written: the savepoint rolls back and the admin is told
+	"No basic permissions set" without being told which rule, which flag, or what to do
+	about it. The commonest way to trigger it is unticking Read on a rule this same
+	payload is adding, since a new rule starts with Read and nothing else.
+	"""
+	# Only turning a basic right OFF can empty the set. Anything else grants a right or
+	# leaves the count alone, so there is nothing to check and no query to run.
+	if not any(flag in BASIC_RIGHTS and not value for flag, value in flags.items()):
+		return
+	# A rule this payload is adding does not exist yet; _add_rule seeds it read: 1.
+	current = {"read": 1} if is_add else _rule_in_force(doctype, role, permlevel, if_owner)
+	if current is None:
+		return  # no such rule — the caller's own _rule_exists() check reports that
+	if any(int(flags.get(flag, current.get(flag) or 0)) for flag in BASIC_RIGHTS):
+		return
+	frappe.throw(
+		_(
+			"{0} on {1} at level {2} would be left with no basic rights. Every rule needs at"
+			" least one of {3}. Leave one of them set, or remove the rule instead."
+		).format(role, doctype, permlevel, ", ".join(frappe.unscrub(f) for f in BASIC_RIGHTS)),
+		frappe.ValidationError,
+	)
 
 
 def _detaching_doctypes(parsed: list[dict]) -> list[dict]:

@@ -67,6 +67,15 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 	static get SUBMIT_FLAGS() { return ["submit", "cancel", "amend"]; }
 
+	/**
+	 * frappe rejects a rule with none of these set (check_atleast_one_set,
+	 * frappe/core/doctype/doctype/doctype.py:1859) — and it does so inside
+	 * validate_permissions(), which runs after every row is written, so the whole commit
+	 * rolls back on it. Kept in step with permission_manager.BASIC_RIGHTS; a server test
+	 * asserts that list still matches frappe's own predicate.
+	 */
+	static get BASIC_RIGHTS() { return ["select", "read", "write", "create", "submit", "cancel"]; }
+
 	// Frappe's own Role Permissions Manager refuses these three
 	// (not_allowed_in_permission_manager, frappe/core/page/permission_manager/permission_manager.py),
 	// and child tables have no meaningful role permissions of their own.
@@ -258,7 +267,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 						return `<span class="pp-new" title="${__("New rule — not saved until you commit")}">${name}</span>`;
 					}
 					if (data.is_removed) {
-						return `<span class="pp-removed" title="${__("Staged for deletion on commit")}">${name}</span>`;
+						return `<span class="pp-removed" title="${__("Staged for deletion on commit — select it and click Restore Selected to undo")}">${name}</span>`;
 					}
 					return data.is_custom
 						? name
@@ -307,7 +316,21 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			// Array.toString() (comma-joined, unquoted) which no longer matches the
 			// JSON.stringify key used to build by_key.
 			const key = e.currentTarget.getAttribute("data-key");
-			this.set_flag(this.by_key[key], $cb.data("flag"), $cb.prop("checked") ? 1 : 0);
+			const checked = $cb.prop("checked") ? 1 : 0;
+			const row = this.by_key[key];
+			// `row &&` because set_flag() also returns false for an unknown row, and the
+			// basic-rights message would be a wrong explanation for that.
+			if (this.set_flag(row, $cb.data("flag"), checked) === false && row && !checked) {
+				// Nothing was written, so the box must not stay cleared.
+				$cb.prop("checked", true);
+				frappe.show_alert({
+					message: __(
+						"A rule must keep at least one of {0}. Set another one first, or remove the rule.",
+						[this.constructor.BASIC_RIGHTS.map((f) => __(frappe.unscrub(f))).join(", ")]
+					),
+					indicator: "orange",
+				});
+			}
 		});
 
 		this.bind_shift_select();
@@ -484,9 +507,16 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 
 	// ── dirty store ────────────────────────────────────────────────────────────
 
+	/** @returns false when the edit was refused, true otherwise. */
 	set_flag(row, flag, value) {
-		if (!row || !this.can_edit) return;
-		if (this.constructor.SUBMIT_FLAGS.includes(flag) && !row.is_submittable) return;
+		if (!row || !this.can_edit) return false;
+		if (this.constructor.SUBMIT_FLAGS.includes(flag) && !row.is_submittable) return false;
+		// A rule with no basic rights is rejected by the server, and by frappe itself only
+		// after the rows are written — so the entire commit rolls back on one stray
+		// checkbox, with a message that names neither the rule nor the flag. Refuse it
+		// here, while it is still a single click the admin can see. Deleting the rule is
+		// the way to take away all of its rights, and that is what the message says.
+		if (!value && row[flag] && this.last_basic_right(row, flag)) return false;
 
 		this.original = this.original || {};
 		this.original[row.key] = this.original[row.key] || {};
@@ -503,6 +533,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		}
 		this.refresh_row(row);
 		this.update_footer();
+		return true;
+	}
+
+	/** True when `flag` is the only basic right this row still has set. */
+	last_basic_right(row, flag) {
+		const basic = this.constructor.BASIC_RIGHTS;
+		return basic.includes(flag) && !basic.some((f) => f !== flag && row[f]);
 	}
 
 	checked_rows() {
@@ -517,11 +554,28 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
 			return;
 		}
-		rows.forEach((row) => this.set_flag(row, flag, value));
+		// set_flag() refuses an edit that would leave a rule with no basic rights. Count
+		// what actually applied rather than reporting the whole selection: silently
+		// skipping rows was how a bulk clear used to look like it had worked.
+		//
+		// The blocked count is derived from the same predicate set_flag() uses, NOT from
+		// (selected - applied): set_flag also declines submit/cancel/amend on a
+		// non-submittable doctype, and attributing those to the basic-rights rule would
+		// be a lie. Those rows just do not count as applied, which is what they are.
+		const blocked = value
+			? 0
+			: rows.filter((row) => row[flag] && this.last_basic_right(row, flag)).length;
+		const applied = rows.filter((row) => this.set_flag(row, flag, value) !== false).length;
 		frappe.show_alert({
-			message: __("{0} set to {1} on {2} rows", [frappe.unscrub(flag), value ? __("on") : __("off"), rows.length]),
+			message: __("{0} set to {1} on {2} rows", [frappe.unscrub(flag), value ? __("on") : __("off"), applied]),
 			indicator: "blue",
 		});
+		if (blocked) {
+			frappe.show_alert({
+				message: __("{0} row(s) skipped: a rule cannot lose its last basic right.", [blocked]),
+				indicator: "orange",
+			});
+		}
 	}
 
 	change_payload() {
@@ -588,6 +642,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 
 	/** Stage existing rows for deletion. A staged add is simply dropped instead. */
 	stage_remove(rows) {
+		let dropped_edits = 0;
 		rows.forEach((row) => {
 			if (row.is_new) {
 				// unstage() drops the row from by_key and rows, so an edit left in
@@ -603,6 +658,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			// server applies removals before updates, so the update would then find no row
 			// and roll the whole commit back. Restore the row's loaded values first so the
 			// grid stops showing an edit that is no longer staged, then forget the edit.
+			if (this.dirty[row.key]) dropped_edits++;
 			Object.entries(this.original[row.key] || {}).forEach(([flag, v]) => (row[flag] = v));
 			delete this.dirty[row.key];
 			delete this.original[row.key];
@@ -610,7 +666,56 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			this.pending_removes[row.key] = row;
 		});
 		this.apply_filters();
+		// apply_filters() drops the datatable's selection (its checkbox map is by index and
+		// means nothing across a rebuild), which would leave the rows we just staged
+		// unselected — and Restore Selected reads the selection, so undoing a removal would
+		// need the admin to hunt down the struck rows and re-tick them. Put the selection
+		// back on exactly the rows still in view.
+		this.reselect(rows);
 		this.update_footer();
+		let message = __("{0} rule(s) staged for deletion. Nothing is deleted until you commit.", [
+			rows.length,
+		]);
+		// Said here because here is where it is still true: the edits have just been
+		// dropped, and Restore Selected cannot bring them back.
+		if (dropped_edits) {
+			message += " " + __("Flag edits on {0} of them were dropped.", [dropped_edits]);
+		}
+		frappe.show_alert({ message, indicator: "orange" });
+	}
+
+	/** Re-check the given rows in the datatable, for the ones still in the current view. */
+	reselect(rows) {
+		const rm = this.datatable.rowmanager;
+		if (!rm) return;
+		this._suspend_footer = true;
+		try {
+			rows.forEach((row) => {
+				const index = this.view.indexOf(row);
+				if (index >= 0) rm.checkRow(index, true);
+			});
+		} finally {
+			this._suspend_footer = false;
+		}
+	}
+
+	/**
+	 * Undo a staged deletion. The rows were never touched on the server, so clearing the
+	 * mark is the whole job — but note stage_remove() restored their loaded flag values
+	 * and forgot any pending edits, so a restored row comes back as it was loaded, not as
+	 * it was when you removed it. That is why stage_remove() says so at the time.
+	 */
+	unstage_remove(rows) {
+		rows.forEach((row) => {
+			delete row.is_removed;
+			delete this.pending_removes[row.key];
+		});
+		this.apply_filters();
+		this.update_footer();
+		frappe.show_alert({
+			message: __("{0} rule(s) restored.", [rows.length]),
+			indicator: "blue",
+		});
 	}
 
 	add_rule_dialog() {
@@ -813,6 +918,22 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				this.stage_remove(rows);
 			});
 		}
+		// Undoing one staged deletion used to mean Discard, which throws away every other
+		// unsaved change with it. Shown only while something is staged for deletion, the
+		// same way Discard is shown only while there is anything to discard.
+		if (!this.$restore_btn) {
+			this.$restore_btn = this.page.add_button(__("Restore Selected"), () => {
+				const rows = this.checked_rows().filter((r) => r.is_removed);
+				if (!rows.length) {
+					frappe.show_alert({
+						message: __("Select some rows that are staged for deletion first"),
+						indicator: "orange",
+					});
+					return;
+				}
+				this.unstage_remove(rows);
+			});
+		}
 
 		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
 		// checked rows. (Fifteen flags x set/clear as a dropdown would be thirty items.)
@@ -851,6 +972,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		this.page.btn_primary.prop("disabled", !n);
 		this.page.btn_secondary.prop("disabled", !n);
 		if (this.$discard_btn) this.$discard_btn.toggle(!!n);
+		if (this.$restore_btn) {
+			this.$restore_btn.toggle(!!Object.keys(this.pending_removes).length);
+		}
 	}
 
 	// ── review + commit ────────────────────────────────────────────────────────
