@@ -139,6 +139,23 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
 - Commit groups changes by doctype, calls `setup_custom_perms` once per doctype (which
   **detaches** it from app permission updates — the review step lists these), validates
   the custom rules with frappe's `validate_permissions()`, and clears the user cache once.
+- The payload is a list of ops: `{op: "update"|"add"|"remove", doctype, role, permlevel,
+  if_owner}`, plus `changes: {flag: 0|1}` for an update. A missing `op` means `update`.
+  `_parse_changes` is the only validation gate; `commit_changes` applies removals, then
+  additions, then updates per doctype so an update can target a rule the same payload
+  adds. A new rule is seeded `read: 1` and nothing else — `_add_rule` sets every flag in
+  `FLAGS` explicitly, because `Custom DocPerm` defaults `export` to `'1'` as well as
+  `read`, so passing `read` alone would silently grant Export on every rule the page creates.
+- Three invariants frappe enforces only in its **page endpoint**, never in
+  `validate_permissions()`, so this path enforces them itself: a doctype must keep at
+  least one rule (checked per doctype across the whole payload — row-by-row would let
+  you delete both rules of a two-rule doctype); no duplicate
+  `(doctype, role, permlevel, if_owner)`; and `report` cannot be set with `if_owner`.
+  `frappe.permissions.add_permission()` is deliberately unused — it `msgprint`s and
+  returns on a duplicate, and hardcodes `if_owner=0`.
+- Adds and removes are staged in the browser (`pending_adds` / `pending_removes`) and
+  render as `pp-new` / `pp-removed`. Like flag edits, they reach the server only on
+  Commit and are dropped by Discard.
 - The page JS is loaded by frappe's page loader and is a classic script; its SCSS goes
   through the bundle like everything else.
 - Deploying this feature needs `bench migrate` (it ships a new Page record — the route
