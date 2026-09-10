@@ -455,6 +455,95 @@ class TestParseOps(FrappeTestCase):
 		self.assertEqual(out["detaching"], [{"doctype": self.dt.name, "standard_rules": 2}])
 
 
+class TestBasicRightsGuard(FrappeTestCase):
+	"""frappe rejects a rule with none of BASIC_RIGHTS set, but only from inside
+	validate_permissions() — after the rows are written, so the whole commit rolls back
+	with a message naming neither the rule nor the flag. _parse_changes catches it first.
+	"""
+
+	def setUp(self):
+		frappe.set_user(SM)
+		self.dt = new_doctype(permissions=[perm("Sales User", read=1), perm("Stock User", read=1)])
+		self.dt.insert()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def op(self, op, role, **extra):
+		return {"op": op, "doctype": self.dt.name, "role": role, "permlevel": 0, "if_owner": 0, **extra}
+
+	def test_unticking_read_on_a_rule_added_in_the_same_payload_rejected(self):
+		"""The commonest way in: a new rule starts with Read and nothing else, so
+		unticking Read leaves it with no basic rights at all."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			_parse_changes(
+				[
+					self.op("add", "Accounts User"),
+					self.op("update", "Accounts User", changes={"read": 0}),
+				]
+			)
+		message = str(caught.exception)
+		self.assertIn("Accounts User", message)
+		self.assertIn("no basic rights", message)
+
+	def test_unticking_the_last_basic_right_of_an_existing_rule_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			_parse_changes([self.op("update", "Sales User", changes={"read": 0})])
+		self.assertIn("no basic rights", str(caught.exception))
+
+	def test_adding_a_rule_and_swapping_read_for_write_is_allowed(self):
+		"""Read goes off and Write comes on in one payload: the resulting rule still has
+		a basic right, so it must pass. Checking the delta alone would wrongly reject."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes(
+			[
+				self.op("add", "Accounts User"),
+				self.op("update", "Accounts User", changes={"read": 0, "write": 1}),
+			]
+		)
+		self.assertEqual(sorted(r["op"] for r in out), ["add", "update"])
+
+	def test_unticking_read_is_allowed_when_another_basic_right_stays_set(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		dt = new_doctype(permissions=[perm("Sales User", read=1, write=1), perm("Stock User", read=1)])
+		dt.insert()
+		out = _parse_changes(
+			[{"doctype": dt.name, "role": "Sales User", "permlevel": 0, "if_owner": 0, "changes": {"read": 0}}]
+		)
+		self.assertEqual(len(out), 1)
+
+	def test_clearing_a_non_basic_right_is_never_blocked(self):
+		"""delete, print and export are not basic rights: frappe is happy for a rule to
+		have none of them, so clearing one must not trip the guard (nor query for it)."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes([self.op("update", "Sales User", changes={"export": 0, "delete": 0})])
+		self.assertEqual(len(out), 1)
+
+	def test_the_guard_matches_frappe_own_predicate(self):
+		"""If frappe ever changes which rights count as basic, this test fails rather
+		than letting our message and its enforcement drift apart."""
+		import inspect
+
+		from frappe.core.doctype.doctype.doctype import validate_permissions
+
+		from cecypo_powerpack.permission_manager import BASIC_RIGHTS
+
+		source = inspect.getsource(validate_permissions)
+		checker = source[source.index("def check_atleast_one_set") :]
+		checker = checker[: checker.index("def check_double")]
+		for right in BASIC_RIGHTS:
+			self.assertIn(f"d.{right}", checker)
+		# and nothing else is consulted there
+		self.assertEqual(checker.count("not d."), len(BASIC_RIGHTS))
+
+
 class TestCommitOps(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user(SM)
