@@ -40,6 +40,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 
 		// key -> {flag: new value}; only flags that differ from the loaded value
 		this.dirty = {};
+		// Rules staged for creation and deletion. Same lifecycle as the dirty store:
+		// nothing reaches the server until Commit, and Discard drops them.
+		this.pending_adds = {};
+		this.pending_removes = {};
 		this.filters = {};
 
 		// Anchor for shift-click range select: the rowIndex of the last checkbox clicked.
@@ -115,6 +119,8 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				});
 				this.dirty = {};
 				this.original = {};
+				this.pending_adds = {};
+				this.pending_removes = {};
 				this._loading = false;
 				this.render();
 			},
@@ -226,11 +232,15 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				// visible in the grid.
 				format: (value, row, column, data) => {
 					const name = frappe.utils.escape_html(String(value ?? ""));
+					if (data.is_new) {
+						return `<span class="pp-new" title="${__("New rule — not saved until you commit")}">${name}</span>`;
+					}
+					if (data.is_removed) {
+						return `<span class="pp-removed" title="${__("Staged for deletion on commit")}">${name}</span>`;
+					}
 					return data.is_custom
 						? name
-						: `<span class="pp-standard" title="${__(
-								"Standard rule — editing it detaches this doctype from app permission updates"
-						  )}">${name}</span>`;
+						: `<span class="pp-standard" title="${__("Standard rule — editing it detaches this doctype from app permission updates")}">${name}</span>`;
 				},
 			},
 			text("role", __("Role"), 150),
@@ -413,6 +423,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		if (flag === "report" && row.if_owner) {
 			return '<span class="pp-flag-na">·</span>';
 		}
+		// A row staged for deletion is not editable — its flags are about to be moot.
+		if (row.is_removed) {
+			return `<span class="pp-flag">${row[flag] ? "✓" : ""}</span>`;
+		}
 		const value = row[flag] ? 1 : 0;
 		const dirty = this.dirty[row.key] && flag in this.dirty[row.key];
 		const cls = `pp-flag${dirty ? " pp-dirty" : ""}`;
@@ -494,6 +508,72 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				changes: { ...changes },
 			};
 		});
+	}
+
+	// ── staged adds and removes ────────────────────────────────────────────────
+
+	/** Total unsaved changes: flag edits + staged adds + staged removes. */
+	change_count() {
+		return (
+			Object.keys(this.dirty).length +
+			Object.keys(this.pending_adds).length +
+			Object.keys(this.pending_removes).length
+		);
+	}
+
+	/**
+	 * Stage a brand-new rule. The row joins this.rows so it sorts, filters and renders
+	 * like any other, but it exists only in the browser until Commit.
+	 */
+	stage_add({ doctype, role, permlevel, if_owner }) {
+		const meta = this.rows.find((r) => r.doctype === doctype);
+		const row = {
+			doctype,
+			role,
+			permlevel: permlevel || 0,
+			if_owner: if_owner ? 1 : 0,
+			module: meta ? meta.module : "",
+			is_submittable: meta ? meta.is_submittable : 0,
+			is_custom: 1,
+			is_new: 1,
+		};
+		this.constructor.FLAGS.forEach((f) => (row[f] = 0));
+		row.read = 1; // the server seeds read: 1; show the same thing
+		row.key = this.key_of(row);
+		if (this.by_key[row.key]) {
+			frappe.show_alert({ message: __("That rule already exists"), indicator: "orange" });
+			return null;
+		}
+		this.rows.push(row);
+		this.by_key[row.key] = row;
+		this.pending_adds[row.key] = row;
+		this.apply_filters();
+		this.update_footer();
+		return row;
+	}
+
+	/** Stage existing rows for deletion. A staged add is simply dropped instead. */
+	stage_remove(rows) {
+		rows.forEach((row) => {
+			if (row.is_new) {
+				this.unstage(row.key);
+				return;
+			}
+			row.is_removed = 1;
+			this.pending_removes[row.key] = row;
+		});
+		this.apply_filters();
+		this.update_footer();
+	}
+
+	/** Drop a staged add entirely — it never existed on the server. */
+	unstage(key) {
+		const row = this.by_key[key];
+		if (!row) return;
+		delete this.pending_adds[key];
+		delete this.by_key[key];
+		const i = this.rows.indexOf(row);
+		if (i >= 0) this.rows.splice(i, 1);
 	}
 
 	discard() {

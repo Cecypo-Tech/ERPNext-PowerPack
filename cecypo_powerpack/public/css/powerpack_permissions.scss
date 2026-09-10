@@ -95,6 +95,17 @@
 	.pp-standard {
 		font-style: italic;
 	}
+
+	// Staged, not saved: a rule about to be created, and one about to be deleted.
+	.pp-new {
+		font-weight: 600;
+		color: var(--green-600);
+	}
+
+	.pp-removed {
+		text-decoration: line-through;
+		color: var(--text-muted);
+	}
 }
 
 .pp-perm-footer {
