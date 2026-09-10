@@ -185,6 +185,16 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
   as it was *loaded*: `stage_remove` restores its loaded flags and forgets its pending
   edits (it must, or the payload emits an update and a remove for one identity), so it
   says how many edits it dropped at the moment that is still true.
+- The dirty-flag marker is `input.pp-flag.pp-dirty`, qualified that far on purpose:
+  frappe's `input[type="checkbox"]:checked` sets `box-shadow: none; border: none` at
+  specificity (0,2,1), so the old `.pp-perm-table .pp-dirty` at (0,2,0) never applied to
+  a **ticked** box — only cleared flags looked edited. A ring, not a fill, carries the
+  signal, since a ticked box keeps frappe's own background and checkmark; the empty-box
+  wash uses `background-color`, never the `background` shorthand, which would reset
+  `background-image` and erase that checkmark. Do not reach for `--yellow-50`: it is
+  #fffcef, and frappe does not remap the raw yellow scale for dark mode (`desk/dark.scss`
+  redefines only the semantic `--bg-yellow` / `--alert-*-warning` tokens), so a near-white
+  value is washed out in both themes.
 - The page JS is loaded by frappe's page loader and is a classic script; its SCSS goes
   through the bundle like everything else.
 - Deploying this feature needs `bench migrate` (it ships a new Page record — the route
