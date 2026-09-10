@@ -67,6 +67,22 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 	static get SUBMIT_FLAGS() { return ["submit", "cancel", "amend"]; }
 
+	// Frappe's own Role Permissions Manager refuses these three
+	// (not_allowed_in_permission_manager, frappe/core/page/permission_manager/permission_manager.py),
+	// and child tables have no meaningful role permissions of their own.
+	static get NOT_ADDABLE_DOCTYPES() { return ["DocType", "Patch Log", "Module Def"]; }
+
+	/**
+	 * Roles the dialog will not offer. Administrator is never a sensible target, disabled
+	 * roles are filtered by the query itself, and frappe hides the automatic roles from
+	 * anyone but Administrator — match that rather than inventing our own rule.
+	 */
+	excluded_roles() {
+		const out = ["Administrator"];
+		if (frappe.session.user !== "Administrator") out.push("All", "Guest", "Desk User");
+		return out;
+	}
+
 	// Lucide icon per flag, for the column headers. All fifteen are one icon set so the
 	// stroke weight matches; every id was checked to resolve against the sprite the desk
 	// loads (a <use> pointing at a missing symbol renders an invisible blank, not an error).
@@ -181,7 +197,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			if (f.module && row.module !== f.module) return false;
 			if (f.doctype && row.doctype !== f.doctype) return false;
 			if (f.role && row.role !== f.role) return false;
-			if (f.modified_only && !this.dirty[row.key]) return false;
+			if (
+				f.modified_only &&
+				!this.dirty[row.key] &&
+				!this.pending_adds[row.key] &&
+				!this.pending_removes[row.key]
+			)
+				return false;
 			if (q && !(`${row.doctype} ${row.role} ${row.module}`.toLowerCase().includes(q))) return false;
 			return true;
 		});
@@ -595,8 +617,17 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		const d = new frappe.ui.Dialog({
 			title: __("Add Permission Rule"),
 			fields: [
-				{ fieldtype: "Link", fieldname: "doctype_name", label: __("Document Type"), options: "DocType", reqd: 1 },
-				{ fieldtype: "Link", fieldname: "role", label: __("Role"), options: "Role", reqd: 1 },
+				{
+					fieldtype: "Link", fieldname: "doctype_name", label: __("Document Type"),
+					options: "DocType", reqd: 1,
+					get_query: () => ({
+						filters: { istable: 0, name: ["not in", this.constructor.NOT_ADDABLE_DOCTYPES] },
+					}),
+				},
+				{
+					fieldtype: "Link", fieldname: "role", label: __("Role"), options: "Role", reqd: 1,
+					get_query: () => ({ filters: { disabled: 0, name: ["not in", this.excluded_roles()] } }),
+				},
 				{ fieldtype: "Int", fieldname: "permlevel", label: __("Level"), default: 0 },
 				{ fieldtype: "Check", fieldname: "if_owner", label: __("Only If Creator"), default: 0 },
 			],

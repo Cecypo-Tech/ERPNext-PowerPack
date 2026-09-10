@@ -570,3 +570,43 @@ class TestCommitOps(FrappeTestCase):
 		frappe.set_user(editor)
 		with self.assertRaises(frappe.PermissionError):
 			commit_changes([self.op("add", self.a, "Accounts User")])
+
+	def test_removing_every_rule_but_adding_one_is_allowed(self):
+		"""The PERMITTING branch of the delete guard: 2 - 2 + 1 = 1 rule survives."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		out = commit_changes(
+			[
+				self.op("remove", self.a, "Sales User"),
+				self.op("remove", self.a, "Stock User"),
+				self.op("add", self.a, "Accounts User"),
+			]
+		)
+		self.assertEqual((out["added"], out["removed"]), (1, 2))
+		self.assertEqual(frappe.db.count("Custom DocPerm", {"parent": self.a.name}), 1)
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "read"), 1)
+
+	def test_doctype_name_is_canonicalised_so_the_delete_guard_cannot_be_split(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes(
+				[
+					self.op("remove", self.a, "Sales User"),
+					{**self.op("remove", self.a, "Stock User"), "doctype": self.a.name.lower()},
+				]
+			)
+
+	def test_unknown_doctype_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("add", self.a, "Sales User") | {"doctype": "No Such Doctype ZZZ"}])
+
+	def test_add_on_a_child_table_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		child = new_doctype(istable=1)
+		child.insert()
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([{**self.op("add", self.a, "Sales User"), "doctype": child.name}])

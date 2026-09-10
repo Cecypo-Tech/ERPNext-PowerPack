@@ -29,6 +29,12 @@ FLAGS = tuple(std_rights) + ("mask",)
 # existed, and every pre-existing test relies on it.
 OPS = ("update", "add", "remove")
 
+# Frappe's own page refuses these (not_allowed_in_permission_manager) and never offers a
+# child table. We must refuse them too: get_permission_rules() filters istable: 0, so a
+# rule created on a child table is invisible here AND in frappe's page — unreachable
+# except through the raw Custom DocPerm list.
+NOT_ADDABLE_DOCTYPES = ("DocType", "Patch Log", "Module Def")
+
 # Reading the grid reuses an existing doctype permission instead of a new role field:
 # to let another role view the grid, grant it Read on this doctype in frappe's Role
 # Permission Manager. It is NOT Custom DocPerm, although that is the data shown:
@@ -61,6 +67,19 @@ def _can_edit() -> bool:
 
 def _rule_key(row) -> tuple:
 	return (row["doctype"], row["role"], int(row["permlevel"] or 0), int(row["if_owner"] or 0))
+
+
+def _check_addable(doctype: str):
+	if doctype in NOT_ADDABLE_DOCTYPES:
+		frappe.throw(
+			_("Permission rules for {0} cannot be managed here").format(doctype),
+			frappe.ValidationError,
+		)
+	if frappe.get_cached_value("DocType", doctype, "istable"):
+		frappe.throw(
+			_("{0} is a child table and has no role permissions of its own").format(doctype),
+			frappe.ValidationError,
+		)
 
 
 @frappe.whitelist()
@@ -129,10 +148,25 @@ def _parse_changes(changes) -> list[dict]:
 	adds: dict[tuple, None] = {}
 	removes: dict[tuple, None] = {}
 
+	# MariaDB's default collation is case-insensitive, so "sales invoice" and "Sales Invoice"
+	# count the same rows but hash to different keys. Canonicalise before anything buckets by
+	# doctype, or a payload spelling one doctype two ways splits the "keep at least one rule"
+	# arithmetic and defeats it from both sides.
+	canonical: dict[str, str] = {}
+
+	def _canonical(name):
+		if name not in canonical:
+			resolved = frappe.db.get_value("DocType", name, "name")
+			if not resolved:
+				frappe.throw(_("{0} is not a document type").format(name), frappe.ValidationError)
+			canonical[name] = resolved
+		return canonical[name]
+
 	for item in changes:
 		for required in ("doctype", "role"):
 			if not item.get(required):
 				frappe.throw(_("Each change needs a doctype and a role"), frappe.ValidationError)
+		item = {**item, "doctype": _canonical(item["doctype"])}
 		op = item.get("op") or "update"
 		if op not in OPS:
 			frappe.throw(_("{0} is not a valid operation").format(op), frappe.ValidationError)
@@ -161,6 +195,7 @@ def _parse_changes(changes) -> list[dict]:
 
 	for key in adds:
 		doctype, role, permlevel, if_owner = key
+		_check_addable(doctype)
 		if _rule_exists(doctype, role, permlevel, if_owner):
 			frappe.throw(
 				_("A rule for {0} on {1} at level {2} already exists").format(role, doctype, permlevel),
@@ -280,6 +315,9 @@ def commit_changes(changes) -> dict:
 	Per doctype: detach once (setup_custom_perms), write each changed row, validate
 	that doctype's custom rules once. Then clear caches once for the whole commit.
 	Any failure rolls the entire payload back — never a partial application.
+
+	Per doctype the order is removals, then additions, then updates: an update in the
+	same payload may target a rule that payload creates, so the row has to exist by then.
 	"""
 	_check_can_edit()
 	parsed = _drop_noops(_parse_changes(changes))
@@ -305,6 +343,17 @@ def commit_changes(changes) -> dict:
 			for rule in [r for r in rules if r["op"] == "add"]:
 				_add_rule(doctype, rule)
 				added += 1
+			# Checked again here, inside the transaction: _check_doctypes_keep_a_rule reads
+			# counts before the savepoint opens, so two concurrent commits could each pass it
+			# and still leave a doctype with nothing.
+			if any(r["op"] == "remove" for r in rules) and frappe.db.count(
+				"Custom DocPerm", {"parent": doctype}
+			) < 1:
+				frappe.throw(
+					_("There must be atleast one permission rule ({0}).").format(doctype),
+					frappe.ValidationError,
+					title=_("Cannot Remove"),
+				)
 			_apply_to_doctype(doctype, [r for r in rules if r["op"] == "update"])
 			_validate_custom_rules(doctype)
 	except Exception:
