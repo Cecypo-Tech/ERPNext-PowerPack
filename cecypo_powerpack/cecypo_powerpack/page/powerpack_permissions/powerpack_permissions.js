@@ -501,13 +501,18 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	change_payload() {
-		return Object.entries(this.dirty).map(([key, changes]) => {
-			const row = this.by_key[key];
-			return {
-				doctype: row.doctype, role: row.role, permlevel: row.permlevel, if_owner: row.if_owner,
-				changes: { ...changes },
-			};
+		const identity = (row) => ({
+			doctype: row.doctype, role: row.role, permlevel: row.permlevel, if_owner: row.if_owner,
 		});
+		return [
+			...Object.values(this.pending_removes).map((row) => ({ op: "remove", ...identity(row) })),
+			...Object.values(this.pending_adds).map((row) => ({ op: "add", ...identity(row) })),
+			...Object.entries(this.dirty).map(([key, changes]) => ({
+				op: "update",
+				...identity(this.by_key[key]),
+				changes: { ...changes },
+			})),
+		];
 	}
 
 	// ── staged adds and removes ────────────────────────────────────────────────
@@ -598,6 +603,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	unstage(key) {
 		const row = this.by_key[key];
 		if (!row) return;
+		// Staged adds only. A server-backed row must never be spliced out of this.rows —
+		// that would drop a real rule from the client model with nothing to restore it.
+		if (!row.is_new) return;
 		delete this.pending_adds[key];
 		delete this.by_key[key];
 		const i = this.rows.indexOf(row);
@@ -609,10 +617,16 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			const row = this.by_key[key];
 			Object.entries(this.original[key] || {}).forEach(([flag, v]) => (row[flag] = v));
 		});
+		// Staged adds never existed on the server, so drop the rows outright. Staged
+		// removes are real rows; just clear the mark.
+		Object.keys(this.pending_adds).forEach((key) => this.unstage(key));
+		Object.values(this.pending_removes).forEach((row) => delete row.is_removed);
 		this.dirty = {};
 		this.original = {};
+		this.pending_adds = {};
+		this.pending_removes = {};
 		this.hide_stale_notice();
-		this.datatable.refresh(this.view, this.columns);
+		this.apply_filters();
 		this.update_footer();
 	}
 
@@ -626,12 +640,12 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	bind_unload_guard() {
 		if (this._unload_guard) return;
 		this._unload_guard = (e) => {
-			if (!Object.keys(this.dirty).length) return undefined;
+			if (!this.change_count()) return undefined;
 			// preventDefault() is what modern browsers act on; returnValue is the legacy
 			// spelling older ones still need. Neither shows our text — browsers use their own.
 			e.preventDefault();
 			const message = __("You have {0} unsaved permission change(s).", [
-				Object.keys(this.dirty).length,
+				this.change_count(),
 			]);
 			e.returnValue = message;
 			return message;
@@ -657,21 +671,21 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// commit() just suppressed, right before its own callback clears this.dirty.
 		if (this._loading || this._committing || !this.rows) return;
 
-		if (!Object.keys(this.dirty).length) {
+		if (!this.change_count()) {
 			this.load();
 			return;
 		}
 		this.show_stale_notice();
 		frappe.show_alert({
 			message: __("{0} unsaved permission change(s) are still pending", [
-				Object.keys(this.dirty).length,
+				this.change_count(),
 			]),
 			indicator: "orange",
 		});
 	}
 
 	show_stale_notice() {
-		if (!Object.keys(this.dirty).length || !this.$filters) return;
+		if (!this.change_count() || !this.$filters) return;
 		// Rebuilt only when it is not on the page: render() empties $body, which detaches it.
 		// on_show() can fire any number of times without stacking notices or handlers.
 		if (!this.$stale || !this.$stale.parent().length) {
@@ -691,7 +705,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			.find(".pp-perm-stale-text")
 			.text(
 				__("{0} unsaved change(s) from earlier. Review to commit them, or Discard.", [
-					Object.keys(this.dirty).length,
+					this.change_count(),
 				])
 			);
 	}
@@ -769,13 +783,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// check_range() sets this while it walks a range: every checkRow fires onCheckRow, and
 		// counting the whole checkMap per row is quadratic. It repaints once when it is done.
 		if (this._suspend_footer) return;
+		const n = this.change_count();
 		// The notice quotes the same count as the footer, so they cannot disagree.
 		if (this.$stale && this.$stale.parent().length) {
-			if (Object.keys(this.dirty).length) this.show_stale_notice();
+			if (n) this.show_stale_notice();
 			else this.hide_stale_notice();
 		}
 		if (!this.$footer) return;
-		const n = Object.keys(this.dirty).length;
 		const selected = this.checked_rows().length;
 		this.$footer.find(".pp-perm-count").text(
 			n
