@@ -40,6 +40,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 
 		// key -> {flag: new value}; only flags that differ from the loaded value
 		this.dirty = {};
+		// Rules staged for creation and deletion. Same lifecycle as the dirty store:
+		// nothing reaches the server until Commit, and Discard drops them.
+		this.pending_adds = {};
+		this.pending_removes = {};
 		this.filters = {};
 
 		// Anchor for shift-click range select: the rowIndex of the last checkbox clicked.
@@ -62,6 +66,22 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		];
 	}
 	static get SUBMIT_FLAGS() { return ["submit", "cancel", "amend"]; }
+
+	// Frappe's own Role Permissions Manager refuses these three
+	// (not_allowed_in_permission_manager, frappe/core/page/permission_manager/permission_manager.py),
+	// and child tables have no meaningful role permissions of their own.
+	static get NOT_ADDABLE_DOCTYPES() { return ["DocType", "Patch Log", "Module Def"]; }
+
+	/**
+	 * Roles the dialog will not offer. Administrator is never a sensible target, disabled
+	 * roles are filtered by the query itself, and frappe hides the automatic roles from
+	 * anyone but Administrator — match that rather than inventing our own rule.
+	 */
+	excluded_roles() {
+		const out = ["Administrator"];
+		if (frappe.session.user !== "Administrator") out.push("All", "Guest", "Desk User");
+		return out;
+	}
 
 	// Lucide icon per flag, for the column headers. All fifteen are one icon set so the
 	// stroke weight matches; every id was checked to resolve against the sprite the desk
@@ -115,6 +135,8 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				});
 				this.dirty = {};
 				this.original = {};
+				this.pending_adds = {};
+				this.pending_removes = {};
 				this._loading = false;
 				this.render();
 			},
@@ -175,7 +197,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			if (f.module && row.module !== f.module) return false;
 			if (f.doctype && row.doctype !== f.doctype) return false;
 			if (f.role && row.role !== f.role) return false;
-			if (f.modified_only && !this.dirty[row.key]) return false;
+			if (
+				f.modified_only &&
+				!this.dirty[row.key] &&
+				!this.pending_adds[row.key] &&
+				!this.pending_removes[row.key]
+			)
+				return false;
 			if (q && !(`${row.doctype} ${row.role} ${row.module}`.toLowerCase().includes(q))) return false;
 			return true;
 		});
@@ -226,11 +254,15 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				// visible in the grid.
 				format: (value, row, column, data) => {
 					const name = frappe.utils.escape_html(String(value ?? ""));
+					if (data.is_new) {
+						return `<span class="pp-new" title="${__("New rule — not saved until you commit")}">${name}</span>`;
+					}
+					if (data.is_removed) {
+						return `<span class="pp-removed" title="${__("Staged for deletion on commit")}">${name}</span>`;
+					}
 					return data.is_custom
 						? name
-						: `<span class="pp-standard" title="${__(
-								"Standard rule — editing it detaches this doctype from app permission updates"
-						  )}">${name}</span>`;
+						: `<span class="pp-standard" title="${__("Standard rule — editing it detaches this doctype from app permission updates")}">${name}</span>`;
 				},
 			},
 			text("role", __("Role"), 150),
@@ -413,6 +445,10 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		if (flag === "report" && row.if_owner) {
 			return '<span class="pp-flag-na">·</span>';
 		}
+		// A row staged for deletion is not editable — its flags are about to be moot.
+		if (row.is_removed) {
+			return `<span class="pp-flag">${row[flag] ? "✓" : ""}</span>`;
+		}
 		const value = row[flag] ? 1 : 0;
 		const dirty = this.dirty[row.key] && flag in this.dirty[row.key];
 		const cls = `pp-flag${dirty ? " pp-dirty" : ""}`;
@@ -474,7 +510,9 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	bulk_apply(flag, value) {
-		const rows = this.checked_rows();
+		// A row staged for deletion is not editable — render_flag already makes its cells
+		// inert, and re-dirtying it here would only inflate change_count().
+		const rows = this.checked_rows().filter((r) => !r.is_removed);
 		if (!rows.length) {
 			frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
 			return;
@@ -487,13 +525,142 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	change_payload() {
-		return Object.entries(this.dirty).map(([key, changes]) => {
-			const row = this.by_key[key];
-			return {
-				doctype: row.doctype, role: row.role, permlevel: row.permlevel, if_owner: row.if_owner,
-				changes: { ...changes },
-			};
+		const identity = (row) => ({
+			doctype: row.doctype, role: row.role, permlevel: row.permlevel, if_owner: row.if_owner,
 		});
+		return [
+			...Object.values(this.pending_removes).map((row) => ({ op: "remove", ...identity(row) })),
+			...Object.values(this.pending_adds).map((row) => ({ op: "add", ...identity(row) })),
+			// stage_remove() already drops a removed row's dirty entry; this filter is the
+			// last line of defence before the server, because a stray update+remove pair
+			// for one identity rolls the entire commit back.
+			...Object.entries(this.dirty)
+				.filter(([key]) => !this.pending_removes[key])
+				.map(([key, changes]) => ({
+					op: "update",
+					...identity(this.by_key[key]),
+					changes: { ...changes },
+				})),
+		];
+	}
+
+	// ── staged adds and removes ────────────────────────────────────────────────
+
+	/** Total unsaved changes: flag edits + staged adds + staged removes. */
+	change_count() {
+		return (
+			Object.keys(this.dirty).length +
+			Object.keys(this.pending_adds).length +
+			Object.keys(this.pending_removes).length
+		);
+	}
+
+	/**
+	 * Stage a brand-new rule. The row joins this.rows so it sorts, filters and renders
+	 * like any other, but it exists only in the browser until Commit.
+	 */
+	stage_add({ doctype, role, permlevel, if_owner }) {
+		const meta = this.rows.find((r) => r.doctype === doctype);
+		const row = {
+			doctype,
+			role,
+			permlevel: permlevel || 0,
+			if_owner: if_owner ? 1 : 0,
+			module: meta ? meta.module : "",
+			is_submittable: meta ? meta.is_submittable : 0,
+			is_custom: 1,
+			is_new: 1,
+		};
+		this.constructor.FLAGS.forEach((f) => (row[f] = 0));
+		row.read = 1; // the server seeds read: 1; show the same thing
+		row.key = this.key_of(row);
+		if (this.by_key[row.key]) {
+			frappe.show_alert({ message: __("That rule already exists"), indicator: "orange" });
+			return null;
+		}
+		this.rows.push(row);
+		this.by_key[row.key] = row;
+		this.pending_adds[row.key] = row;
+		this.apply_filters();
+		this.update_footer();
+		return row;
+	}
+
+	/** Stage existing rows for deletion. A staged add is simply dropped instead. */
+	stage_remove(rows) {
+		rows.forEach((row) => {
+			if (row.is_new) {
+				// unstage() drops the row from by_key and rows, so an edit left in
+				// this.dirty would outlive its row and make change_payload() evaluate
+				// identity(undefined) and throw. Forget the edit before dropping the row.
+				delete this.dirty[row.key];
+				delete this.original[row.key];
+				this.unstage(row.key);
+				return;
+			}
+			// Pending flag edits on a rule you are deleting are moot, and leaving them in
+			// this.dirty would emit BOTH an update and a remove op for one identity. The
+			// server applies removals before updates, so the update would then find no row
+			// and roll the whole commit back. Restore the row's loaded values first so the
+			// grid stops showing an edit that is no longer staged, then forget the edit.
+			Object.entries(this.original[row.key] || {}).forEach(([flag, v]) => (row[flag] = v));
+			delete this.dirty[row.key];
+			delete this.original[row.key];
+			row.is_removed = 1;
+			this.pending_removes[row.key] = row;
+		});
+		this.apply_filters();
+		this.update_footer();
+	}
+
+	add_rule_dialog() {
+		const d = new frappe.ui.Dialog({
+			title: __("Add Permission Rule"),
+			fields: [
+				{
+					fieldtype: "Link", fieldname: "doctype_name", label: __("Document Type"),
+					options: "DocType", reqd: 1,
+					get_query: () => ({
+						filters: { istable: 0, name: ["not in", this.constructor.NOT_ADDABLE_DOCTYPES] },
+					}),
+				},
+				{
+					fieldtype: "Link", fieldname: "role", label: __("Role"), options: "Role", reqd: 1,
+					get_query: () => ({ filters: { disabled: 0, name: ["not in", this.excluded_roles()] } }),
+				},
+				{ fieldtype: "Int", fieldname: "permlevel", label: __("Level"), default: 0 },
+				{ fieldtype: "Check", fieldname: "if_owner", label: __("Only If Creator"), default: 0 },
+			],
+			primary_action_label: __("Stage Rule"),
+			primary_action: (values) => {
+				const row = this.stage_add({
+					doctype: values.doctype_name,
+					role: values.role,
+					permlevel: values.permlevel,
+					if_owner: values.if_owner,
+				});
+				if (!row) return; // duplicate; stage_add already said so
+				d.hide();
+				frappe.show_alert({
+					message: __("Staged. It is created when you commit."),
+					indicator: "blue",
+				});
+			},
+		});
+		d.show();
+	}
+
+	/** Drop a staged add entirely — it never existed on the server. */
+	unstage(key) {
+		const row = this.by_key[key];
+		if (!row) return;
+		// Staged adds only. A server-backed row must never be spliced out of this.rows —
+		// that would drop a real rule from the client model with nothing to restore it.
+		if (!row.is_new) return;
+		delete this.pending_adds[key];
+		delete this.by_key[key];
+		const i = this.rows.indexOf(row);
+		if (i >= 0) this.rows.splice(i, 1);
 	}
 
 	discard() {
@@ -501,10 +668,16 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			const row = this.by_key[key];
 			Object.entries(this.original[key] || {}).forEach(([flag, v]) => (row[flag] = v));
 		});
+		// Staged adds never existed on the server, so drop the rows outright. Staged
+		// removes are real rows; just clear the mark.
+		Object.keys(this.pending_adds).forEach((key) => this.unstage(key));
+		Object.values(this.pending_removes).forEach((row) => delete row.is_removed);
 		this.dirty = {};
 		this.original = {};
+		this.pending_adds = {};
+		this.pending_removes = {};
 		this.hide_stale_notice();
-		this.datatable.refresh(this.view, this.columns);
+		this.apply_filters();
 		this.update_footer();
 	}
 
@@ -518,12 +691,12 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	bind_unload_guard() {
 		if (this._unload_guard) return;
 		this._unload_guard = (e) => {
-			if (!Object.keys(this.dirty).length) return undefined;
+			if (!this.change_count()) return undefined;
 			// preventDefault() is what modern browsers act on; returnValue is the legacy
 			// spelling older ones still need. Neither shows our text — browsers use their own.
 			e.preventDefault();
 			const message = __("You have {0} unsaved permission change(s).", [
-				Object.keys(this.dirty).length,
+				this.change_count(),
 			]);
 			e.returnValue = message;
 			return message;
@@ -549,21 +722,21 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// commit() just suppressed, right before its own callback clears this.dirty.
 		if (this._loading || this._committing || !this.rows) return;
 
-		if (!Object.keys(this.dirty).length) {
+		if (!this.change_count()) {
 			this.load();
 			return;
 		}
 		this.show_stale_notice();
 		frappe.show_alert({
 			message: __("{0} unsaved permission change(s) are still pending", [
-				Object.keys(this.dirty).length,
+				this.change_count(),
 			]),
 			indicator: "orange",
 		});
 	}
 
 	show_stale_notice() {
-		if (!Object.keys(this.dirty).length || !this.$filters) return;
+		if (!this.change_count() || !this.$filters) return;
 		// Rebuilt only when it is not on the page: render() empties $body, which detaches it.
 		// on_show() can fire any number of times without stacking notices or handlers.
 		if (!this.$stale || !this.$stale.parent().length) {
@@ -583,7 +756,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			.find(".pp-perm-stale-text")
 			.text(
 				__("{0} unsaved change(s) from earlier. Review to commit them, or Discard.", [
-					Object.keys(this.dirty).length,
+					this.change_count(),
 				])
 			);
 	}
@@ -602,6 +775,8 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			this.page.clear_primary_action();
 			this.page.clear_secondary_action();
 			if (this.$discard_btn) this.$discard_btn.hide();
+			if (this.$add_btn) this.$add_btn.hide();
+			if (this.$remove_btn) this.$remove_btn.hide();
 			return;
 		}
 		this.$footer = $(`
@@ -621,6 +796,22 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// on every render would stack up duplicates.
 		if (!this.$discard_btn) {
 			this.$discard_btn = this.page.add_button(__("Discard"), () => this.discard());
+		}
+
+		// Created once each: add_button() appends unconditionally, so calling it on every
+		// render would stack duplicates.
+		if (!this.$add_btn) {
+			this.$add_btn = this.page.add_button(__("Add Rule"), () => this.add_rule_dialog());
+		}
+		if (!this.$remove_btn) {
+			this.$remove_btn = this.page.add_button(__("Remove Selected"), () => {
+				const rows = this.checked_rows().filter((r) => !r.is_removed);
+				if (!rows.length) {
+					frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
+					return;
+				}
+				this.stage_remove(rows);
+			});
 		}
 
 		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
@@ -643,13 +834,13 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// check_range() sets this while it walks a range: every checkRow fires onCheckRow, and
 		// counting the whole checkMap per row is quadratic. It repaints once when it is done.
 		if (this._suspend_footer) return;
+		const n = this.change_count();
 		// The notice quotes the same count as the footer, so they cannot disagree.
 		if (this.$stale && this.$stale.parent().length) {
-			if (Object.keys(this.dirty).length) this.show_stale_notice();
+			if (n) this.show_stale_notice();
 			else this.hide_stale_notice();
 		}
 		if (!this.$footer) return;
-		const n = Object.keys(this.dirty).length;
 		const selected = this.checked_rows().length;
 		this.$footer.find(".pp-perm-count").text(
 			n
@@ -675,8 +866,17 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 	}
 
 	render_review(preview, changes) {
+		const removals = preview.rules.filter((r) => r.op === "remove");
+		const additions = preview.rules.filter((r) => r.op === "add");
 		const by_doctype = {};
-		preview.rules.forEach((rule) => (by_doctype[rule.doctype] = by_doctype[rule.doctype] || []).push(rule));
+		preview.rules
+			.filter((r) => r.op === "update")
+			.forEach((rule) => (by_doctype[rule.doctype] = by_doctype[rule.doctype] || []).push(rule));
+
+		const rule_name = (r) =>
+			`${frappe.utils.escape_html(r.doctype)} → ${frappe.utils.escape_html(r.role)}` +
+			`${r.permlevel ? ` (${__("level {0}", [r.permlevel])})` : ""}` +
+			`${r.if_owner ? ` (${__("only if creator")})` : ""}`;
 
 		const flag_list = (rule) =>
 			Object.entries(rule.changes)
@@ -695,6 +895,20 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 					.join("")}</ul>
 			</div>`;
 		}
+		if (removals.length) {
+			html += `<div class="pp-review-remove">
+				<b>${__("{0} rule(s) will be DELETED", [removals.length])}</b>
+				<p class="small">${__("The role loses this access entirely. Re-creating it later starts from Read only.")}</p>
+				<ul>${removals.map((r) => `<li>${rule_name(r)}</li>`).join("")}</ul>
+			</div>`;
+		}
+		if (additions.length) {
+			html += `<div class="pp-review-add">
+				<b>${__("{0} rule(s) will be created", [additions.length])}</b>
+				<p class="small">${__("Each starts with Read only; set the rest afterwards.")}</p>
+				<ul>${additions.map((r) => `<li>${rule_name(r)}</li>`).join("")}</ul>
+			</div>`;
+		}
 		html += Object.entries(by_doctype)
 			.map(
 				([doctype, rules]) => `<div class="mb-3"><b>${frappe.utils.escape_html(doctype)}</b><ul>${rules
@@ -708,10 +922,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			.join("");
 
 		const d = new frappe.ui.Dialog({
-			title: __("Review {0} rule change(s) across {1} document type(s)", [
-				preview.rules.length,
-				Object.keys(by_doctype).length,
-			]),
+			title: __("Review {0} change(s)", [preview.rules.length]),
 			size: "large",
 			fields: [{ fieldtype: "HTML", fieldname: "body", options: `<div class="pp-perm-review">${html}</div>` }],
 			primary_action_label: __("Commit"),
@@ -737,9 +948,15 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 			callback: (r) => {
 				this._committing = false;
 				const out = r.message;
+				const parts = [__("{0} rule change(s)", [out.rules])];
+				if (out.added) parts.push(__("{0} created", [out.added]));
+				if (out.removed) parts.push(__("{0} deleted", [out.removed]));
 				frappe.show_alert(
 					{
-						message: __("Committed {0} rule change(s) across {1} document type(s)", [out.rules, out.doctypes]),
+						message: __("Committed {0} across {1} document type(s)", [
+							parts.join(", "),
+							out.doctypes,
+						]),
 						indicator: "green",
 					},
 					7

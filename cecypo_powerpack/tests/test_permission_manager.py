@@ -282,7 +282,7 @@ class TestCommit(FrappeTestCase):
 		from cecypo_powerpack.permission_manager import commit_changes
 
 		out = commit_changes([self.rule(self.a, "Sales User", read=1)])  # already 1
-		self.assertEqual(out, {"doctypes": 0, "rules": 0, "detached": []})
+		self.assertEqual(out, {"doctypes": 0, "rules": 0, "added": 0, "removed": 0, "detached": []})
 		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.a.name}))
 
 	def test_grid_reflects_the_commit(self):
@@ -362,3 +362,251 @@ class TestCommit(FrappeTestCase):
 		)
 		self.assertEqual(custom_flag(dt.name, "Sales User", "write", if_owner=0), 0)
 		self.assertEqual(custom_flag(dt.name, "Sales User", "write", if_owner=1), 1)
+
+
+class TestParseOps(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.dt = new_doctype(permissions=[perm("Sales User", read=1), perm("Stock User", read=1)])
+		self.dt.insert()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def op(self, op, role, **extra):
+		return {"op": op, "doctype": self.dt.name, "role": role, "permlevel": 0, "if_owner": 0, **extra}
+
+	def test_missing_op_still_means_update(self):
+		"""The existing client sends no op at all; that contract must not break."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes(
+			[{"doctype": self.dt.name, "role": "Sales User", "permlevel": 0, "if_owner": 0, "changes": {"write": 1}}]
+		)
+		self.assertEqual(len(out), 1)
+		self.assertEqual(out[0]["op"], "update")
+
+	def test_unknown_op_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("obliterate", "Sales User")])
+
+	def test_add_is_parsed(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes([self.op("add", "Accounts User")])
+		self.assertEqual(len(out), 1)
+		self.assertEqual(out[0]["op"], "add")
+		self.assertEqual(out[0]["role"], "Accounts User")
+
+	def test_add_of_an_existing_rule_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("add", "Sales User")])
+
+	def test_remove_of_a_missing_rule_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("remove", "Accounts User")])
+
+	def test_add_and_remove_of_the_same_identity_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("add", "Accounts User"), self.op("remove", "Accounts User")])
+
+	def test_removing_every_rule_of_a_doctype_rejected(self):
+		"""Evaluated across the whole payload: two removes for a two-rule doctype must
+		fail, even though each one alone would leave a rule behind."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("remove", "Sales User"), self.op("remove", "Stock User")])
+
+	def test_removing_all_but_one_is_allowed(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes([self.op("remove", "Sales User")])
+		self.assertEqual(len(out), 1)
+		self.assertEqual(out[0]["op"], "remove")
+
+	def test_update_may_target_a_rule_added_in_the_same_payload(self):
+		"""Parsing runs before the transaction, so the added row is not in the DB yet.
+		commit_changes orders removals, additions, updates for exactly this case."""
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		out = _parse_changes(
+			[
+				self.op("add", "Accounts User"),
+				self.op("update", "Accounts User", changes={"write": 1}),
+			]
+		)
+		self.assertEqual(sorted(r["op"] for r in out), ["add", "update"])
+
+	def test_preview_reports_adds_and_removes_and_detachment(self):
+		from cecypo_powerpack.permission_manager import preview_changes
+
+		out = preview_changes([self.op("add", "Accounts User"), self.op("remove", "Sales User")])
+		ops = sorted(r["op"] for r in out["rules"])
+		self.assertEqual(ops, ["add", "remove"])
+		self.assertEqual(out["detaching"], [{"doctype": self.dt.name, "standard_rules": 2}])
+
+
+class TestCommitOps(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user(SM)
+		self.a = new_doctype(permissions=[perm("Sales User", read=1), perm("Stock User", read=1)])
+		self.a.insert()
+		self.b = new_doctype(permissions=[perm("Sales User", read=1)])
+		self.b.insert()
+
+	def tearDown(self):
+		frappe.set_user(SM)
+
+	def op(self, op, dt, role, permlevel=0, if_owner=0, **extra):
+		return {
+			"op": op, "doctype": dt.name, "role": role,
+			"permlevel": permlevel, "if_owner": if_owner, **extra,
+		}
+
+	def test_add_creates_the_row_seeded_read_and_detaches(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		out = commit_changes([self.op("add", self.a, "Accounts User")])
+		self.assertEqual((out["added"], out["removed"]), (1, 0))
+		self.assertEqual(out["detached"], [self.a.name])
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "read"), 1)
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "write"), 0)
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "delete"), 0)
+		# Custom DocPerm defaults export to '1' as well as read, so this one is the guard
+		# that a new rule really is Read-only rather than Read plus whatever frappe defaults.
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "export"), 0)
+
+	def test_add_with_if_owner(self):
+		"""frappe's own add_permission hardcodes if_owner=0 and cannot express this."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		commit_changes([self.op("add", self.a, "Accounts User", if_owner=1)])
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "read", if_owner=1), 1)
+		self.assertFalse(
+			frappe.db.exists(
+				"Custom DocPerm",
+				{"parent": self.a.name, "role": "Accounts User", "permlevel": 0, "if_owner": 0},
+			)
+		)
+
+	def test_remove_deletes_only_its_own_row(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		out = commit_changes([self.op("remove", self.a, "Stock User")])
+		self.assertEqual((out["added"], out["removed"]), (0, 1))
+		self.assertFalse(
+			frappe.db.exists("Custom DocPerm", {"parent": self.a.name, "role": "Stock User"})
+		)
+		self.assertEqual(custom_flag(self.a.name, "Sales User", "read"), 1)
+
+	def test_mixed_payload_across_doctypes_is_atomic(self):
+		"""b's update breaks a frappe rule (cancel without submit), so a's add and remove
+		must both roll back — and a must not even be left detached."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			commit_changes(
+				[
+					self.op("add", self.a, "Accounts User"),
+					self.op("remove", self.a, "Stock User"),
+					self.op("update", self.b, "Sales User", changes={"cancel": 1}),
+				]
+			)
+		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.a.name}))
+		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.b.name}))
+
+	def test_add_then_update_in_one_payload(self):
+		"""Removals and additions run before updates, so a rule added in this payload can
+		be edited by it too."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		commit_changes(
+			[
+				self.op("add", self.a, "Accounts User"),
+				self.op("update", self.a, "Accounts User", changes={"write": 1}),
+			]
+		)
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "write"), 1)
+
+	def test_report_with_if_owner_rejected_for_a_new_rule(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			commit_changes(
+				[
+					self.op("add", self.a, "Accounts User", if_owner=1),
+					self.op("update", self.a, "Accounts User", if_owner=1, changes={"report": 1}),
+				]
+			)
+		self.assertFalse(frappe.db.exists("Custom DocPerm", {"parent": self.a.name}))
+
+	def test_grid_reflects_an_add(self):
+		from cecypo_powerpack.permission_manager import commit_changes, get_permission_rules
+
+		commit_changes([self.op("add", self.a, "Accounts User")])
+		row = next(
+			r
+			for r in get_permission_rules()["rows"]
+			if r["doctype"] == self.a.name and r["role"] == "Accounts User"
+		)
+		self.assertEqual((row["is_custom"], row["read"], row["write"]), (1, 1, 0))
+
+	def test_ops_require_system_manager(self):
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		editor = make_user(
+			"pp-perm-editor@example.com",
+			[make_role("PP Perm Editor", gate_read=True, gate_write=True)],
+		)
+		frappe.set_user(editor)
+		with self.assertRaises(frappe.PermissionError):
+			commit_changes([self.op("add", self.a, "Accounts User")])
+
+	def test_removing_every_rule_but_adding_one_is_allowed(self):
+		"""The PERMITTING branch of the delete guard: 2 - 2 + 1 = 1 rule survives."""
+		from cecypo_powerpack.permission_manager import commit_changes
+
+		out = commit_changes(
+			[
+				self.op("remove", self.a, "Sales User"),
+				self.op("remove", self.a, "Stock User"),
+				self.op("add", self.a, "Accounts User"),
+			]
+		)
+		self.assertEqual((out["added"], out["removed"]), (1, 2))
+		self.assertEqual(frappe.db.count("Custom DocPerm", {"parent": self.a.name}), 1)
+		self.assertEqual(custom_flag(self.a.name, "Accounts User", "read"), 1)
+
+	def test_doctype_name_is_canonicalised_so_the_delete_guard_cannot_be_split(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes(
+				[
+					self.op("remove", self.a, "Sales User"),
+					{**self.op("remove", self.a, "Stock User"), "doctype": self.a.name.lower()},
+				]
+			)
+
+	def test_unknown_doctype_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([self.op("add", self.a, "Sales User") | {"doctype": "No Such Doctype ZZZ"}])
+
+	def test_add_on_a_child_table_rejected(self):
+		from cecypo_powerpack.permission_manager import _parse_changes
+
+		child = new_doctype(istable=1)
+		child.insert()
+		with self.assertRaises(frappe.ValidationError):
+			_parse_changes([{**self.op("add", self.a, "Sales User"), "doctype": child.name}])
