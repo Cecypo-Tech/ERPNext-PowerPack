@@ -267,7 +267,7 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 						return `<span class="pp-new" title="${__("New rule — not saved until you commit")}">${name}</span>`;
 					}
 					if (data.is_removed) {
-						return `<span class="pp-removed" title="${__("Staged for deletion on commit — select it and click Restore Selected to undo")}">${name}</span>`;
+						return `<span class="pp-removed" title="${__("Staged for deletion on commit — select it and choose Actions › Restore Selected to undo")}">${name}</span>`;
 					}
 					return data.is_custom
 						? name
@@ -889,51 +889,12 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 				<span class="pp-perm-count"></span>
 			</div>`).appendTo(this.$body);
 
-		// Commit / Review / Discard live in the page's own action slots, top right, where
-		// every other Frappe page puts them. Only the grid-scoped controls (the count and
-		// the bulk apply) stay in the footer.
+		// Commit and Review live in the page's own primary and secondary slots, top right,
+		// where every other Frappe page puts them. Only the grid-scoped controls (the count
+		// and the bulk apply) stay in the footer.
 		this.page.set_primary_action(__("Commit"), () => this.review());
 		this.page.set_secondary_action(__("Review"), () => this.review());
-		// Third action: Frappe fills its one primary and one secondary slot with Commit and
-		// Review, so Discard goes in via add_button(), which appends a real button to the
-		// page's custom-actions group beside them (and registers a mobile menu entry of its
-		// own). Created once and reused: add_button() appends unconditionally, so calling it
-		// on every render would stack up duplicates.
-		if (!this.$discard_btn) {
-			this.$discard_btn = this.page.add_button(__("Discard"), () => this.discard());
-		}
-
-		// Created once each: add_button() appends unconditionally, so calling it on every
-		// render would stack duplicates.
-		if (!this.$add_btn) {
-			this.$add_btn = this.page.add_button(__("Add Rule"), () => this.add_rule_dialog());
-		}
-		if (!this.$remove_btn) {
-			this.$remove_btn = this.page.add_button(__("Remove Selected"), () => {
-				const rows = this.checked_rows().filter((r) => !r.is_removed);
-				if (!rows.length) {
-					frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
-					return;
-				}
-				this.stage_remove(rows);
-			});
-		}
-		// Undoing one staged deletion used to mean Discard, which throws away every other
-		// unsaved change with it. Shown only while something is staged for deletion, the
-		// same way Discard is shown only while there is anything to discard.
-		if (!this.$restore_btn) {
-			this.$restore_btn = this.page.add_button(__("Restore Selected"), () => {
-				const rows = this.checked_rows().filter((r) => r.is_removed);
-				if (!rows.length) {
-					frappe.show_alert({
-						message: __("Select some rows that are staged for deletion first"),
-						indicator: "orange",
-					});
-					return;
-				}
-				this.unstage_remove(rows);
-			});
-		}
+		this.make_actions_menu();
 
 		// Bulk apply lives in the footer too: pick a flag, then Set or Clear it on the
 		// checked rows. (Fifteen flags x set/clear as a dropdown would be thirty items.)
@@ -949,6 +910,52 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		);
 		this.$bulk.find(".pp-bulk-set").on("click", () => this.bulk_apply($select.val(), 1));
 		this.$bulk.find(".pp-bulk-clear").on("click", () => this.bulk_apply($select.val(), 0));
+	}
+
+	/**
+	 * Everything that acts on rows or on the change set goes in one "Actions" dropdown.
+	 * These were four separate add_button() calls, which put four buttons plus Review and
+	 * Commit in the header — too many to scan, and add_button() is btn-default so none of
+	 * them read as more or less consequential than the others.
+	 *
+	 * add_custom_button_group() appends a NEW group every call and render() runs on every
+	 * page load, so the group and its items are built once and kept on the instance.
+	 * `standard: true` on each item appends in the order written; falsy would insert each
+	 * one above a divider, reversing them.
+	 */
+	make_actions_menu() {
+		if (this.$actions_menu) return;
+		this.$actions_menu = this.page.add_custom_button_group(__("Actions"));
+		const item = (label, click) =>
+			this.page.add_custom_menu_item(this.$actions_menu, label, click, true).parent();
+
+		this.$add_item = item(__("Add Rule"), () => this.add_rule_dialog());
+
+		this.$remove_item = item(__("Remove Selected"), () => {
+			const rows = this.checked_rows().filter((r) => !r.is_removed);
+			if (!rows.length) {
+				frappe.show_alert({ message: __("Select some rows first"), indicator: "orange" });
+				return;
+			}
+			this.stage_remove(rows);
+		});
+
+		// Undoing one staged deletion used to mean Discard, which throws away every other
+		// unsaved change with it. Shown only while something is staged for deletion, the
+		// same way Discard is shown only while there is anything to discard.
+		this.$restore_item = item(__("Restore Selected"), () => {
+			const rows = this.checked_rows().filter((r) => r.is_removed);
+			if (!rows.length) {
+				frappe.show_alert({
+					message: __("Select some rows that are staged for deletion first"),
+					indicator: "orange",
+				});
+				return;
+			}
+			this.unstage_remove(rows);
+		});
+
+		this.$discard_item = item(__("Discard"), () => this.discard());
 	}
 
 	update_footer() {
@@ -971,9 +978,11 @@ frappe.PowerPackPermissionManager = class PowerPackPermissionManager {
 		// The actions now live on the page, not in the footer.
 		this.page.btn_primary.prop("disabled", !n);
 		this.page.btn_secondary.prop("disabled", !n);
-		if (this.$discard_btn) this.$discard_btn.toggle(!!n);
-		if (this.$restore_btn) {
-			this.$restore_btn.toggle(!!Object.keys(this.pending_removes).length);
+		// Menu items, not buttons: add_custom_menu_item() hands back the <a>, so these are
+		// its <li>. Add Rule and Remove Selected always apply, so they never toggle.
+		if (this.$discard_item) this.$discard_item.toggle(!!n);
+		if (this.$restore_item) {
+			this.$restore_item.toggle(!!Object.keys(this.pending_removes).length);
 		}
 	}
 

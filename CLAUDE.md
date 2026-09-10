@@ -168,6 +168,14 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
 - Adds and removes are staged in the browser (`pending_adds` / `pending_removes`) and
   render as `pp-new` / `pp-removed`. Like flag edits, they reach the server only on
   Commit and are dropped by Discard.
+- The header is **Actions | Review | Commit**. Add Rule, Remove Selected, Restore
+  Selected and Discard are items in the Actions dropdown, built once by
+  `make_actions_menu()` — `page.add_custom_button_group()` appends a new group on every
+  call and `render()` runs on every page load, so the group and its items live on the
+  instance. Each item is added with `standard: true`, which appends in the order
+  written; falsy inserts each above a divider and reverses them.
+  `add_custom_menu_item()` returns the `<a>`, so the toggles in `update_footer` act on
+  `.parent()`. Add Rule and Remove Selected always apply and never toggle.
 - A staged removal is undoable on its own: **Restore Selected** (shown only while
   `pending_removes` is non-empty, like Discard) clears the mark for the selected rows.
   Without it the only undo was Discard, which throws away every other unsaved change
@@ -177,6 +185,16 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
   as it was *loaded*: `stage_remove` restores its loaded flags and forgets its pending
   edits (it must, or the payload emits an update and a remove for one identity), so it
   says how many edits it dropped at the moment that is still true.
+- The dirty-flag marker is `input.pp-flag.pp-dirty`, qualified that far on purpose:
+  frappe's `input[type="checkbox"]:checked` sets `box-shadow: none; border: none` at
+  specificity (0,2,1), so the old `.pp-perm-table .pp-dirty` at (0,2,0) never applied to
+  a **ticked** box — only cleared flags looked edited. A ring, not a fill, carries the
+  signal, since a ticked box keeps frappe's own background and checkmark; the empty-box
+  wash uses `background-color`, never the `background` shorthand, which would reset
+  `background-image` and erase that checkmark. Do not reach for `--yellow-50`: it is
+  #fffcef, and frappe does not remap the raw yellow scale for dark mode (`desk/dark.scss`
+  redefines only the semantic `--bg-yellow` / `--alert-*-warning` tokens), so a near-white
+  value is washed out in both themes.
 - The page JS is loaded by frappe's page loader and is a classic script; its SCSS goes
   through the bundle like everything else.
 - Deploying this feature needs `bench migrate` (it ships a new Page record — the route

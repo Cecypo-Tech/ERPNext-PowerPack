@@ -87,9 +87,40 @@
 		color: var(--text-light);
 	}
 
-	.pp-dirty {
-		background: var(--yellow-50);
-		box-shadow: inset 0 0 0 1px var(--yellow-300);
+	// A pending edit has to be obvious on a 13px box in both themes. The original
+	// --yellow-50 fill with a 1px --yellow-300 ring failed twice over:
+	//
+	//  1. --yellow-50 is #fffcef, which is white for practical purposes on a white grid,
+	//     and frappe does NOT remap the raw yellow scale for dark mode (desk/dark.scss
+	//     redefines only the semantic --bg-yellow / --alert-*-warning tokens), so that one
+	//     near-white value was washed out in BOTH themes.
+	//  2. It never applied to a TICKED box at all. frappe's
+	//     `input[type="checkbox"]:checked` sets `box-shadow: none; border: none` at
+	//     specificity (0,2,1), and `.pp-perm-table .pp-dirty` is only (0,2,0) — so
+	//     ticking a flag silently dropped its dirty marker and only cleared flags looked
+	//     edited. Qualifying the selector with the element and both classes takes it to
+	//     (0,3,1), which outranks frappe's rule instead of tying with it and depending on
+	//     bundle load order.
+	//
+	// The ring carries the signal, since a ticked box keeps frappe's own fill and
+	// checkmark: 2px of --yellow-600, a mid-tone that holds against white, against the
+	// blue of a checked box, and against a near-black grid.
+	input.pp-flag.pp-dirty {
+		box-shadow: inset 0 0 0 2px var(--yellow-600);
+	}
+
+	// Only an empty box gets the amber wash — background-color, never the `background`
+	// shorthand, which resets background-image and would erase frappe's checkmark.
+	input.pp-flag.pp-dirty:not(:checked) {
+		background-color: var(--yellow-200);
+	}
+
+	// Read-only viewers cannot edit, so `.pp-flag.pp-dirty` on a span is unreachable
+	// today; keep it legible if that ever changes.
+	span.pp-flag.pp-dirty {
+		background-color: var(--yellow-200);
+		box-shadow: inset 0 0 0 2px var(--yellow-600);
+		color: var(--gray-900);
 	}
 
 	.pp-standard {
