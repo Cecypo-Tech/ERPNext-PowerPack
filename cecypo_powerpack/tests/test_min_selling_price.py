@@ -152,6 +152,21 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 			from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
 			make_stock_entry(item_code="_MSP Bin Item", target="_Test Warehouse - _TC", qty=10, rate=100)
+		# A second leaf group so whole-sale tests can mix an override group with a
+		# global-default group in one document. Same cost (100) as _MSP Item.
+		if not frappe.db.exists("Item Group", "_MSP Loss Group"):
+			frappe.get_doc({
+				"doctype": "Item Group",
+				"item_group_name": "_MSP Loss Group",
+				"parent_item_group": "_MSP Parent",
+				"is_group": 0,
+			}).insert()
+		make_item("_MSP Loss Item", {"is_stock_item": 1, "item_group": "_MSP Loss Group"})
+		frappe.db.set_value(
+			"Item",
+			"_MSP Loss Item",
+			{"item_group": "_MSP Loss Group", "valuation_rate": 100, "last_purchase_rate": 100},
+		)
 		# All of the above was created after the base class flushed its own test
 		# records, so it is still uncommitted. tearDown rolls back after every test,
 		# which would otherwise take the item groups with it.
@@ -163,12 +178,13 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		frappe.db.set_single_value("Selling Settings", "validate_selling_price", 0)
 
 	def _configure(self, enable=1, default_basis="Valuation Rate", default_pct=0,
-					override_role=None, rules=None):
+					override_role=None, rules=None, whole_sale=0):
 		s = frappe.get_single("PowerPack Settings")
 		s.enable_min_selling_price = enable
 		s.min_selling_price_default_basis = default_basis
 		s.min_selling_price_default_percent = default_pct
 		s.min_selling_price_override_role = override_role
+		s.min_selling_price_whole_sale = whole_sale
 		s.set("min_selling_price_rules", [])
 		for row in (rules or []):
 			s.append("min_selling_price_rules", row)
@@ -179,6 +195,18 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
 
 		return make_sales_order(item_code="_MSP Item", qty=1, rate=rate, do_not_save=True)
+
+	def _make_two_row_so(self, rate_a, rate_b, item_b="_MSP Loss Item"):
+		"""Row 1: _MSP Item (group _MSP Child) at rate_a. Row 2: item_b at rate_b. Both cost 100."""
+		from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
+
+		return make_sales_order(
+			do_not_save=True,
+			item_list=[
+				{"item_code": "_MSP Item", "warehouse": "_Test Warehouse - _TC", "qty": 1, "rate": rate_a},
+				{"item_code": item_b, "warehouse": "_Test Warehouse - _TC", "qty": 1, "rate": rate_b},
+			],
+		)
 
 	def test_positive_floor_blocks_below(self):
 		# +10% of valuation 100 -> floor 110; rate 105 must be blocked.
@@ -414,6 +442,134 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		si = create_sales_invoice(item_code="_MSP Bin Item", qty=1, rate=110, update_stock=0, do_not_save=True)
 		si.save()  # must not raise
 		self.assertTrue(si.name)
+
+	# ---- whole-sale mode -------------------------------------------------------
+	# Both items cost 100. Global floor 4% => a two-row sale needs net >= 208.
+
+	def test_whole_sale_allows_a_loss_row_covered_by_another(self):
+		# Row 1 at 90 (below cost), row 2 at 130: total 220 >= 208. Per-item mode
+		# would block row 1; whole-sale mode must accept the sale.
+		self._configure(default_pct=4, whole_sale=1)
+		so = self._make_two_row_so(90, 130)
+		so.save()  # must not raise
+		self.assertTrue(so.name)
+
+	def test_per_item_mode_still_blocks_the_same_loss_row(self):
+		self._configure(default_pct=4, whole_sale=0)
+		with self.assertRaisesRegex(frappe.ValidationError, r"Row #1 .*at least"):
+			self._make_two_row_so(90, 130).save()
+
+	def test_whole_sale_blocks_when_the_total_is_short(self):
+		# 90 + 110 = 200 < 208. The message names the sale floor, not any row.
+		self._configure(default_pct=4, whole_sale=1)
+		with self.assertRaisesRegex(frappe.ValidationError, r"Net total of this sale should be at least"):
+			self._make_two_row_so(90, 110).save()
+
+	def test_whole_sale_accepts_exactly_the_floor(self):
+		self._configure(default_pct=4, whole_sale=1)
+		so = self._make_two_row_so(100, 108)  # 208 == 208
+		so.save()
+		self.assertTrue(so.name)
+
+	def test_whole_sale_override_row_is_a_guardrail(self):
+		# _MSP Child may go to -20% (floor 80). Row 1 at 85 is within it and the
+		# sale total 85 + 130 = 215 >= 208, so it passes. Row 1 at 75 breaches the
+		# guardrail even though 75 + 140 = 215 still clears the sale floor.
+		self._configure(default_pct=4, whole_sale=1, rules=[
+			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -20},
+		])
+		so = self._make_two_row_so(85, 130)
+		so.save()
+		self.assertTrue(so.name)
+		with self.assertRaisesRegex(frappe.ValidationError, r"Row #1 .*at least"):
+			self._make_two_row_so(75, 140).save()
+
+	def test_whole_sale_positive_override_still_forces_margin_on_its_group(self):
+		# _MSP Child must make +10% (floor 110). Row 1 at 105 fails even though
+		# 105 + 150 = 255 clears the sale floor of 208.
+		self._configure(default_pct=4, whole_sale=1, rules=[
+			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10},
+		])
+		with self.assertRaisesRegex(frappe.ValidationError, r"Row #1 .*at least"):
+			self._make_two_row_so(105, 150).save()
+
+	def test_whole_sale_row_without_override_is_not_judged_alone(self):
+		# Only _MSP Child has an override. _MSP Loss Item (no override) at 60 is
+		# fine on its own as long as the sale clears 208: 150 + 60 = 210.
+		self._configure(default_pct=4, whole_sale=1, rules=[
+			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10},
+		])
+		so = self._make_two_row_so(150, 60)
+		so.save()
+		self.assertTrue(so.name)
+
+	def test_whole_sale_with_zero_global_has_no_sale_gate(self):
+		# Global 0: nothing gates the total. The override on _MSP Child is the only
+		# rule, so row 2 at 10 is untouched and row 1 at 95 (within -20%) passes.
+		self._configure(default_pct=0, whole_sale=1, rules=[
+			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -20},
+		])
+		so = self._make_two_row_so(95, 10)
+		so.save()
+		self.assertTrue(so.name)
+
+	def test_whole_sale_zero_cost_row_is_left_out_of_both_sides(self):
+		# A row whose cost resolves to 0 cannot be judged, so it must neither add to
+		# the required total nor pad the actual total. Direct call with hand-built
+		# rows: row 2 has no cost and a huge net amount; row 1 alone is short.
+		from cecypo_powerpack.min_selling_price import validate_min_selling_price
+
+		self._configure(default_pct=4, whole_sale=1)
+		rows = [
+			frappe._dict({
+				"item_code": "_MSP Item", "item_name": "_MSP Item", "item_group": "_MSP Child", "idx": 1,
+				"qty": 1, "conversion_factor": 1, "valuation_rate": 100,
+				"base_net_rate": 100, "base_net_amount": 100,
+				"precision": lambda *_: 2,
+			}),
+			frappe._dict({
+				"item_code": "_MSP Item", "item_name": "_MSP Item", "item_group": "_MSP Child", "idx": 2,
+				"qty": 1, "conversion_factor": 1, "valuation_rate": 0, "warehouse": "_MSP No Such Warehouse",
+				"base_net_rate": 9999, "base_net_amount": 9999,
+				"precision": lambda *_: 2,
+			}),
+		]
+		doc = frappe._dict({
+			"doctype": "Sales Order", "company": "_Test Company", "items": rows,
+			"precision": lambda *_: 2,
+		})
+		frappe.db.set_value("Item", "_MSP Item", "valuation_rate", 0)
+		try:
+			with self.assertRaisesRegex(frappe.ValidationError, r"Net total of this sale should be at least"):
+				validate_min_selling_price(doc)
+		finally:
+			frappe.db.set_value("Item", "_MSP Item", "valuation_rate", 100)
+			frappe.clear_cache(doctype="Item")
+
+	def test_whole_sale_override_role_warns_instead_of_blocking(self):
+		# Same arrangement as test_override_role_allows_save: the rule is called
+		# directly as the override user so this stays about the role, not about
+		# whether that user may save a Sales Order on this bench.
+		from cecypo_powerpack.min_selling_price import validate_min_selling_price
+
+		role = "_MSP Override Role"
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role}).insert()
+		test_user = "msp_override@example.com"
+		if not frappe.db.exists("User", test_user):
+			frappe.get_doc({
+				"doctype": "User", "email": test_user, "first_name": "MSP",
+				"roles": [{"role": role}, {"role": "Sales User"}, {"role": "System Manager"}],
+			}).insert()
+		self._configure(default_pct=4, whole_sale=1, override_role=role)
+		so = self._make_two_row_so(90, 110)  # 200 < 208
+		so.run_method("set_missing_values")
+		so.calculate_taxes_and_totals()
+		frappe.set_user(test_user)
+		try:
+			validate_min_selling_price(so)  # must not raise
+		finally:
+			frappe.set_user("Administrator")
 
 	def test_delivery_note_enforced(self):
 		from erpnext.stock.doctype.delivery_note.test_delivery_note import create_delivery_note

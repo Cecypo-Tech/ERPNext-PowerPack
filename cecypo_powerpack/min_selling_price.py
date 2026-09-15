@@ -5,7 +5,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from frappe.utils.nestedset import get_ancestors_of
 
 from cecypo_powerpack.utils import is_feature_enabled
@@ -122,17 +122,43 @@ def validate_min_selling_price(doc, method=None):
 
 	override_role = settings.get("min_selling_price_override_role")
 	can_override = bool(override_role) and override_role in frappe.get_roles()
+	whole_sale = cint(settings.get("min_selling_price_whole_sale"))
 	rate_field = "valuation_rate" if doc.doctype in ("Sales Order", "Quotation") else "incoming_rate"
 
-	for item, (basis, percent), _has_override in _judged_rows(
+	# Whole-sale mode: every judged row's cost under the *global* basis, and its
+	# net amount, feed one sale-level check against the global %.
+	cost_total = 0.0
+	net_total = 0.0
+
+	for item, (basis, percent), has_override in _judged_rows(
 		doc, settings, rules, default_basis, default_percent
 	):
 		basis_rate = _basis_rate(doc, item, basis, rate_field)
 		if basis_rate <= 0:
 			continue
-		floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
-		if flt(item.base_net_rate) < floor:
-			_handle_violation(item, floor, can_override)
+
+		# Per-row floor: always in per-item mode; in whole-sale mode only for rows
+		# whose group has its own override (a guardrail, possibly negative).
+		if not whole_sale or has_override:
+			floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
+			if flt(item.base_net_rate) < floor:
+				_handle_violation(item, floor, can_override)
+
+		if whole_sale and default_percent:
+			global_rate = (
+				basis_rate
+				if basis == default_basis
+				else _basis_rate(doc, item, default_basis, rate_field)
+			)
+			if global_rate > 0:
+				cost_total += global_rate * flt(item.qty)
+				net_total += flt(item.base_net_amount)
+
+	if whole_sale and default_percent and cost_total > 0:
+		precision = doc.precision("base_net_total")
+		sale_floor = compute_floor(cost_total, default_percent, precision)
+		if flt(net_total, precision) < sale_floor:
+			_handle_sale_violation(sale_floor, can_override)
 
 
 def _handle_violation(item, floor, can_override):
@@ -153,5 +179,21 @@ def _handle_violation(item, floor, can_override):
 		_("Row #{0} ({1}): Net selling rate should be at least {2}.").format(
 			item.idx, item_label, frappe.bold(floor)
 		),
+		title=title,
+	)
+
+
+def _handle_sale_violation(floor, can_override):
+	# Same rule as _handle_violation: show the floor, never the cost or the margin.
+	title = _("Powerpack Restrictions")
+	if can_override:
+		frappe.msgprint(
+			_("Net total of this sale is below {0} — allowed by your role.").format(frappe.bold(floor)),
+			title=title,
+			indicator="orange",
+		)
+		return
+	frappe.throw(
+		_("Net total of this sale should be at least {0}.").format(frappe.bold(floor)),
 		title=title,
 	)
