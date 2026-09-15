@@ -116,6 +116,16 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 			"_MSP Item",
 			{"item_group": "_MSP Child", "valuation_rate": 100, "last_purchase_rate": 100},
 		)
+		# A second item whose master valuation_rate stays blank: its only cost
+		# source is the Bin, which the stock entry below seeds at 100.
+		make_item("_MSP Bin Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
+		frappe.db.set_value(
+			"Item", "_MSP Bin Item", {"item_group": "_MSP Child", "valuation_rate": 0, "last_purchase_rate": 0}
+		)
+		if not frappe.db.exists("Bin", {"item_code": "_MSP Bin Item", "warehouse": "_Test Warehouse - _TC"}):
+			from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+
+			make_stock_entry(item_code="_MSP Bin Item", target="_Test Warehouse - _TC", qty=10, rate=100)
 		# All of the above was created after the base class flushed its own test
 		# records, so it is still uncommitted. tearDown rolls back after every test,
 		# which would otherwise take the item groups with it.
@@ -275,6 +285,85 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		for dt in TARGET_DOCTYPES:
 			validators = (doc_events.get(dt) or {}).get("validate") or []
 			self.assertIn(handler, validators, f"{dt} not wired")
+
+	def _make_pos_invoice(self, rate):
+		# Built by hand: erpnext's make_pos_profile() starts with
+		# `delete from tabPOS Profile`, which is not something to run on a real site.
+		profile_name = "_MSP POS Profile"
+		if not frappe.db.exists("POS Profile", profile_name):
+			profile = frappe.get_doc({
+				"doctype": "POS Profile",
+				"name": profile_name,
+				"company": "_Test Company",
+				"cost_center": "_Test Cost Center - _TC",
+				"currency": "INR",
+				"expense_account": "_Test Account Cost for Goods Sold - _TC",
+				"income_account": "Sales - _TC",
+				"selling_price_list": "_Test Price List",
+				"territory": "_Test Territory",
+				"customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+				"warehouse": "_Test Warehouse - _TC",
+				"write_off_account": "_Test Write Off - _TC",
+				"write_off_cost_center": "_Test Write Off Cost Center - _TC",
+				"payments": [{"mode_of_payment": "Cash", "default": 1}],
+			})
+			profile.insert()
+		else:
+			profile = frappe.get_doc("POS Profile", profile_name)
+		# A cashier can hold only one open shift site-wide, so use a dedicated one.
+		cashier = "_msp_cashier@example.com"
+		if not frappe.db.exists("User", cashier):
+			frappe.get_doc({
+				"doctype": "User", "email": cashier, "first_name": "MSP Cashier", "send_welcome_email": 0,
+			}).insert(ignore_permissions=True)
+		if not frappe.db.exists("POS Opening Entry", {"pos_profile": profile_name, "status": "Open"}):
+			from erpnext.accounts.doctype.pos_opening_entry.test_pos_opening_entry import create_opening_entry
+
+			create_opening_entry(profile, cashier)
+
+		pos = frappe.new_doc("POS Invoice")
+		pos.update({
+			"is_pos": 1, "update_stock": 1, "pos_profile": profile_name,
+			"company": "_Test Company", "customer": "_Test Customer", "debit_to": "Debtors - _TC",
+			"currency": "INR", "conversion_rate": 1, "account_for_change_amount": "Cash - _TC",
+		})
+		pos.set_missing_values()
+		pos.append("items", {
+			"item_code": "_MSP Bin Item", "warehouse": "_Test Warehouse - _TC", "qty": 1, "rate": rate,
+			"income_account": "Sales - _TC", "expense_account": "Cost of Goods Sold - _TC",
+			"cost_center": "_Test Cost Center - _TC",
+		})
+		return pos
+
+	def test_pos_invoice_uses_bin_valuation_when_row_has_no_incoming_rate(self):
+		# POS Invoice rows never carry incoming_rate at validate time, and the item
+		# master valuation is blank, so the only cost source is the Bin.
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		with self.assertRaisesRegex(frappe.ValidationError, "at least"):
+			self._make_pos_invoice(105).save()
+
+	def test_pos_invoice_bin_fallback_allows_at_or_above_floor(self):
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		pos = self._make_pos_invoice(110)
+		pos.save()  # must not raise
+		self.assertTrue(pos.name)
+
+	def test_non_stock_sales_invoice_uses_bin_valuation(self):
+		# Sales Invoice without Update Stock: same gap as POS Invoice.
+		from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		si = create_sales_invoice(item_code="_MSP Bin Item", qty=1, rate=105, update_stock=0, do_not_save=True)
+		with self.assertRaisesRegex(frappe.ValidationError, "at least"):
+			si.save()
+
+	def test_non_stock_sales_invoice_bin_fallback_allows_at_or_above_floor(self):
+		from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		si = create_sales_invoice(item_code="_MSP Bin Item", qty=1, rate=110, update_stock=0, do_not_save=True)
+		si.save()  # must not raise
+		self.assertTrue(si.name)
 
 	def test_delivery_note_enforced(self):
 		from erpnext.stock.doctype.delivery_note.test_delivery_note import create_delivery_note
