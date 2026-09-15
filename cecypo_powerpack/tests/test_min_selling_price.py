@@ -55,6 +55,8 @@ class TestMinSellingPriceSettings(FrappeTestCase):
 		row_help = frappe.get_meta("Minimum Selling Price Rule").get_field("floor_percent").description
 		self.assertIn("global default applies", row_help)
 		self.assertNotIn("defer to ERPNext", row_help)
+		whole_sale_help = frappe.get_meta("PowerPack Settings").get_field("min_selling_price_whole_sale").description
+		self.assertIn("with 0 there is no sale-level check", whole_sale_help)
 
 	def test_feature_flag_toggles(self):
 		from cecypo_powerpack.utils import is_feature_enabled
@@ -366,6 +368,9 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		for dt in TARGET_DOCTYPES:
 			validators = (doc_events.get(dt) or {}).get("validate") or []
 			self.assertIn(handler, validators, f"{dt} not wired")
+			# The sale gate rounds to this field's precision; Document.precision()
+			# returns None for an unknown field and flt(x, None) does not round.
+			self.assertTrue(frappe.get_meta(dt).get_field("base_net_total"), f"{dt} has no base_net_total")
 
 	def _make_pos_invoice(self, rate):
 		# Built by hand: erpnext's make_pos_profile() starts with
@@ -516,6 +521,38 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		so.save()
 		self.assertTrue(so.name)
 
+	def test_whole_sale_gate_costs_every_row_the_global_way(self):
+		# Override on _MSP Child reads Last Purchase Rate (set to 50 here), global
+		# reads Valuation Rate (100). Row 1 at 45 clears its guardrail (50 * 0.8 =
+		# 40). The sale gate must cost row 1 at 100, not 50: cost 200 -> floor 208,
+		# net 45 + 160 = 205 -> blocked. Costed at 50 it would be 150 -> 156 -> pass.
+		self._configure(default_pct=4, whole_sale=1, rules=[
+			{"item_group": "_MSP Child", "basis": "Last Purchase Rate", "floor_percent": -20},
+		])
+		frappe.db.set_value("Item", "_MSP Item", "last_purchase_rate", 50)
+		try:
+			with self.assertRaisesRegex(frappe.ValidationError, r"Net total of this sale should be at least"):
+				self._make_two_row_so(45, 160).save()
+		finally:
+			frappe.db.set_value("Item", "_MSP Item", "last_purchase_rate", 100)
+			frappe.clear_cache(doctype="Item")
+
+	def test_whole_sale_row_with_no_cost_under_its_override_basis_still_counts(self):
+		# _MSP Item was never purchased (last_purchase_rate 0) but has a valuation of
+		# 100. Its Last Purchase Rate guardrail cannot be judged, yet its loss must
+		# still count in the sale: 5 + 150 = 155 < 208. Dropping the row would leave
+		# 150 >= 104 and let the loss through.
+		self._configure(default_pct=4, whole_sale=1, rules=[
+			{"item_group": "_MSP Child", "basis": "Last Purchase Rate", "floor_percent": -20},
+		])
+		frappe.db.set_value("Item", "_MSP Item", "last_purchase_rate", 0)
+		try:
+			with self.assertRaisesRegex(frappe.ValidationError, r"Net total of this sale should be at least"):
+				self._make_two_row_so(5, 150).save()
+		finally:
+			frappe.db.set_value("Item", "_MSP Item", "last_purchase_rate", 100)
+			frappe.clear_cache(doctype="Item")
+
 	def test_whole_sale_zero_cost_row_is_left_out_of_both_sides(self):
 		# A row whose cost resolves to 0 cannot be judged, so it must neither add to
 		# the required total nor pad the actual total. Direct call with hand-built
@@ -564,15 +601,26 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 				"doctype": "User", "email": test_user, "first_name": "MSP",
 				"roles": [{"role": role}, {"role": "Sales User"}, {"role": "System Manager"}],
 			}).insert()
-		self._configure(default_pct=4, whole_sale=1, override_role=role)
 		so = self._make_two_row_so(90, 110)  # 200 < 208
 		so.run_method("set_missing_values")
 		so.calculate_taxes_and_totals()
+		# Guard against a vacuous pass: with no override role configured the same
+		# sale must throw. (Administrator holds every role, so "a user without the
+		# role" cannot be Administrator; unsetting the role is the clean control.)
+		self._configure(default_pct=4, whole_sale=1)
+		with self.assertRaisesRegex(frappe.ValidationError, r"Net total of this sale should be at least"):
+			validate_min_selling_price(so)
+		self._configure(default_pct=4, whole_sale=1, override_role=role)
+		frappe.clear_messages()
 		frappe.set_user(test_user)
 		try:
 			validate_min_selling_price(so)  # must not raise
 		finally:
 			frappe.set_user("Administrator")
+		self.assertTrue(
+			any("allowed by your role" in str(m) for m in frappe.get_message_log()),
+			"expected the orange sale-level warning",
+		)
 
 	def test_delivery_note_enforced(self):
 		from erpnext.stock.doctype.delivery_note.test_delivery_note import create_delivery_note

@@ -83,9 +83,9 @@ def _judged_rows(doc, settings, rules, default_basis, default_percent):
 	"""Yield (item, (basis, percent), has_override) for every row a floor applies to.
 
 	Skips rows with no item, free rows, rows exempted by a Pricing Rule, and rows
-	whose group has no rule in force. has_override is True when the rule came from a per-group row
-	(the group or an ancestor), False when it is the global default — whole-sale
-	mode judges only override rows individually.
+	whose group has no rule in force. has_override is True when the rule came from
+	a per-group row (the group or an ancestor), False when it is the global
+	default — whole-sale mode judges only override rows individually.
 	"""
 	skip_if_pricing_rule = settings.get("min_selling_price_skip_if_pricing_rule")
 	resolved = {}  # item_group -> ((basis, percent) | None, has_override)
@@ -123,38 +123,38 @@ def validate_min_selling_price(doc, method=None):
 	override_role = settings.get("min_selling_price_override_role")
 	can_override = bool(override_role) and override_role in frappe.get_roles()
 	whole_sale = cint(settings.get("min_selling_price_whole_sale"))
+	# The sale-level gate needs a global % to gate against; with 0 only the
+	# per-row guardrails of override groups apply.
+	sale_gate = bool(whole_sale and default_percent)
 	rate_field = "valuation_rate" if doc.doctype in ("Sales Order", "Quotation") else "incoming_rate"
 
-	# Whole-sale mode: every judged row's cost under the *global* basis, and its
-	# net amount, feed one sale-level check against the global %.
-	cost_total = 0.0
-	net_total = 0.0
+	cost_total = 0.0  # sale gate: every judged row's cost under the *global* basis
+	net_total = 0.0  # sale gate: the same rows' net amounts
 
 	for item, (basis, percent), has_override in _judged_rows(
 		doc, settings, rules, default_basis, default_percent
 	):
-		basis_rate = _basis_rate(doc, item, basis, rate_field)
-		if basis_rate <= 0:
-			continue
-
 		# Per-row floor: always in per-item mode; in whole-sale mode only for rows
-		# whose group has its own override (a guardrail, possibly negative).
+		# whose group has its own override (a guardrail, possibly negative). A row
+		# with no cost under its own basis cannot be judged on its own.
 		if not whole_sale or has_override:
-			floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
-			if flt(item.base_net_rate) < floor:
-				_handle_violation(item, floor, can_override)
+			basis_rate = _basis_rate(doc, item, basis, rate_field)
+			if basis_rate > 0:
+				floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
+				if flt(item.base_net_rate) < floor:
+					_handle_violation(item, floor, can_override)
 
-		if whole_sale and default_percent:
-			global_rate = (
-				basis_rate
-				if basis == default_basis
-				else _basis_rate(doc, item, default_basis, rate_field)
-			)
+		# The sale gate is one rule with one basis, so every row is costed the
+		# global way for the total — independently of its own basis, or a row
+		# never purchased would fall out of the sale (loss and all) just because
+		# its override reads Last Purchase Rate.
+		if sale_gate:
+			global_rate = _basis_rate(doc, item, default_basis, rate_field)
 			if global_rate > 0:
 				cost_total += global_rate * flt(item.qty)
 				net_total += flt(item.base_net_amount)
 
-	if whole_sale and default_percent and cost_total > 0:
+	if sale_gate and cost_total > 0:
 		precision = doc.precision("base_net_total")
 		sale_floor = compute_floor(cost_total, default_percent, precision)
 		if flt(net_total, precision) < sale_floor:

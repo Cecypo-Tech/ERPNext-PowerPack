@@ -606,7 +606,7 @@
   },
   {
    "default": "0",
-   "description": "Judge the whole sale instead of each row: total net must reach total cost plus the Global Default Floor %. Rows whose group has an override are still checked individually against that override, so a negative override caps how far that group may go below cost, and a positive one still forces margin on that group.",
+   "description": "Judge the whole sale instead of each row: total net must reach total cost plus the Global Default Floor %. Needs a non-zero Global Default Floor %; with 0 there is no sale-level check. Rows whose group has an override are still checked individually against that override, so a negative override caps how far that group may go below cost, and a positive one still forces margin on that group.",
    "fieldname": "min_selling_price_whole_sale",
    "fieldtype": "Check",
    "label": "Enforce Floor on the Whole Sale Instead of Each Row"
