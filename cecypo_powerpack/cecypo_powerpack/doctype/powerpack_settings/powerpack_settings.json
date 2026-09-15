@@ -64,8 +64,11 @@
   "min_selling_price_default_basis",
   "min_selling_price_default_percent",
   "min_selling_price_override_role",
+  "min_selling_price_column_break",
   "min_selling_price_skip_if_pricing_rule",
   "min_selling_price_whole_sale",
+  "min_selling_price_whole_sale_diagram",
+  "min_selling_price_rules_section",
   "min_selling_price_rules",
   "items_tab",
   "item_search_powerup_section",
@@ -576,7 +579,7 @@
    "fieldname": "min_selling_price_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<div class=\"text-muted small\">Sets the minimum net selling rate as a %age of the item's cost (Valuation Rate or Last Purchase Rate).<br>+ve % = margin above cost (e.g. 10 \u2192 cost \u00d7 1.10)<br>-ve % = allowed below cost (e.g. -10 \u2192 cost \u00d7 0.90)<br>0 or blank on a per-group row = no override for that group; the global default applies<br>0 or blank global default = groups without an override defer to ERPNext<br><b>Note:</b> Disable <i>Selling Settings \u2192 Validate Selling Price for Item</i> whenever this is enabled. ERPNext's check also enforces the item's <b>last purchase rate</b>, which blocks sales below a spiked purchase even when the margin above valuation is met.<details style=\"margin-top:8px\"><summary style=\"cursor:pointer\">How the two modes work (diagram)</summary><img src=\"/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=1\" alt=\"Per item vs whole sale enforcement\" style=\"max-width:100%;margin-top:8px;border:1px solid var(--border-color);border-radius:8px;background:#fafafa\"></details></div>"
+   "options": "<div class=\"text-muted small\" style=\"margin-bottom:12px\">Sets the minimum net selling rate as a %age of the item's cost (Valuation Rate or Last Purchase Rate).<br>+ve % = margin above cost (e.g. 10 \u2192 cost \u00d7 1.10)<br>-ve % = allowed below cost (e.g. -10 \u2192 cost \u00d7 0.90)<br>0 or blank on a per-group row = no override for that group; the global default applies<br>0 or blank global default = groups without an override defer to ERPNext<br><b>Note:</b> Disable <i>Selling Settings \u2192 Validate Selling Price for Item</i> whenever this is enabled. ERPNext's check also enforces the item's <b>last purchase rate</b>, which blocks sales below a spiked purchase even when the margin above valuation is met.</div>"
   },
   {
    "default": "Valuation Rate",
@@ -598,6 +601,10 @@
    "options": "Role"
   },
   {
+   "fieldname": "min_selling_price_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
    "default": "0",
    "description": "Skip minimum price validation for items where an ERPNext Pricing Rule has been applied.",
    "fieldname": "min_selling_price_skip_if_pricing_rule",
@@ -610,6 +617,17 @@
    "fieldname": "min_selling_price_whole_sale",
    "fieldtype": "Check",
    "label": "Enforce Floor on the Whole Sale Instead of Each Row"
+  },
+  {
+   "fieldname": "min_selling_price_whole_sale_diagram",
+   "fieldtype": "HTML",
+   "label": "Whole Sale Diagram",
+   "options": "<div class=\"text-muted small\"><details style=\"margin-top:0\"><summary style=\"cursor:pointer\">How the two modes work (diagram)</summary><a href=\"/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=1\" target=\"_blank\" rel=\"noopener\" title=\"Open full size\"><img src=\"/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=1\" alt=\"Per item vs whole sale enforcement\" style=\"max-width:100%;margin-top:8px;border:1px solid var(--border-color);border-radius:8px;background:#fafafa\"></a><div style=\"margin-top:4px\">Click the diagram to open it full size.</div></details></div>"
+  },
+  {
+   "fieldname": "min_selling_price_rules_section",
+   "fieldtype": "Section Break",
+   "hide_border": 1
   },
   {
    "fieldname": "min_selling_price_rules",
