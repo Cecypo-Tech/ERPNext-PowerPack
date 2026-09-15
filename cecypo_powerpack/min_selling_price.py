@@ -5,7 +5,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from frappe.utils.nestedset import get_ancestors_of
 
 from cecypo_powerpack.utils import is_feature_enabled
@@ -79,6 +79,34 @@ def _current_valuation_rate(doc, item):
 	)
 
 
+def _judged_rows(doc, settings, rules, default_basis, default_percent):
+	"""Yield (item, (basis, percent), has_override) for every row a floor applies to.
+
+	Skips rows with no item, free rows, rows exempted by a Pricing Rule, and rows
+	whose group has no rule in force. has_override is True when the rule came from
+	a per-group row (the group or an ancestor), False when it is the global
+	default — whole-sale mode judges only override rows individually.
+	"""
+	skip_if_pricing_rule = settings.get("min_selling_price_skip_if_pricing_rule")
+	resolved = {}  # item_group -> ((basis, percent) | None, has_override)
+	for item in doc.get("items") or []:
+		if not item.item_code or item.get("is_free_item"):
+			continue
+		if skip_if_pricing_rule and item.get("pricing_rules"):
+			continue
+		item_group = item.get("item_group") or frappe.get_cached_value("Item", item.item_code, "item_group")
+		if item_group not in resolved:
+			chain = _group_chain(item_group)
+			resolved[item_group] = (
+				pick_rule(chain, rules, default_basis, default_percent),
+				any(group in rules for group in chain),
+			)
+		chosen, has_override = resolved[item_group]
+		if not chosen:
+			continue
+		yield item, chosen, has_override
+
+
 def validate_min_selling_price(doc, method=None):
 	if not is_feature_enabled("enable_min_selling_price"):
 		return
@@ -94,28 +122,43 @@ def validate_min_selling_price(doc, method=None):
 
 	override_role = settings.get("min_selling_price_override_role")
 	can_override = bool(override_role) and override_role in frappe.get_roles()
-	skip_if_pricing_rule = settings.get("min_selling_price_skip_if_pricing_rule")
+	whole_sale = cint(settings.get("min_selling_price_whole_sale"))
+	# The sale-level gate needs a global % to gate against; with 0 only the
+	# per-row guardrails of override groups apply.
+	sale_gate = bool(whole_sale and default_percent)
 	rate_field = "valuation_rate" if doc.doctype in ("Sales Order", "Quotation") else "incoming_rate"
 
-	resolved = {}  # item_group -> (basis, percent) | None
-	for item in doc.get("items") or []:
-		if not item.item_code or item.get("is_free_item"):
-			continue
-		if skip_if_pricing_rule and item.get("pricing_rules"):
-			continue
-		item_group = item.get("item_group") or frappe.get_cached_value("Item", item.item_code, "item_group")
-		if item_group not in resolved:
-			resolved[item_group] = pick_rule(_group_chain(item_group), rules, default_basis, default_percent)
-		chosen = resolved[item_group]
-		if not chosen:
-			continue
-		basis, percent = chosen
-		basis_rate = _basis_rate(doc, item, basis, rate_field)
-		if basis_rate <= 0:
-			continue
-		floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
-		if flt(item.base_net_rate) < floor:
-			_handle_violation(item, floor, can_override)
+	cost_total = 0.0  # sale gate: every judged row's cost under the *global* basis
+	net_total = 0.0  # sale gate: the same rows' net amounts
+
+	for item, (basis, percent), has_override in _judged_rows(
+		doc, settings, rules, default_basis, default_percent
+	):
+		# Per-row floor: always in per-item mode; in whole-sale mode only for rows
+		# whose group has its own override (a guardrail, possibly negative). A row
+		# with no cost under its own basis cannot be judged on its own.
+		if not whole_sale or has_override:
+			basis_rate = _basis_rate(doc, item, basis, rate_field)
+			if basis_rate > 0:
+				floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
+				if flt(item.base_net_rate) < floor:
+					_handle_violation(item, floor, can_override)
+
+		# The sale gate is one rule with one basis, so every row is costed the
+		# global way for the total — independently of its own basis, or a row
+		# never purchased would fall out of the sale (loss and all) just because
+		# its override reads Last Purchase Rate.
+		if sale_gate:
+			global_rate = _basis_rate(doc, item, default_basis, rate_field)
+			if global_rate > 0:
+				cost_total += global_rate * flt(item.qty)
+				net_total += flt(item.base_net_amount)
+
+	if sale_gate and cost_total > 0:
+		precision = doc.precision("base_net_total")
+		sale_floor = compute_floor(cost_total, default_percent, precision)
+		if flt(net_total, precision) < sale_floor:
+			_handle_sale_violation(sale_floor, can_override)
 
 
 def _handle_violation(item, floor, can_override):
@@ -136,5 +179,21 @@ def _handle_violation(item, floor, can_override):
 		_("Row #{0} ({1}): Net selling rate should be at least {2}.").format(
 			item.idx, item_label, frappe.bold(floor)
 		),
+		title=title,
+	)
+
+
+def _handle_sale_violation(floor, can_override):
+	# Same rule as _handle_violation: show the floor, never the cost or the margin.
+	title = _("Powerpack Restrictions")
+	if can_override:
+		frappe.msgprint(
+			_("Net total of this sale is below {0} — allowed by your role.").format(frappe.bold(floor)),
+			title=title,
+			indicator="orange",
+		)
+		return
+	frappe.throw(
+		_("Net total of this sale should be at least {0}.").format(frappe.bold(floor)),
 		title=title,
 	)
