@@ -108,6 +108,10 @@ def _judged_rows(doc, settings, rules, default_basis, default_percent):
 
 
 def validate_min_selling_price(doc, method=None):
+	# Frappe's test-record bootstrap saves sales documents at arbitrary rates; only
+	# tests that opt in exercise the floor.
+	if frappe.flags.in_test and not frappe.flags.powerpack_test_min_selling_price:
+		return
 	if not is_feature_enabled("enable_min_selling_price"):
 		return
 	if doc.get("is_return") or doc.get("is_internal_customer"):

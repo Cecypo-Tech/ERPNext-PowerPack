@@ -192,6 +192,13 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 	def setUp(self):
 		# Isolate from native ERPNext check so our feature is the sole authority.
 		frappe.db.set_single_value("Selling Settings", "validate_selling_price", 0)
+		# The validator stands down under frappe.flags.in_test unless a test opts in;
+		# this class is the one that exercises the floor.
+		frappe.flags.powerpack_test_min_selling_price = True
+
+	def tearDown(self):
+		frappe.flags.powerpack_test_min_selling_price = False
+		super().tearDown()
 
 	def _configure(self, enable=1, default_basis="Valuation Rate", default_pct=0,
 					override_role=None, rules=None, whole_sale=0):
