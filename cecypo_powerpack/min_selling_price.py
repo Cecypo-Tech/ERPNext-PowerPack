@@ -79,6 +79,34 @@ def _current_valuation_rate(doc, item):
 	)
 
 
+def _judged_rows(doc, settings, rules, default_basis, default_percent):
+	"""Yield (item, (basis, percent), has_override) for every row a floor applies to.
+
+	Skips free rows, rows exempted by a Pricing Rule, and rows whose group has no
+	rule in force. has_override is True when the rule came from a per-group row
+	(the group or an ancestor), False when it is the global default — whole-sale
+	mode judges only override rows individually.
+	"""
+	skip_if_pricing_rule = settings.get("min_selling_price_skip_if_pricing_rule")
+	resolved = {}  # item_group -> ((basis, percent) | None, has_override)
+	for item in doc.get("items") or []:
+		if not item.item_code or item.get("is_free_item"):
+			continue
+		if skip_if_pricing_rule and item.get("pricing_rules"):
+			continue
+		item_group = item.get("item_group") or frappe.get_cached_value("Item", item.item_code, "item_group")
+		if item_group not in resolved:
+			chain = _group_chain(item_group)
+			resolved[item_group] = (
+				pick_rule(chain, rules, default_basis, default_percent),
+				any(group in rules for group in chain),
+			)
+		chosen, has_override = resolved[item_group]
+		if not chosen:
+			continue
+		yield item, chosen, has_override
+
+
 def validate_min_selling_price(doc, method=None):
 	if not is_feature_enabled("enable_min_selling_price"):
 		return
@@ -94,22 +122,11 @@ def validate_min_selling_price(doc, method=None):
 
 	override_role = settings.get("min_selling_price_override_role")
 	can_override = bool(override_role) and override_role in frappe.get_roles()
-	skip_if_pricing_rule = settings.get("min_selling_price_skip_if_pricing_rule")
 	rate_field = "valuation_rate" if doc.doctype in ("Sales Order", "Quotation") else "incoming_rate"
 
-	resolved = {}  # item_group -> (basis, percent) | None
-	for item in doc.get("items") or []:
-		if not item.item_code or item.get("is_free_item"):
-			continue
-		if skip_if_pricing_rule and item.get("pricing_rules"):
-			continue
-		item_group = item.get("item_group") or frappe.get_cached_value("Item", item.item_code, "item_group")
-		if item_group not in resolved:
-			resolved[item_group] = pick_rule(_group_chain(item_group), rules, default_basis, default_percent)
-		chosen = resolved[item_group]
-		if not chosen:
-			continue
-		basis, percent = chosen
+	for item, (basis, percent), _has_override in _judged_rows(
+		doc, settings, rules, default_basis, default_percent
+	):
 		basis_rate = _basis_rate(doc, item, basis, rate_field)
 		if basis_rate <= 0:
 			continue

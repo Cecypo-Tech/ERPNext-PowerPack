@@ -268,6 +268,30 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
 		self.assertRaises(frappe.ValidationError, validate_min_selling_price, so)
 
+	def test_judged_rows_reports_whether_the_rule_is_an_override(self):
+		# _MSP Child has an override; a row in a group with no override falls to the
+		# global default and must be reported as has_override=False. Rows with no
+		# rule at all, free rows and pricing-rule rows never come out.
+		from cecypo_powerpack.min_selling_price import _build_rules, _judged_rows
+
+		self._configure(default_pct=4, rules=[
+			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -20},
+		])
+		settings = frappe.get_cached_doc("PowerPack Settings")
+		rules = _build_rules(settings)
+		rows = [
+			frappe._dict({"item_code": "_MSP Item", "item_group": "_MSP Child", "idx": 1, "conversion_factor": 1}),
+			frappe._dict({"item_code": "_MSP Item", "item_group": "All Item Groups", "idx": 2, "conversion_factor": 1}),
+			frappe._dict({"item_code": "_MSP Item", "item_group": "_MSP Child", "idx": 3, "is_free_item": 1}),
+			frappe._dict({"item_code": "", "idx": 4}),
+		]
+		doc = frappe._dict({"doctype": "Sales Order", "items": rows})
+		out = list(_judged_rows(doc, settings, rules, "Valuation Rate", 4.0))
+		self.assertEqual([(r.idx, rule, ov) for r, rule, ov in out], [
+			(1, ("Valuation Rate", -20.0), True),
+			(2, ("Valuation Rate", 4.0), False),
+		])
+
 	def test_free_item_skipped(self):
 		# Direct call with a free-item line: our validation must skip it (no raise).
 		from cecypo_powerpack.min_selling_price import validate_min_selling_price
