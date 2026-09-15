@@ -27,7 +27,7 @@
   },
   {
    "columns": 3,
-   "description": "+ = margin above cost; − = allowed below cost; 0 = ignore (defer to ERPNext)",
+   "description": "+ = margin above cost; − = allowed below cost; 0 = no override, the global default applies",
    "fieldname": "floor_percent",
    "fieldtype": "Float",
    "in_list_view": 1,

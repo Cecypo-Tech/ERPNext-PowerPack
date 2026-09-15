@@ -575,7 +575,7 @@
    "fieldname": "min_selling_price_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<div class=\"text-muted small\">Sets the minimum selling price as a %age of the item's cost (Valuation Rate or Last Purchase Rate).<br>+ve % = margin above cost (e.g. 10 \u2192 cost \u00d7 1.10)<br>-ve % = below cost (e.g. -10 \u2192 cost \u00d7 0.90)<br>0 or blank = default ERPNext pricing rules<br><b>Note:</b> If using negative values, disable <i>Selling Settings \u2192 Validate Selling Price for Item</i>, as it blocks all below-cost sales.</div>"
+   "options": "<div class=\"text-muted small\">Sets the minimum net selling rate as a %age of the item's cost (Valuation Rate or Last Purchase Rate).<br>+ve % = margin above cost (e.g. 10 \u2192 cost \u00d7 1.10)<br>-ve % = allowed below cost (e.g. -10 \u2192 cost \u00d7 0.90)<br>0 or blank on a per-group row = no override for that group; the global default applies<br>0 or blank global default = groups without an override defer to ERPNext<br><b>Note:</b> Disable <i>Selling Settings \u2192 Validate Selling Price for Item</i> whenever this is enabled. ERPNext's check also enforces the item's <b>last purchase rate</b>, which blocks sales below a spiked purchase even when the margin above valuation is met.</div>"
   },
   {
    "default": "Valuation Rate",

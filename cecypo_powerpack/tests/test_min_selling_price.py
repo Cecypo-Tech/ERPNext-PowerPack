@@ -30,6 +30,20 @@ class TestMinSellingPriceSettings(FrappeTestCase):
 		):
 			self.assertIn(fn, names)
 
+	def test_help_text_states_the_real_semantics(self):
+		# A zero row is dropped from the rules, so its group takes the global default;
+		# only a zero global default defers to ERPNext. And ERPNext's own check must be
+		# off whenever this feature is on, not only for negative floors, because it
+		# also enforces the last purchase rate.
+		note = frappe.get_meta("PowerPack Settings").get_field("min_selling_price_description").options
+		self.assertIn("global default applies", note)
+		self.assertIn("whenever this is enabled", note)
+		self.assertIn("last purchase rate", note)
+		self.assertNotIn("If using negative values", note)
+		row_help = frappe.get_meta("Minimum Selling Price Rule").get_field("floor_percent").description
+		self.assertIn("global default applies", row_help)
+		self.assertNotIn("defer to ERPNext", row_help)
+
 	def test_feature_flag_toggles(self):
 		from cecypo_powerpack.utils import is_feature_enabled
 
