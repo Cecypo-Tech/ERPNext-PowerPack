@@ -57,6 +57,13 @@ class TestMinSellingPriceSettings(FrappeTestCase):
 		self.assertNotIn("defer to ERPNext", row_help)
 		whole_sale_help = frappe.get_meta("PowerPack Settings").get_field("min_selling_price_whole_sale").description
 		self.assertIn("with 0 there is no sale-level check", whole_sale_help)
+		# The diagram is served straight from public/images; the ?v= pin matters
+		# because /assets is edge-cached for a year behind Cloudflare.
+		self.assertIn("/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=", note)
+		import os
+		self.assertTrue(os.path.exists(
+			frappe.get_app_path("cecypo_powerpack", "public", "images", "min_selling_price_modes.svg")
+		))
 
 	def test_feature_flag_toggles(self):
 		from cecypo_powerpack.utils import is_feature_enabled
