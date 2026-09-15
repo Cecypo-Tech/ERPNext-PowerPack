@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .h1{font-size:30px;font-weight:700;fill:#111827}
+      .sub{font-size:15px;fill:#4b5563}
+      .card-title{font-size:20px;font-weight:700;fill:#111827}
+      .card-sub{font-size:14px;fill:#4b5563}
+      .th{font-size:12px;font-weight:700;fill:#6b7280;letter-spacing:.04em}
+      .td{font-size:15px;fill:#111827}
+      .muted{font-size:13px;fill:#6b7280}
+      .ok{font-size:15px;font-weight:700;fill:#16a34a}
+      .bad{font-size:15px;font-weight:700;fill:#dc2626}
+      .tot{font-size:15px;font-weight:700;fill:#111827}
+      .pill{font-size:12px;font-weight:700;fill:#ffffff}
+      .foot{font-size:14px;font-weight:600;fill:#111827}
+      .key{font-size:13px;fill:#111827}
+      .keyb{font-size:13px;font-weight:700;fill:#111827}
+      .warn{font-size:13px;fill:#7c2d12}
+    </style>
+  </defs>
+
+  <rect width="1200" height="860" fill="#fafafa"/>
+
+  <!-- Header -->
+  <text x="40" y="52" class="h1">Minimum Selling Price — two ways to enforce the floor</text>
+  <text x="40" y="78" class="sub">Cost = Valuation Rate (moving average of stock on hand) or Last Purchase Rate. Example: every item costs 100, global floor is +4%.</text>
+
+  <!-- ============ LEFT CARD: PER ITEM ============ -->
+  <rect x="40" y="104" width="548" height="500" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
+  <rect x="40" y="104" width="548" height="6" rx="3" fill="#2563eb"/>
+  <text x="64" y="146" class="card-title">Per item</text>
+  <rect x="172" y="130" width="72" height="22" rx="11" fill="#6b7280"/>
+  <text x="208" y="145" class="pill" text-anchor="middle">default</text>
+  <text x="64" y="172" class="card-sub">Every row must clear its own floor.</text>
+
+  <!-- table header -->
+  <line x1="64" y1="196" x2="564" y2="196" stroke="#e5e7eb"/>
+  <text x="64" y="218" class="th">ITEM</text>
+  <text x="170" y="218" class="th">RULE</text>
+  <text x="352" y="218" class="th" text-anchor="end">FLOOR</text>
+  <text x="430" y="218" class="th" text-anchor="end">SOLD AT</text>
+  <text x="460" y="218" class="th">RESULT</text>
+  <line x1="64" y1="228" x2="564" y2="228" stroke="#e5e7eb"/>
+
+  <!-- rows -->
+  <text x="64" y="262" class="td">Cement</text>
+  <text x="170" y="262" class="td">global +4%</text>
+  <text x="352" y="262" class="td" text-anchor="end">104</text>
+  <text x="430" y="262" class="bad" text-anchor="end">90</text>
+  <text x="460" y="262" class="bad">✗ blocked</text>
+
+  <text x="64" y="304" class="td">Paint</text>
+  <text x="170" y="304" class="td">override +15%</text>
+  <text x="352" y="304" class="td" text-anchor="end">115</text>
+  <text x="430" y="304" class="td" text-anchor="end">135</text>
+  <text x="460" y="304" class="ok">✓</text>
+
+  <text x="64" y="346" class="td">Roofing</text>
+  <text x="170" y="346" class="td">override −20%</text>
+  <text x="352" y="346" class="td" text-anchor="end">80</text>
+  <text x="430" y="346" class="td" text-anchor="end">90</text>
+  <text x="460" y="346" class="ok">✓</text>
+  <line x1="64" y1="366" x2="564" y2="366" stroke="#e5e7eb"/>
+
+  <!-- verdict -->
+  <rect x="64" y="392" width="500" height="64" rx="10" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="84" y="418" class="bad">Sale blocked</text>
+  <text x="84" y="440" class="muted">Cement is below its floor. The other rows cannot make up for it.</text>
+
+  <text x="64" y="500" class="foot">Floor per row = cost × (1 + % ⁄ 100)</text>
+  <text x="64" y="526" class="muted">Most specific Item Group override wins; otherwise the global %.</text>
+  <text x="64" y="548" class="muted">Rows with no cost, free items, and (optionally) rows with a</text>
+  <text x="64" y="568" class="muted">Pricing Rule are skipped.</text>
+
+  <!-- ============ RIGHT CARD: WHOLE SALE ============ -->
+  <rect x="612" y="104" width="548" height="500" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
+  <rect x="612" y="104" width="548" height="6" rx="3" fill="#16a34a"/>
+  <text x="636" y="146" class="card-title">Whole sale</text>
+  <rect x="776" y="130" width="104" height="22" rx="11" fill="#16a34a"/>
+  <text x="828" y="145" class="pill" text-anchor="middle">checkbox on</text>
+  <text x="636" y="172" class="card-sub">The sale clears the global floor as a whole. Override groups keep a guardrail.</text>
+
+  <line x1="636" y1="196" x2="1136" y2="196" stroke="#e5e7eb"/>
+  <text x="636" y="218" class="th">ITEM</text>
+  <text x="742" y="218" class="th">RULE</text>
+  <text x="944" y="218" class="th" text-anchor="end">GUARDRAIL</text>
+  <text x="1022" y="218" class="th" text-anchor="end">SOLD AT</text>
+  <text x="1046" y="218" class="th">RESULT</text>
+  <line x1="636" y1="228" x2="1136" y2="228" stroke="#e5e7eb"/>
+
+  <text x="636" y="262" class="td">Cement</text>
+  <text x="742" y="262" class="td">no override</text>
+  <text x="944" y="262" class="muted" text-anchor="end">not judged alone</text>
+  <text x="1022" y="262" class="td" text-anchor="end">90</text>
+  <text x="1046" y="262" class="muted">counted</text>
+
+  <text x="636" y="304" class="td">Paint</text>
+  <text x="742" y="304" class="td">override +15%</text>
+  <text x="944" y="304" class="td" text-anchor="end">115</text>
+  <text x="1022" y="304" class="td" text-anchor="end">135</text>
+  <text x="1046" y="304" class="ok">✓</text>
+
+  <text x="636" y="346" class="td">Roofing</text>
+  <text x="742" y="346" class="td">override −20%</text>
+  <text x="944" y="346" class="td" text-anchor="end">80</text>
+  <text x="1022" y="346" class="td" text-anchor="end">90</text>
+  <text x="1046" y="346" class="ok">✓</text>
+  <line x1="636" y1="366" x2="1136" y2="366" stroke="#e5e7eb"/>
+
+  <!-- totals -->
+  <rect x="636" y="392" width="500" height="64" rx="10" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="656" y="418" class="ok">Sale allowed</text>
+  <text x="656" y="440" class="muted">Sale floor = 300 cost × 1.04 = 312.   Net total = 90 + 135 + 90 = 315 ≥ 312.</text>
+
+  <text x="636" y="500" class="foot">Two layers</text>
+  <text x="636" y="526" class="muted">1. Total net ≥ total cost × (1 + global % ⁄ 100). Loss rows count here.</text>
+  <text x="636" y="548" class="muted">2. A row in a group with an override must still meet that override.</text>
+  <text x="636" y="568" class="muted">   Negative caps the loss; positive still forces margin. Others are free.</text>
+
+  <!-- ============ BOTTOM: reading a floor % ============ -->
+  <rect x="40" y="628" width="1120" height="200" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="64" y="662" class="card-title">Reading a floor %</text>
+
+  <text x="64" y="700" class="keyb">+10</text>
+  <text x="110" y="700" class="key">→ cost × 1.10 (margin above cost)</text>
+  <text x="64" y="726" class="keyb">−10</text>
+  <text x="110" y="726" class="key">→ cost × 0.90 (allowed below cost)</text>
+  <text x="64" y="752" class="keyb">0 on a row</text>
+  <text x="152" y="752" class="key">→ no override; the global % applies to that group</text>
+  <text x="64" y="778" class="keyb">0 global</text>
+  <text x="136" y="778" class="key">→ groups without an override are not checked at all</text>
+
+  <rect x="640" y="682" width="496" height="120" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+  <text x="660" y="710" class="keyb">Turn off ERPNext's own check</text>
+  <text x="660" y="734" class="warn">Selling Settings → “Validate selling price for Item against</text>
+  <text x="660" y="754" class="warn">purchase or valuation rate” also enforces the last purchase rate,</text>
+  <text x="660" y="774" class="warn">so one expensive purchase blocks sales that still clear your</text>
+  <text x="660" y="794" class="warn">margin. Leave it off whenever this feature is on.</text>
+</svg>

@@ -40,6 +40,9 @@ A custom and simple price list updater. Simply select any item(s) on `/desk/item
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
 ![](https://i.imgur.com/mBs8uZc.png)
+
+Two ways to enforce the floor. **Per item** (default) checks every row against its own floor. **Whole sale** (checkbox) lets some rows go below cost as long as the sale as a whole clears the global %, while groups with an override keep a per-row guardrail. Turn off ERPNext's *Validate Selling Price* in Selling Settings whenever this feature is on: it also enforces the last purchase rate.
+![](cecypo_powerpack/public/images/min_selling_price_modes.svg)
 ##### Lens
 Look for the lens icon next to each item. In Sales, shows the last few sales with the item's price for the current customer, and sales to other customers. Also shows all price lists for the item. In one click, know your item! In Purchase Receipt and Purchase Invoice, if allowed, lets you set new price list values directly. Stock count is shown in the top-right, and hovering over it shows stock for other warehouses!
 ![](https://i.imgur.com/U6cYOFr.png)
