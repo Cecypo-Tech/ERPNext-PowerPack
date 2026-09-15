@@ -48,15 +48,35 @@ def _group_chain(item_group):
 	return [item_group] + (get_ancestors_of("Item Group", item_group) or [])
 
 
-def _basis_rate(item, basis, rate_field):
+def _basis_rate(doc, item, basis, rate_field):
 	conversion_factor = flt(item.get("conversion_factor")) or 1.0
 	if basis == "Last Purchase Rate":
 		rate = flt(frappe.get_cached_value("Item", item.item_code, "last_purchase_rate"))
 	else:  # Valuation Rate
 		rate = flt(item.get(rate_field))
 		if not rate:
-			rate = flt(frappe.get_cached_value("Item", item.item_code, "valuation_rate"))
+			rate = _current_valuation_rate(doc, item)
 	return rate * conversion_factor
+
+
+def _current_valuation_rate(doc, item):
+	"""Cost of the item at the row's warehouse, in stock UOM.
+
+	ERPNext fills the row's ``incoming_rate`` only on Delivery Note and a Sales
+	Invoice that updates stock. POS Invoice and a non-stock Sales Invoice reach
+	validate with it empty, and the Item master's ``valuation_rate`` is a manual
+	default that is blank on almost every item, so falling back to that skipped the
+	row silently. Use the same source Quotation / Sales Order get from
+	``get_item_details``: the Bin for the warehouse (the moving-average cost of what
+	is on hand), then the item master.
+	"""
+	from erpnext.stock.get_item_details import get_valuation_rate
+
+	return flt(
+		(get_valuation_rate(item.item_code, doc.get("company"), item.get("warehouse")) or {}).get(
+			"valuation_rate"
+		)
+	)
 
 
 def validate_min_selling_price(doc, method=None):
@@ -90,7 +110,7 @@ def validate_min_selling_price(doc, method=None):
 		if not chosen:
 			continue
 		basis, percent = chosen
-		basis_rate = _basis_rate(item, basis, rate_field)
+		basis_rate = _basis_rate(doc, item, basis, rate_field)
 		if basis_rate <= 0:
 			continue
 		floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
