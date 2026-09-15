@@ -82,8 +82,8 @@ def _current_valuation_rate(doc, item):
 def _judged_rows(doc, settings, rules, default_basis, default_percent):
 	"""Yield (item, (basis, percent), has_override) for every row a floor applies to.
 
-	Skips free rows, rows exempted by a Pricing Rule, and rows whose group has no
-	rule in force. has_override is True when the rule came from a per-group row
+	Skips rows with no item, free rows, rows exempted by a Pricing Rule, and rows
+	whose group has no rule in force. has_override is True when the rule came from a per-group row
 	(the group or an ancestor), False when it is the global default — whole-sale
 	mode judges only override rows individually.
 	"""

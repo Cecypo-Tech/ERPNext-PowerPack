@@ -309,13 +309,16 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		self.assertRaises(frappe.ValidationError, validate_min_selling_price, so)
 
 	def test_judged_rows_reports_whether_the_rule_is_an_override(self):
-		# _MSP Child has an override; a row in a group with no override falls to the
-		# global default and must be reported as has_override=False. Rows with no
-		# rule at all, free rows and pricing-rule rows never come out.
+		# The override sits on _MSP Parent. A row in _MSP Child inherits it and must
+		# be reported has_override=True — that is what makes the chain walk matter;
+		# a plain `item_group in rules` would call the child a default row. A row at
+		# the tree root has no override and falls to the global default. Rows with
+		# no item_code and free rows never come out; rows with no rule at all are
+		# covered by test_whole_sale_with_zero_global_has_no_sale_gate.
 		from cecypo_powerpack.min_selling_price import _build_rules, _judged_rows
 
-		self._configure(default_pct=4, rules=[
-			{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": -20},
+		self._configure(rules=[
+			{"item_group": "_MSP Parent", "basis": "Valuation Rate", "floor_percent": -20},
 		])
 		settings = frappe.get_cached_doc("PowerPack Settings")
 		rules = _build_rules(settings)
