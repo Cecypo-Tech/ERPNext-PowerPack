@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from cecypo_powerpack.price_approval import validate_price_approval_settings
+
 
 class PowerPackSettings(Document):
 	def validate(self):
@@ -25,6 +27,8 @@ class PowerPackSettings(Document):
 					indicator="orange",
 					alert=True
 				)
+
+		validate_price_approval_settings(self)
 
 	def on_update(self):
 		"""Handle settings update"""

@@ -123,3 +123,33 @@ def custom_field_definitions():
 def setup_custom_fields():
 	"""Idempotent. Wired to after_install and after_migrate."""
 	create_custom_fields(custom_field_definitions(), ignore_validate=True, update=True)
+
+
+def routing_enabled(settings, doctype):
+	field = SETTING_FOR_DOCTYPE.get(doctype)
+	return bool(field and cint(settings.get(field)))
+
+
+def workflow_name_for(doctype):
+	return WORKFLOW_PREFIX + doctype
+
+
+def validate_price_approval_settings(settings):
+	"""PowerPackSettings.validate: routing needs an approver role and a free doctype."""
+	wanted = [doctype for doctype in APPROVAL_DOCTYPES if routing_enabled(settings, doctype)]
+	if not wanted:
+		return
+	if not settings.get("min_selling_price_override_role"):
+		frappe.throw(_("Set a Role Allowed to Override first — it is the approver role."))
+	for doctype in wanted:
+		foreign = frappe.db.get_value(
+			"Workflow",
+			{"document_type": doctype, "is_active": 1, "name": ["not like", WORKFLOW_PREFIX + "%"]},
+			"name",
+		)
+		if foreign:
+			frappe.throw(
+				_(
+					"{0} already has an active workflow '{1}'. Deactivate it or leave price approval off for {0}."
+				).format(doctype, foreign)
+			)
