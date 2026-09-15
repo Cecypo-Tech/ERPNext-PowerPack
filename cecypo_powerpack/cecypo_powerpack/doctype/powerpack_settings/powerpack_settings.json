@@ -65,6 +65,7 @@
   "min_selling_price_default_percent",
   "min_selling_price_override_role",
   "min_selling_price_skip_if_pricing_rule",
+  "min_selling_price_whole_sale",
   "min_selling_price_rules",
   "items_tab",
   "item_search_powerup_section",
@@ -602,6 +603,13 @@
    "fieldname": "min_selling_price_skip_if_pricing_rule",
    "fieldtype": "Check",
    "label": "Skip Validation When Pricing Rule Applied"
+  },
+  {
+   "default": "0",
+   "description": "Judge the whole sale instead of each row: total net must reach total cost plus the Global Default Floor %. Rows whose group has an override are still checked individually against that override, so a negative override caps how far that group may go below cost, and a positive one still forces margin on that group.",
+   "fieldname": "min_selling_price_whole_sale",
+   "fieldtype": "Check",
+   "label": "Enforce Floor on the Whole Sale Instead of Each Row"
   },
   {
    "fieldname": "min_selling_price_rules",

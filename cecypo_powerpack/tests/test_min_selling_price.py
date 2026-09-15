@@ -26,9 +26,21 @@ class TestMinSellingPriceSettings(FrappeTestCase):
 			"min_selling_price_default_basis",
 			"min_selling_price_default_percent",
 			"min_selling_price_override_role",
+			"min_selling_price_whole_sale",
 			"min_selling_price_rules",
 		):
 			self.assertIn(fn, names)
+
+	def test_whole_sale_field_is_a_checkbox_after_the_pricing_rule_skip(self):
+		meta = frappe.get_meta("PowerPack Settings")
+		df = meta.get_field("min_selling_price_whole_sale")
+		self.assertEqual(df.fieldtype, "Check")
+		self.assertEqual(df.default, "0")
+		order = [f.fieldname for f in meta.fields]
+		self.assertEqual(
+			order.index("min_selling_price_whole_sale"),
+			order.index("min_selling_price_skip_if_pricing_rule") + 1,
+		)
 
 	def test_help_text_states_the_real_semantics(self):
 		# A zero row is dropped from the rules, so its group takes the global default;
