@@ -59,7 +59,14 @@ class TestMinSellingPriceSettings(FrappeTestCase):
 		self.assertIn("with 0 there is no sale-level check", whole_sale_help)
 		# The diagram is served straight from public/images; the ?v= pin matters
 		# because /assets is edge-cached for a year behind Cloudflare.
-		self.assertIn("/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=", note)
+		diagram = frappe.get_meta("PowerPack Settings").get_field("min_selling_price_whole_sale_diagram").options
+		self.assertIn("/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=", diagram)
+		self.assertNotIn("min_selling_price_modes.svg", note)
+		order = [f.fieldname for f in frappe.get_meta("PowerPack Settings").fields]
+		self.assertEqual(
+			order.index("min_selling_price_whole_sale_diagram"),
+			order.index("min_selling_price_whole_sale") + 1,
+		)
 		import os
 		self.assertTrue(os.path.exists(
 			frappe.get_app_path("cecypo_powerpack", "public", "images", "min_selling_price_modes.svg")
