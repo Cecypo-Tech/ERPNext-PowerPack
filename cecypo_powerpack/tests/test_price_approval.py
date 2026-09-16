@@ -486,3 +486,91 @@ class TestRoutedBreach(SettingsSnapshot, FrappeTestCase):
 			self.assertEqual(so.get(pa.BREACH_FIELD), 1)
 			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
 				so.submit()
+
+	# ---- carry-over: held order -> checkout invoice ----------------------------
+
+	def _si_from(self, so, rate, qty=1, customer="_Test Customer", source=True):
+		from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+
+		from cecypo_powerpack import price_approval as pa
+
+		si = create_sales_invoice(item_code="_MSP Item", qty=qty, rate=rate, customer=customer, update_stock=0, do_not_save=True)
+		if source:
+			si.set(pa.SOURCE_ORDER_FIELD, so.name)
+		return si
+
+	def test_invoice_from_an_approved_order_submits_and_carries_the_stamp(self):
+		from cecypo_powerpack import price_approval as pa
+
+		so = self._approved_so(rate=90, qty=2)
+		with as_requester():
+			si = self._si_from(so, rate=90, qty=2)
+			si.insert()  # draft, flagged, no throw
+			self.assertEqual(si.get(pa.BREACH_FIELD), 1)
+			si.submit()
+		self.assertEqual(si.docstatus, 1)
+		self.assertEqual(si.get(pa.APPROVED_BY_FIELD), "Administrator")
+		self.assertEqual(pa.load_rows(si.get(pa.APPROVED_ROWS_FIELD)), pa.load_rows(so.get(pa.APPROVED_ROWS_FIELD)))
+		comments = frappe.get_all("Comment", filters={"reference_doctype": "Sales Invoice", "reference_name": si.name, "comment_type": "Comment"}, pluck="content")
+		self.assertTrue(any("Price approved by Administrator on " + so.name in c for c in comments), comments)
+
+	def test_invoice_at_a_higher_rate_or_lower_qty_still_passes(self):
+		so = self._approved_so(rate=90, qty=2)
+		with as_requester():
+			si = self._si_from(so, rate=95, qty=1)
+			si.insert()
+			si.submit()
+		self.assertEqual(si.docstatus, 1)
+
+	def test_invoice_below_the_approved_rate_is_blocked(self):
+		so = self._approved_so(rate=90)
+		with as_requester():
+			si = self._si_from(so, rate=85)
+			si.insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				si.submit()
+
+	def test_invoice_above_the_approved_qty_is_blocked(self):
+		so = self._approved_so(rate=90, qty=1)
+		with as_requester():
+			si = self._si_from(so, rate=90, qty=2)
+			si.insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				si.submit()
+
+	def test_invoice_for_another_customer_is_blocked(self):
+		if not frappe.db.exists("Customer", "_Test Customer 2"):
+			self.skipTest("_Test Customer 2 not present on this site")
+		so = self._approved_so(rate=90)
+		with as_requester():
+			si = self._si_from(so, rate=90, customer="_Test Customer 2")
+			si.insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				si.submit()
+
+	def test_invoice_from_an_unapproved_order_is_blocked(self):
+		with as_requester():
+			so = self._so(90)
+			so.save()  # breaching draft, never requested
+			si = self._si_from(so, rate=90)
+			si.insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				si.submit()
+
+	def test_invoice_without_a_source_order_is_blocked(self):
+		so = self._approved_so(rate=90)
+		with as_requester():
+			si = self._si_from(so, rate=90, source=False)
+			si.insert()
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				si.submit()
+
+	def test_source_order_field_does_not_stop_the_order_being_deleted(self):
+		# klik_pos deletes the held order after checkout; the Data field must not link.
+		so = self._approved_so(rate=90)
+		with as_requester():
+			si = self._si_from(so, rate=90)
+			si.insert()
+			si.submit()
+		frappe.delete_doc("Sales Order", so.name, ignore_permissions=True)  # must not raise
+		self.assertFalse(frappe.db.exists("Sales Order", so.name))
