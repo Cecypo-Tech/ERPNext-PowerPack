@@ -121,8 +121,18 @@ def custom_field_definitions():
 
 
 def setup_custom_fields():
-	"""Idempotent. Wired to after_install and after_migrate."""
+	"""Idempotent. Wired to after_install and (through after_migrate) after_migrate."""
 	create_custom_fields(custom_field_definitions(), ignore_validate=True, update=True)
+
+
+def after_migrate():
+	"""Wired to after_migrate. Repairs existing workflows on a deploy without needing a
+	PowerPack Settings save to trigger sync_price_approval_workflows - e.g. after a fix to
+	workflow_transitions itself, as opposed to a settings change."""
+	setup_custom_fields()
+	settings = frappe.get_single("PowerPack Settings")
+	if any(cint(settings.get(field)) for field in SETTING_FOR_DOCTYPE.values()):
+		sync_price_approval_workflows(settings)
 
 
 def routing_enabled(settings, doctype):
@@ -166,14 +176,23 @@ def workflow_states(role):
 
 
 def workflow_transitions(role):
+	"""(state, action, next_state, allowed, condition, allow_self_approval).
+
+	Only Approve and Reject refuse self-approval: they are the actual grant of a privilege
+	the requester should not give themselves. Request, both Submits, Withdraw and Cancel are
+	the document's own creator acting on their own work - frappe.model.workflow.has_approval_access
+	refuses every transition by the document's owner unless allow_self_approval is set, so
+	leaving it 0 here (as this used to) blocked a salesperson from ever requesting approval
+	for, submitting, withdrawing or cancelling their own document in the desk.
+	"""
 	return [
-		(STATE_DRAFT, ACTION_REQUEST, STATE_PENDING, ALL_ROLE, f"doc.{BREACH_FIELD}"),
-		(STATE_DRAFT, ACTION_SUBMIT, STATE_SUBMITTED, ALL_ROLE, f"not doc.{BREACH_FIELD}"),
-		(STATE_PENDING, ACTION_APPROVE, STATE_APPROVED, role, ""),
-		(STATE_PENDING, ACTION_REJECT, STATE_DRAFT, role, ""),
-		(STATE_APPROVED, ACTION_SUBMIT, STATE_SUBMITTED, ALL_ROLE, ""),
-		(STATE_APPROVED, ACTION_WITHDRAW, STATE_DRAFT, ALL_ROLE, ""),
-		(STATE_SUBMITTED, ACTION_CANCEL, STATE_CANCELLED, ALL_ROLE, ""),
+		(STATE_DRAFT, ACTION_REQUEST, STATE_PENDING, ALL_ROLE, f"doc.{BREACH_FIELD}", 1),
+		(STATE_DRAFT, ACTION_SUBMIT, STATE_SUBMITTED, ALL_ROLE, f"not doc.{BREACH_FIELD}", 1),
+		(STATE_PENDING, ACTION_APPROVE, STATE_APPROVED, role, "", 0),
+		(STATE_PENDING, ACTION_REJECT, STATE_DRAFT, role, "", 0),
+		(STATE_APPROVED, ACTION_SUBMIT, STATE_SUBMITTED, ALL_ROLE, "", 1),
+		(STATE_APPROVED, ACTION_WITHDRAW, STATE_DRAFT, ALL_ROLE, "", 1),
+		(STATE_SUBMITTED, ACTION_CANCEL, STATE_CANCELLED, ALL_ROLE, "", 1),
 	]
 
 
@@ -215,7 +234,7 @@ def sync_price_approval_workflows(settings):
 				for state, doc_status, allow_edit in workflow_states(role):
 					workflow.append("states", {"state": state, "doc_status": doc_status, "allow_edit": allow_edit})
 				workflow.set("transitions", [])
-				for state, action, next_state, allowed, condition in workflow_transitions(role):
+				for state, action, next_state, allowed, condition, allow_self_approval in workflow_transitions(role):
 					workflow.append(
 						"transitions",
 						{
@@ -223,7 +242,7 @@ def sync_price_approval_workflows(settings):
 							"action": action,
 							"next_state": next_state,
 							"allowed": allowed,
-							"allow_self_approval": 0,
+							"allow_self_approval": allow_self_approval,
 							"condition": condition,
 						},
 					)

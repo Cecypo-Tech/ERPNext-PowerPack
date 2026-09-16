@@ -206,15 +206,18 @@ class TestWorkflowSync(SettingsSnapshot, FrappeTestCase):
 			],
 		)
 		self.assertEqual(
-			[(t.state, t.action, t.next_state, t.allowed, t.condition or "") for t in wf.transitions],
 			[
-				(pa.STATE_DRAFT, pa.ACTION_REQUEST, pa.STATE_PENDING, "All", "doc.powerpack_price_breach"),
-				(pa.STATE_DRAFT, pa.ACTION_SUBMIT, pa.STATE_SUBMITTED, "All", "not doc.powerpack_price_breach"),
-				(pa.STATE_PENDING, pa.ACTION_APPROVE, pa.STATE_APPROVED, ROLE, ""),
-				(pa.STATE_PENDING, pa.ACTION_REJECT, pa.STATE_DRAFT, ROLE, ""),
-				(pa.STATE_APPROVED, pa.ACTION_SUBMIT, pa.STATE_SUBMITTED, "All", ""),
-				(pa.STATE_APPROVED, pa.ACTION_WITHDRAW, pa.STATE_DRAFT, "All", ""),
-				(pa.STATE_SUBMITTED, pa.ACTION_CANCEL, pa.STATE_CANCELLED, "All", ""),
+				(t.state, t.action, t.next_state, t.allowed, t.condition or "", t.allow_self_approval)
+				for t in wf.transitions
+			],
+			[
+				(pa.STATE_DRAFT, pa.ACTION_REQUEST, pa.STATE_PENDING, "All", "doc.powerpack_price_breach", 1),
+				(pa.STATE_DRAFT, pa.ACTION_SUBMIT, pa.STATE_SUBMITTED, "All", "not doc.powerpack_price_breach", 1),
+				(pa.STATE_PENDING, pa.ACTION_APPROVE, pa.STATE_APPROVED, ROLE, "", 0),
+				(pa.STATE_PENDING, pa.ACTION_REJECT, pa.STATE_DRAFT, ROLE, "", 0),
+				(pa.STATE_APPROVED, pa.ACTION_SUBMIT, pa.STATE_SUBMITTED, "All", "", 1),
+				(pa.STATE_APPROVED, pa.ACTION_WITHDRAW, pa.STATE_DRAFT, "All", "", 1),
+				(pa.STATE_SUBMITTED, pa.ACTION_CANCEL, pa.STATE_CANCELLED, "All", "", 1),
 			],
 		)
 		self.assertFalse(frappe.db.exists("Workflow", pa.workflow_name_for("Quotation")))
@@ -616,3 +619,66 @@ class TestRoutedBreach(SettingsSnapshot, FrappeTestCase):
 			so.save()
 			with self.assertRaisesRegex(frappe.ValidationError, "hold the order"):
 				so.submit()
+
+	# ---- self-approval: only Approve/Reject refuse the document's own creator -----------
+
+	def _real_user(self, extra_roles=()):
+		"""A genuine non-Administrator session, unlike as_requester() (which only fakes
+		frappe.get_roles() and leaves frappe.session.user as Administrator - who is exempt
+		from the self-approval rule these two tests exist to check)."""
+		email = "_msp_self_approval_requester@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc(
+				{"doctype": "User", "email": email, "first_name": "MSP Requester", "send_welcome_email": 0}
+			).insert(ignore_permissions=True)
+		user = frappe.get_doc("User", email)
+		existing = {row.role for row in user.roles}
+		wanted = {"Sales User", *extra_roles}
+		if not wanted.issubset(existing):
+			for role in wanted - existing:
+				user.append("roles", {"role": role})
+			user.flags.ignore_permissions = True
+			user.save()
+		return email
+
+	def test_the_documents_own_creator_can_request_their_own_approval(self):
+		from frappe.model.workflow import apply_workflow
+
+		from cecypo_powerpack import price_approval as pa
+
+		user = self._real_user()
+		frappe.set_user(user)
+		try:
+			so = self._so(90)  # floor is 104
+			so.save()
+			so = apply_workflow(so, pa.ACTION_REQUEST)
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(so.get(pa.STATE_FIELD), pa.STATE_PENDING)
+
+	def test_the_documents_own_creator_cannot_approve_their_own_order_even_with_the_override_role(self):
+		from frappe.model.workflow import apply_workflow
+
+		from cecypo_powerpack import price_approval as pa
+
+		# Requested while holding only Sales User, so the breach is routed rather than
+		# waved through (an override-role holder's own breach is never flagged at all -
+		# see test_override_role_user_is_not_routed). The role is granted only afterwards:
+		# this pins that holding it does not let the same person approve what they asked
+		# for, not that the floor stops applying to them.
+		user = self._real_user()
+		frappe.set_user(user)
+		try:
+			so = self._so(90)
+			so.save()
+			so = apply_workflow(so, pa.ACTION_REQUEST)
+		finally:
+			frappe.set_user("Administrator")
+
+		self._real_user(extra_roles=(ROLE,))
+		frappe.set_user(user)
+		try:
+			with self.assertRaisesRegex(frappe.ValidationError, "Self approval"):
+				apply_workflow(so, pa.ACTION_APPROVE)
+		finally:
+			frappe.set_user("Administrator")
