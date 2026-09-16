@@ -107,7 +107,7 @@ jinja = {
 
 # before_install = "cecypo_powerpack.install.before_install"
 after_install = "cecypo_powerpack.price_approval.setup_custom_fields"
-after_migrate = "cecypo_powerpack.price_approval.setup_custom_fields"
+after_migrate = "cecypo_powerpack.price_approval.after_migrate"
 
 # Fixtures
 # --------
