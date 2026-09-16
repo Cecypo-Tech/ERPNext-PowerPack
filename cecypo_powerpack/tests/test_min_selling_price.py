@@ -130,64 +130,70 @@ class TestMinSellingPriceLogic(FrappeTestCase):
 		self.assertIsNone(pick_rule(["Toys"], {}, "Valuation Rate", 0))
 
 
+def ensure_msp_fixtures():
+	"""Item Group tree _MSP Parent > _MSP Child / _MSP Loss Group, and items costing 100.
+	Committed: created after the base class flushed its records, and tearDown rolls back."""
+	# Item Group tree: _MSP Parent (group) > _MSP Child (leaf, holds items)
+	for name, parent, is_group in (("_MSP Parent", "All Item Groups", 1), ("_MSP Child", "_MSP Parent", 0)):
+		if not frappe.db.exists("Item Group", name):
+			frappe.get_doc({
+				"doctype": "Item Group",
+				"item_group_name": name,
+				"parent_item_group": parent,
+				"is_group": is_group,
+			}).insert()
+
+	from erpnext.stock.doctype.item.test_item import make_item
+
+	make_item("_MSP Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
+	# Set cost fields directly so they persist regardless of field read-only rules.
+	# item_group is forced for a different reason: make_item only applies its
+	# arguments when it *creates* the item, so an item left behind by an earlier
+	# run keeps whatever group it had. Every rule here is scoped to the _MSP
+	# groups, so the wrong group takes them all out of play - the blocking tests
+	# fail, and the "allows" tests pass without anything having been enforced.
+	frappe.db.set_value(
+		"Item",
+		"_MSP Item",
+		{"item_group": "_MSP Child", "valuation_rate": 100, "last_purchase_rate": 100},
+	)
+	# A second item whose master valuation_rate stays blank: its only cost
+	# source is the Bin, which the stock entry below seeds at 100.
+	make_item("_MSP Bin Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
+	frappe.db.set_value(
+		"Item", "_MSP Bin Item", {"item_group": "_MSP Child", "valuation_rate": 0, "last_purchase_rate": 0}
+	)
+	if not frappe.db.exists("Bin", {"item_code": "_MSP Bin Item", "warehouse": "_Test Warehouse - _TC"}):
+		from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+
+		make_stock_entry(item_code="_MSP Bin Item", target="_Test Warehouse - _TC", qty=10, rate=100)
+	# A second leaf group so whole-sale tests can mix an override group with a
+	# global-default group in one document. Same cost (100) as _MSP Item.
+	if not frappe.db.exists("Item Group", "_MSP Loss Group"):
+		frappe.get_doc({
+			"doctype": "Item Group",
+			"item_group_name": "_MSP Loss Group",
+			"parent_item_group": "_MSP Parent",
+			"is_group": 0,
+		}).insert()
+	make_item("_MSP Loss Item", {"is_stock_item": 1, "item_group": "_MSP Loss Group"})
+	frappe.db.set_value(
+		"Item",
+		"_MSP Loss Item",
+		{"item_group": "_MSP Loss Group", "valuation_rate": 100, "last_purchase_rate": 100},
+	)
+	# All of the above was created after the base class flushed its own test
+	# records, so it is still uncommitted. tearDown rolls back after every test,
+	# which would otherwise take the item groups with it.
+	frappe.db.commit()
+	frappe.clear_cache(doctype="Item")
+
+
 class TestMinSellingPriceValidation(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		# Item Group tree: _MSP Parent (group) > _MSP Child (leaf, holds items)
-		for name, parent, is_group in (("_MSP Parent", "All Item Groups", 1), ("_MSP Child", "_MSP Parent", 0)):
-			if not frappe.db.exists("Item Group", name):
-				frappe.get_doc({
-					"doctype": "Item Group",
-					"item_group_name": name,
-					"parent_item_group": parent,
-					"is_group": is_group,
-				}).insert()
-
-		from erpnext.stock.doctype.item.test_item import make_item
-
-		make_item("_MSP Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
-		# Set cost fields directly so they persist regardless of field read-only rules.
-		# item_group is forced for a different reason: make_item only applies its
-		# arguments when it *creates* the item, so an item left behind by an earlier
-		# run keeps whatever group it had. Every rule here is scoped to the _MSP
-		# groups, so the wrong group takes them all out of play - the blocking tests
-		# fail, and the "allows" tests pass without anything having been enforced.
-		frappe.db.set_value(
-			"Item",
-			"_MSP Item",
-			{"item_group": "_MSP Child", "valuation_rate": 100, "last_purchase_rate": 100},
-		)
-		# A second item whose master valuation_rate stays blank: its only cost
-		# source is the Bin, which the stock entry below seeds at 100.
-		make_item("_MSP Bin Item", {"is_stock_item": 1, "item_group": "_MSP Child"})
-		frappe.db.set_value(
-			"Item", "_MSP Bin Item", {"item_group": "_MSP Child", "valuation_rate": 0, "last_purchase_rate": 0}
-		)
-		if not frappe.db.exists("Bin", {"item_code": "_MSP Bin Item", "warehouse": "_Test Warehouse - _TC"}):
-			from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
-
-			make_stock_entry(item_code="_MSP Bin Item", target="_Test Warehouse - _TC", qty=10, rate=100)
-		# A second leaf group so whole-sale tests can mix an override group with a
-		# global-default group in one document. Same cost (100) as _MSP Item.
-		if not frappe.db.exists("Item Group", "_MSP Loss Group"):
-			frappe.get_doc({
-				"doctype": "Item Group",
-				"item_group_name": "_MSP Loss Group",
-				"parent_item_group": "_MSP Parent",
-				"is_group": 0,
-			}).insert()
-		make_item("_MSP Loss Item", {"is_stock_item": 1, "item_group": "_MSP Loss Group"})
-		frappe.db.set_value(
-			"Item",
-			"_MSP Loss Item",
-			{"item_group": "_MSP Loss Group", "valuation_rate": 100, "last_purchase_rate": 100},
-		)
-		# All of the above was created after the base class flushed its own test
-		# records, so it is still uncommitted. tearDown rolls back after every test,
-		# which would otherwise take the item groups with it.
-		frappe.db.commit()
-		frappe.clear_cache(doctype="Item")
+		ensure_msp_fixtures()
 
 	def setUp(self):
 		# Isolate from native ERPNext check so our feature is the sole authority.

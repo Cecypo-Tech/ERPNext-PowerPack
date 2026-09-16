@@ -107,6 +107,15 @@ def _judged_rows(doc, settings, rules, default_basis, default_percent):
 		yield item, chosen, has_override
 
 
+def judged_items(doc):
+	"""The rows the floor applies to under the current settings (for approval snapshots)."""
+	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
+	rules = _build_rules(settings)
+	default_basis = settings.get("min_selling_price_default_basis") or "Valuation Rate"
+	default_percent = flt(settings.get("min_selling_price_default_percent"))
+	return [item for item, _rule, _override in _judged_rows(doc, settings, rules, default_basis, default_percent)]
+
+
 def validate_min_selling_price(doc, method=None):
 	# Frappe's test-record bootstrap saves sales documents at arbitrary rates; only
 	# tests that opt in exercise the floor.
@@ -134,6 +143,8 @@ def validate_min_selling_price(doc, method=None):
 
 	cost_total = 0.0  # sale gate: every judged row's cost under the *global* basis
 	net_total = 0.0  # sale gate: the same rows' net amounts
+	breaches = []  # (item, floor) for rows below their own floor
+	sale_breach = None  # the sale floor, when the sale as a whole is short
 
 	for item, (basis, percent), has_override in _judged_rows(
 		doc, settings, rules, default_basis, default_percent
@@ -146,7 +157,7 @@ def validate_min_selling_price(doc, method=None):
 			if basis_rate > 0:
 				floor = compute_floor(basis_rate, percent, item.precision("base_net_rate"))
 				if flt(item.base_net_rate) < floor:
-					_handle_violation(item, floor, can_override)
+					breaches.append((item, floor))
 
 		# The sale gate is one rule with one basis, so every row is costed the
 		# global way for the total — independently of its own basis, or a row
@@ -162,7 +173,30 @@ def validate_min_selling_price(doc, method=None):
 		precision = doc.precision("base_net_total")
 		sale_floor = compute_floor(cost_total, default_percent, precision)
 		if flt(net_total, precision) < sale_floor:
-			_handle_sale_violation(sale_floor, can_override)
+			sale_breach = sale_floor
+
+	from cecypo_powerpack import price_approval
+
+	if not breaches and sale_breach is None:
+		price_approval.set_breach_flag(doc, 0)
+		return
+
+	if can_override:
+		for item, floor in breaches:
+			_handle_violation(item, floor, True)
+		if sale_breach is not None:
+			_handle_sale_violation(sale_breach, True)
+		price_approval.set_breach_flag(doc, 0)
+		return
+
+	if not price_approval.routing_applies(doc, settings):
+		# Today's hard block: the first breaching row, else the sale.
+		if breaches:
+			item, floor = breaches[0]
+			_handle_violation(item, floor, False)
+		_handle_sale_violation(sale_breach, False)
+
+	price_approval.handle_routed_breach(doc, breaches, sale_breach)
 
 
 def _handle_violation(item, floor, can_override):

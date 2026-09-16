@@ -1,6 +1,9 @@
 # Copyright (c) 2026, Cecypo.Tech and contributors
 # For license information, please see license.txt
 
+from contextlib import contextmanager
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -275,3 +278,211 @@ class TestWorkflowSync(SettingsSnapshot, FrappeTestCase):
 		})
 		foreign.insert()  # must not raise
 		self.assertTrue(frappe.db.exists("Workflow", foreign.name))
+
+
+@contextmanager
+def as_requester():
+	"""Administrator holds every role, so the override role is always 'held'.
+	Present the session as a plain Sales User for the duration; permission
+	checks still short-circuit on the Administrator user name."""
+	with patch.object(frappe, "get_roles", return_value=["All", "Guest", "Sales User", "System Manager"]):
+		yield
+
+
+class TestRoutedBreach(SettingsSnapshot, FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		from cecypo_powerpack.tests.test_min_selling_price import ensure_msp_fixtures
+
+		ensure_msp_fixtures()
+		ensure_workflow_state_columns()
+
+	def setUp(self):
+		frappe.db.set_single_value("Selling Settings", "validate_selling_price", 0)
+		frappe.flags.powerpack_test_min_selling_price = True
+		# Frappe sends the workflow action email inline under frappe.in_test
+		# (enqueue(..., now=frappe.in_test)) and hands attach_print the very doc
+		# object the test holds, which comes back with flags.in_print set — after
+		# which Document._save returns without writing anything. Every save after a
+		# transition would silently do nothing, in tests only (in a request the job
+		# is enqueued after commit and the doc is serialised). The emails are
+		# frappe's, not ours.
+		emails = patch(
+			"frappe.workflow.doctype.workflow_action.workflow_action.send_workflow_action_email",
+			new=lambda doc, transitions: None,
+		)
+		emails.start()
+		self.addCleanup(emails.stop)
+		self._configure(msp_approval_sales_order=1, msp_approval_sales_invoice=1)
+
+	def tearDown(self):
+		from cecypo_powerpack import price_approval as pa
+
+		frappe.flags.powerpack_test_min_selling_price = False
+		frappe.set_user("Administrator")
+		# Nothing rolls the database back between tests, and submitting a Sales
+		# Order creates a Bin for (_MSP Item, _Test Warehouse - _TC) to hold the
+		# reserved qty. get_valuation_rate() prefers that Bin over the item master,
+		# and its valuation_rate is 0 — which would silently take the floor out of
+		# play for every test that runs after a submit. The fixtures are committed,
+		# so only what this test wrote goes.
+		frappe.db.rollback()
+		for dt in pa.APPROVAL_DOCTYPES:
+			frappe.clear_cache(doctype=dt)
+		frappe.clear_cache(doctype="PowerPack Settings")
+
+	def _configure(self, **flags):
+		s = frappe.get_single("PowerPack Settings")
+		s.enable_min_selling_price = 1
+		s.min_selling_price_default_basis = "Valuation Rate"
+		s.min_selling_price_default_percent = 4
+		s.min_selling_price_whole_sale = 0
+		s.min_selling_price_override_role = ROLE
+		s.set("min_selling_price_rules", [])
+		for f in ("msp_approval_quotation", "msp_approval_sales_order", "msp_approval_sales_invoice", "msp_approval_delivery_note"):
+			s.set(f, flags.get(f, 0))
+		s.save()
+		frappe.clear_cache(doctype="PowerPack Settings")
+
+	def _so(self, rate, qty=1):
+		from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
+
+		return make_sales_order(item_code="_MSP Item", qty=qty, rate=rate, do_not_save=True)
+
+	def _approved_so(self, rate=90, qty=1):
+		"""Breaching draft, requested by a plain user, approved by Administrator."""
+		from frappe.model.workflow import apply_workflow
+
+		from cecypo_powerpack import price_approval as pa
+
+		with as_requester():
+			so = self._so(rate, qty)
+			so.save()
+			so = apply_workflow(so, pa.ACTION_REQUEST)
+		so = apply_workflow(so, pa.ACTION_APPROVE)
+		return frappe.get_doc("Sales Order", so.name)
+
+	# ---- draft saves ----------------------------------------------------------
+
+	def test_breaching_draft_saves_with_the_flag_set(self):
+		from cecypo_powerpack import price_approval as pa
+
+		with as_requester():
+			so = self._so(90)  # floor is 104
+			so.save()
+		self.assertEqual(so.get(pa.BREACH_FIELD), 1)
+		self.assertEqual(so.get(pa.STATE_FIELD), pa.STATE_DRAFT)
+
+	def test_clean_draft_clears_the_flag(self):
+		from cecypo_powerpack import price_approval as pa
+
+		with as_requester():
+			so = self._so(120)
+			so.save()
+		self.assertEqual(so.get(pa.BREACH_FIELD), 0)
+
+	def test_override_role_user_is_not_routed(self):
+		# Administrator holds the override role: warning, flag cleared, no request needed.
+		from cecypo_powerpack import price_approval as pa
+
+		so = self._so(90)
+		so.save()
+		self.assertEqual(so.get(pa.BREACH_FIELD), 0)
+
+	def test_routing_off_still_hard_blocks(self):
+		self._configure()  # no doctype ticked; workflow deactivated
+		with as_requester():
+			with self.assertRaisesRegex(frappe.ValidationError, "at least"):
+				self._so(90).save()
+
+	# ---- submit gate -----------------------------------------------------------
+
+	def test_submit_without_approval_is_blocked(self):
+		with as_requester():
+			so = self._so(90)
+			so.save()
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				so.submit()
+
+	def test_request_then_approve_stamps_and_allows_submit(self):
+		from cecypo_powerpack import price_approval as pa
+
+		so = self._approved_so(rate=90)
+		self.assertEqual(so.get(pa.STATE_FIELD), pa.STATE_APPROVED)
+		self.assertEqual(so.get(pa.APPROVED_BY_FIELD), "Administrator")
+		self.assertTrue(so.get(pa.APPROVED_ON_FIELD))
+		rows = pa.load_rows(so.get(pa.APPROVED_ROWS_FIELD))
+		self.assertEqual([(r["item_code"], r["qty"], r["base_net_rate"]) for r in rows], [("_MSP Item", 1.0, 90.0)])
+		with as_requester():
+			so.submit()
+		self.assertEqual(so.docstatus, 1)
+
+	def test_requester_cannot_edit_while_pending(self):
+		from frappe.model.workflow import apply_workflow
+
+		from cecypo_powerpack import price_approval as pa
+
+		with as_requester():
+			so = self._so(90)
+			so.save()
+			so = apply_workflow(so, pa.ACTION_REQUEST)
+			so.items[0].rate = 95
+			with self.assertRaises(frappe.ValidationError):
+				so.save()
+
+	def test_lowering_an_approved_rate_is_refused(self):
+		so = self._approved_so(rate=90)
+		with as_requester():
+			so.items[0].rate = 85
+			with self.assertRaisesRegex(frappe.ValidationError, "approved prices changed"):
+				so.save()
+
+	def test_raising_an_approved_qty_is_refused(self):
+		so = self._approved_so(rate=90, qty=2)
+		with as_requester():
+			so.items[0].qty = 3
+			with self.assertRaisesRegex(frappe.ValidationError, "approved prices changed"):
+				so.save()
+
+	def test_raising_the_rate_after_approval_is_fine(self):
+		so = self._approved_so(rate=90)
+		with as_requester():
+			so.items[0].rate = 95
+			so.save()
+			so.submit()
+		self.assertEqual(so.docstatus, 1)
+
+	def test_reject_and_withdraw_clear_the_stamp(self):
+		from frappe.model.workflow import apply_workflow
+
+		from cecypo_powerpack import price_approval as pa
+
+		so = self._approved_so(rate=90)
+		with as_requester():
+			so = apply_workflow(so, pa.ACTION_WITHDRAW)
+		so = frappe.get_doc("Sales Order", so.name)
+		self.assertEqual(so.get(pa.STATE_FIELD), pa.STATE_DRAFT)
+		self.assertFalse(so.get(pa.APPROVED_ROWS_FIELD))
+		self.assertFalse(so.get(pa.APPROVED_BY_FIELD))
+
+		with as_requester():
+			so = apply_workflow(so, pa.ACTION_REQUEST)
+		so = apply_workflow(so, pa.ACTION_REJECT)
+		so = frappe.get_doc("Sales Order", so.name)
+		self.assertEqual(so.get(pa.STATE_FIELD), pa.STATE_DRAFT)
+		self.assertFalse(so.get(pa.APPROVED_ROWS_FIELD))
+
+	def test_whole_sale_mode_routes_the_sale_breach(self):
+		from cecypo_powerpack import price_approval as pa
+
+		s = frappe.get_single("PowerPack Settings")
+		s.min_selling_price_whole_sale = 1
+		s.save()
+		frappe.clear_cache(doctype="PowerPack Settings")
+		with as_requester():
+			so = self._so(90)  # 90 < 104 sale floor
+			so.save()
+			self.assertEqual(so.get(pa.BREACH_FIELD), 1)
+			with self.assertRaisesRegex(frappe.ValidationError, "Price approval needed"):
+				so.submit()

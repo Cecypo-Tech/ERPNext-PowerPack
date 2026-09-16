@@ -262,3 +262,180 @@ def guard_managed_workflow(doc, method=None):
 				"Price approval for {0} is on in PowerPack Settings → Pricing, which runs the workflow '{1}'. Turn it off there before activating another workflow on {0}."
 			).format(doctype, ours)
 		)
+
+
+def _meta(doc):
+	return getattr(doc, "meta", None)
+
+
+def set_breach_flag(doc, value):
+	meta = _meta(doc)
+	if meta and meta.has_field(BREACH_FIELD):
+		doc.set(BREACH_FIELD, cint(value))
+
+
+def routing_applies(doc, settings):
+	meta = _meta(doc)
+	return bool(meta and meta.has_field(BREACH_FIELD) and routing_enabled(settings, doc.doctype))
+
+
+def load_rows(raw):
+	if not raw:
+		return []
+	try:
+		rows = json.loads(raw)
+	except (TypeError, ValueError):
+		return []
+	return rows if isinstance(rows, list) else []
+
+
+def snapshot_rows(doc):
+	from cecypo_powerpack.min_selling_price import judged_items
+
+	return [
+		{
+			"item_code": item.item_code,
+			"uom": item.get("uom") or None,
+			"qty": flt(item.qty),
+			"base_net_rate": flt(item.base_net_rate),
+		}
+		for item in judged_items(doc)
+	]
+
+
+def uncovered_rows(doc, approved_rows):
+	"""idx of judged rows no approved row covers: same item and UOM, rate at or
+	above the approved rate, quantity at or below the approved quantity."""
+	from cecypo_powerpack.min_selling_price import judged_items
+
+	missing = []
+	for item in judged_items(doc):
+		covered = any(
+			row.get("item_code") == item.item_code
+			and (row.get("uom") or None) == (item.get("uom") or None)
+			and flt(item.base_net_rate) >= flt(row.get("base_net_rate"))
+			and flt(item.qty) <= flt(row.get("qty"))
+			for row in approved_rows
+		)
+		if not covered:
+			missing.append(item.idx)
+	return missing
+
+
+def find_covering_approval(doc):
+	"""The document's own stamp, else (Sales Invoice) the source order's. None when nothing covers."""
+	own = load_rows(doc.get(APPROVED_ROWS_FIELD))
+	if own:
+		return doc if not uncovered_rows(doc, own) else None
+	if doc.doctype != "Sales Invoice" or not doc.get(SOURCE_ORDER_FIELD):
+		return None
+	if not (frappe.db.has_column("Sales Order", STATE_FIELD) and frappe.db.has_column("Sales Order", APPROVED_ROWS_FIELD)):
+		return None
+	order = frappe.db.get_value(
+		"Sales Order",
+		doc.get(SOURCE_ORDER_FIELD),
+		["name", "docstatus", "customer", STATE_FIELD, *APPROVAL_FIELDS],
+		as_dict=True,
+	)
+	if not order or cint(order.docstatus) != 0 or order.get(STATE_FIELD) != STATE_APPROVED:
+		return None
+	if order.customer != doc.get("customer"):
+		return None
+	if uncovered_rows(doc, load_rows(order.get(APPROVED_ROWS_FIELD))):
+		return None
+	return order
+
+
+def copy_approval_from_order(doc, order):
+	"""The held order is deleted right after checkout; carry its approval and say so."""
+	for field in APPROVAL_FIELDS:
+		doc.set(field, order.get(field))
+	doc.flags.powerpack_approval_comment = _("Price approved by {0} on {1} at {2}").format(
+		order.get(APPROVED_BY_FIELD), order.name, order.get(APPROVED_ON_FIELD)
+	)
+
+
+def handle_routed_breach(doc, breaches, sale_breach):
+	"""A breach the user may not override, on a doctype with routing on."""
+	rows = ", ".join(str(item.idx) for item, _floor in breaches) or _("the sale total")
+
+	if doc.get("_action") == "submit":
+		approval = find_covering_approval(doc)
+		if approval is None:
+			frappe.throw(
+				_("Price approval needed for row(s) {0}. Save as draft and use <b>Request Price Approval</b>.").format(rows),
+				title=_(TITLE),
+			)
+		if approval is not doc:
+			copy_approval_from_order(doc, approval)
+		return
+
+	set_breach_flag(doc, 1)
+	approved = load_rows(doc.get(APPROVED_ROWS_FIELD))
+	if approved and uncovered_rows(doc, approved):
+		frappe.throw(
+			_("The approved prices changed (row {0}). Restore them, or use <b>Withdraw Approval</b> and request again.").format(
+				", ".join(str(idx) for idx in uncovered_rows(doc, approved))
+			),
+			title=_(TITLE),
+		)
+	if doc.get(STATE_FIELD) in (None, "", STATE_DRAFT):
+		frappe.msgprint(
+			_("Row(s) {0} are below the minimum selling price. Use <b>Request Price Approval</b> before submitting.").format(rows),
+			title=_(TITLE),
+			indicator="blue",
+		)
+
+
+def stamp_price_approval(doc, method=None):
+	"""on_update of the four doctypes: stamp on entering Price Approved, clear on leaving it as a draft."""
+	meta = _meta(doc)
+	if not (meta and meta.has_field(APPROVED_ROWS_FIELD)):
+		return
+	comment = doc.flags.pop("powerpack_approval_comment", None)
+	if comment:
+		doc.add_comment("Comment", comment)
+	before = doc.get_doc_before_save()
+	previous = before.get(STATE_FIELD) if before else None
+	current = doc.get(STATE_FIELD)
+	if current == previous:
+		return
+	if current == STATE_APPROVED:
+		values = {
+			APPROVED_BY_FIELD: frappe.session.user,
+			APPROVED_ON_FIELD: now_datetime(),
+			APPROVED_ROWS_FIELD: json.dumps(snapshot_rows(doc)),
+		}
+	elif previous == STATE_APPROVED and cint(doc.docstatus) == 0:
+		values = dict.fromkeys(APPROVAL_FIELDS, None)
+	else:
+		return
+	doc.db_set(values, update_modified=False)
+
+
+def guard_pending_edit(doc, method=None):
+	"""before_validate on the four doctypes: hold a pending document still.
+
+	A workflow state's ``allow_edit`` is enforced only by the desk form
+	(frappe/public/js/frappe/model/workflow.js, ``is_read_only``) — frappe never
+	checks it on the server. Without this, a requester could still lower a rate
+	through the API after the approver had looked at the document, and the
+	approval would then stamp the lowered price. Only a save that *leaves* the
+	document pending is refused: Request (Draft to Pending) and Approve / Reject
+	(Pending to something else) both change the state and pass through.
+	"""
+	if doc.get(STATE_FIELD) != STATE_PENDING:
+		return
+	before = doc.get_doc_before_save()
+	if not before or before.get(STATE_FIELD) != STATE_PENDING:
+		return
+	settings = frappe.get_cached_doc("PowerPack Settings")
+	if not routing_applies(doc, settings):
+		return
+	role = settings.get("min_selling_price_override_role")
+	if role and role in frappe.get_roles():
+		return
+	frappe.throw(
+		_("This document is waiting for price approval and cannot be changed. Ask an approver to approve or reject it first."),
+		title=_(TITLE),
+	)
