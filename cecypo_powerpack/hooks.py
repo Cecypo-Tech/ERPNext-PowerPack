@@ -106,7 +106,8 @@ jinja = {
 # ------------
 
 # before_install = "cecypo_powerpack.install.before_install"
-# after_install = "cecypo_powerpack.install.after_install"
+after_install = "cecypo_powerpack.price_approval.setup_custom_fields"
+after_migrate = "cecypo_powerpack.price_approval.setup_custom_fields"
 
 # Fixtures
 # --------
@@ -202,25 +203,38 @@ extend_doctype_class = {
 
 doc_events = {
 	"Quotation": {
-		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+		"before_validate": "cecypo_powerpack.price_approval.guard_pending_edit",
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price",
+		"on_update": "cecypo_powerpack.price_approval.stamp_price_approval",
 	},
 	"Sales Order": {
-		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+		"before_validate": "cecypo_powerpack.price_approval.guard_pending_edit",
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price",
+		"on_update": "cecypo_powerpack.price_approval.stamp_price_approval",
 	},
 	"Sales Invoice": {
+		"before_validate": "cecypo_powerpack.price_approval.guard_pending_edit",
 		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation",
-		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price",
+		"on_update": "cecypo_powerpack.price_approval.stamp_price_approval",
 	},
 	"POS Invoice": {
 		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation",
 		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
 	},
 	"Delivery Note": {
-		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price"
+		"before_validate": "cecypo_powerpack.price_approval.guard_pending_edit",
+		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price",
+		"on_update": "cecypo_powerpack.price_approval.stamp_price_approval",
 	},
 	"Payment Reconciliation": {
 		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
-	}
+	},
+	"Workflow": {
+		"before_validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
+		"validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
+		"on_trash": "cecypo_powerpack.price_approval.guard_managed_workflow",
+	},
 }
 
 # Scheduled Tasks

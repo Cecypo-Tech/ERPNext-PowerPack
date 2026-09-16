@@ -68,6 +68,10 @@
   "min_selling_price_skip_if_pricing_rule",
   "min_selling_price_whole_sale",
   "min_selling_price_whole_sale_diagram",
+  "msp_approval_quotation",
+  "msp_approval_sales_order",
+  "msp_approval_sales_invoice",
+  "msp_approval_delivery_note",
   "min_selling_price_rules_section",
   "min_selling_price_rules",
   "items_tab",
@@ -623,6 +627,31 @@
    "fieldtype": "HTML",
    "label": "Whole Sale Diagram",
    "options": "<div class=\"text-muted small\"><details style=\"margin-top:0\"><summary style=\"cursor:pointer\">How the two modes work (diagram)</summary><a href=\"/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=1\" target=\"_blank\" rel=\"noopener\" title=\"Open full size\"><img src=\"/assets/cecypo_powerpack/images/min_selling_price_modes.svg?v=1\" alt=\"Per item vs whole sale enforcement\" style=\"max-width:100%;margin-top:8px;border:1px solid var(--border-color);border-radius:8px;background:#fafafa\"></a><div style=\"margin-top:4px\">Click the diagram to open it full size.</div></details></div>"
+  },
+  {
+   "default": "0",
+   "description": "When a breach cannot be overridden, the document saves as a draft and is routed to the Role Allowed to Override through a workflow that PowerPack manages. Submit stays blocked until approved.",
+   "fieldname": "msp_approval_quotation",
+   "fieldtype": "Check",
+   "label": "Price Approval on Quotation"
+  },
+  {
+   "default": "0",
+   "fieldname": "msp_approval_sales_order",
+   "fieldtype": "Check",
+   "label": "Price Approval on Sales Order"
+  },
+  {
+   "default": "0",
+   "fieldname": "msp_approval_sales_invoice",
+   "fieldtype": "Check",
+   "label": "Price Approval on Sales Invoice"
+  },
+  {
+   "default": "0",
+   "fieldname": "msp_approval_delivery_note",
+   "fieldtype": "Check",
+   "label": "Price Approval on Delivery Note"
   },
   {
    "fieldname": "min_selling_price_rules_section",
