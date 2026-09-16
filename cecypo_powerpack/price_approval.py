@@ -237,7 +237,28 @@ def sync_price_approval_workflows(settings):
 
 
 def guard_managed_workflow(doc, method=None):
-	"""doc_events on Workflow (validate, on_trash): only the settings sync may touch ours."""
+	"""doc_events on Workflow (before_validate, validate, on_trash).
+
+	Ours may only be touched by the settings sync. And nobody may activate another
+	workflow on a doctype whose PowerPack workflow is active: frappe's
+	Workflow.set_active() would deactivate ours with a raw UPDATE, silently, while
+	the settings still say price approval is on. Checked in before_validate so it
+	runs before that UPDATE.
+	"""
 	name = doc.name or doc.get("workflow_name") or ""
-	if name.startswith(WORKFLOW_PREFIX) and not frappe.flags.powerpack_workflow_sync:
-		frappe.throw(_("This workflow is managed by PowerPack Settings → Pricing. Change it there."))
+	if name.startswith(WORKFLOW_PREFIX):
+		if not frappe.flags.powerpack_workflow_sync:
+			frappe.throw(_("This workflow is managed by PowerPack Settings → Pricing. Change it there."))
+		return
+	if method != "before_validate" or not cint(doc.get("is_active")):
+		return
+	doctype = doc.get("document_type")
+	if doctype not in APPROVAL_DOCTYPES:
+		return
+	ours = workflow_name_for(doctype)
+	if frappe.db.get_value("Workflow", ours, "is_active"):
+		frappe.throw(
+			_(
+				"Price approval for {0} is on in PowerPack Settings → Pricing, which runs the workflow '{1}'. Turn it off there before activating another workflow on {0}."
+			).format(doctype, ours)
+		)

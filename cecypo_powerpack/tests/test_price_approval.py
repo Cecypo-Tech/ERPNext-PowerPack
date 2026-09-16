@@ -247,3 +247,31 @@ class TestWorkflowSync(SettingsSnapshot, FrappeTestCase):
 			wf.save()
 		with self.assertRaisesRegex(frappe.ValidationError, "managed by PowerPack Settings"):
 			frappe.delete_doc("Workflow", wf.name)
+
+	def test_activating_a_foreign_workflow_while_ours_is_on_is_refused(self):
+		if frappe.db.exists("Workflow", "_MSP Late Foreign SO Workflow"):
+			frappe.delete_doc("Workflow", "_MSP Late Foreign SO Workflow", force=True)
+		self._configure(msp_approval_sales_order=1)
+		foreign = frappe.get_doc({
+			"doctype": "Workflow", "workflow_name": "_MSP Late Foreign SO Workflow", "document_type": "Sales Order",
+			"workflow_state_field": "workflow_state", "is_active": 1,
+			"states": [{"state": "Draft", "doc_status": "0", "allow_edit": "All"}],
+		})
+		with self.assertRaisesRegex(frappe.ValidationError, "Turn it off there"):
+			foreign.insert()
+		# Ours is still the active one.
+		from cecypo_powerpack import price_approval as pa
+
+		self.assertEqual(frappe.db.get_value("Workflow", pa.workflow_name_for("Sales Order"), "is_active"), 1)
+
+	def test_an_inactive_foreign_workflow_is_allowed(self):
+		if frappe.db.exists("Workflow", "_MSP Idle Foreign SO Workflow"):
+			frappe.delete_doc("Workflow", "_MSP Idle Foreign SO Workflow", force=True)
+		self._configure(msp_approval_sales_order=1)
+		foreign = frappe.get_doc({
+			"doctype": "Workflow", "workflow_name": "_MSP Idle Foreign SO Workflow", "document_type": "Sales Order",
+			"workflow_state_field": "workflow_state", "is_active": 0,
+			"states": [{"state": "Draft", "doc_status": "0", "allow_edit": "All"}],
+		})
+		foreign.insert()  # must not raise
+		self.assertTrue(frappe.db.exists("Workflow", foreign.name))

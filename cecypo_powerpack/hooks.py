@@ -223,6 +223,7 @@ doc_events = {
 		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
 	},
 	"Workflow": {
+		"before_validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
 		"validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
 		"on_trash": "cecypo_powerpack.price_approval.guard_managed_workflow",
 	},
