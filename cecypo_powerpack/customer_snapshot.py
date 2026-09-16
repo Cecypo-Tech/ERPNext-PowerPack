@@ -58,15 +58,17 @@ def build_customer_snapshot(customer, company=None, as_of=None):
 	invoices = frappe.get_all(
 		"Sales Invoice",
 		filters=filters,
-		fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "currency", "status"],
+		fields=["name", "posting_date", "due_date", "grand_total", "rounded_total", "outstanding_amount", "currency", "status"],
 		order_by="due_date asc, posting_date asc",
 	)
 	for inv in invoices:
 		due = getdate(inv.due_date or inv.posting_date)
 		inv["days_overdue"] = max(0, (as_of - due).days)
-		inv["grand_total"] = flt(inv.grand_total, 2)
+		invoiced = flt(inv.rounded_total) or flt(inv.grand_total)
 		inv["outstanding_amount"] = flt(inv.outstanding_amount, 2)
-		inv["paid"] = flt(inv.grand_total - inv.outstanding_amount, 2)
+		inv["grand_total"] = flt(invoiced, 2)
+		inv["paid"] = flt(max(invoiced - flt(inv.outstanding_amount), 0), 2)
+		inv.pop("rounded_total", None)
 	invoices.sort(key=lambda r: (-r["days_overdue"], str(r["due_date"] or r["posting_date"])))
 
 	pe_filters = {

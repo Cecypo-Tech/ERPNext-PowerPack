@@ -123,6 +123,19 @@ class TestCustomerSnapshot(FrappeTestCase):
 
 		self.assertFalse(hasattr(api, "get_customer_overdue_invoices"))
 
+	def test_paid_is_never_negative_and_uses_the_rounded_total(self):
+		from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+
+		si = create_sales_invoice(customer=CUSTOMER, company=COMPANY, rate=135.72, qty=1, do_not_save=True)
+		si.disable_rounded_total = 0
+		si.insert()
+		si.submit()
+		row = next(r for r in self._snapshot()["invoices"] if r["name"] == si.name)
+		self.assertGreaterEqual(row["paid"], 0)
+		expected = si.rounded_total or si.grand_total
+		self.assertEqual(row["grand_total"], round(expected, 2))
+		self.assertEqual(row["paid"], round(expected - si.outstanding_amount, 2))
+
 
 class TestWarningsDescription(FrappeTestCase):
 	def test_description_describes_the_dialog(self):
