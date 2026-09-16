@@ -153,3 +153,91 @@ def validate_price_approval_settings(settings):
 					"{0} already has an active workflow '{1}'. Deactivate it or leave price approval off for {0}."
 				).format(doctype, foreign)
 			)
+
+
+def workflow_states(role):
+	return [
+		(STATE_DRAFT, "0", ALL_ROLE),
+		(STATE_PENDING, "0", role),  # the requester cannot edit while pending
+		(STATE_APPROVED, "0", ALL_ROLE),
+		(STATE_SUBMITTED, "1", ALL_ROLE),
+		(STATE_CANCELLED, "2", ALL_ROLE),
+	]
+
+
+def workflow_transitions(role):
+	return [
+		(STATE_DRAFT, ACTION_REQUEST, STATE_PENDING, ALL_ROLE, f"doc.{BREACH_FIELD}"),
+		(STATE_DRAFT, ACTION_SUBMIT, STATE_SUBMITTED, ALL_ROLE, f"not doc.{BREACH_FIELD}"),
+		(STATE_PENDING, ACTION_APPROVE, STATE_APPROVED, role, ""),
+		(STATE_PENDING, ACTION_REJECT, STATE_DRAFT, role, ""),
+		(STATE_APPROVED, ACTION_SUBMIT, STATE_SUBMITTED, ALL_ROLE, ""),
+		(STATE_APPROVED, ACTION_WITHDRAW, STATE_DRAFT, ALL_ROLE, ""),
+		(STATE_SUBMITTED, ACTION_CANCEL, STATE_CANCELLED, ALL_ROLE, ""),
+	]
+
+
+def _ensure_workflow_masters():
+	for state, style in STATE_STYLES.items():
+		if not frappe.db.exists("Workflow State", state):
+			frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state, "style": style}).insert(
+				ignore_permissions=True
+			)
+	for action in ACTIONS:
+		if not frappe.db.exists("Workflow Action Master", action):
+			frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert(
+				ignore_permissions=True
+			)
+
+
+def sync_price_approval_workflows(settings):
+	"""PowerPackSettings.on_update: the settings are the only source of these workflows."""
+	role = settings.get("min_selling_price_override_role")
+	frappe.flags.powerpack_workflow_sync = True
+	try:
+		for doctype in APPROVAL_DOCTYPES:
+			name = workflow_name_for(doctype)
+			exists = frappe.db.exists("Workflow", name)
+			if routing_enabled(settings, doctype):
+				_ensure_workflow_masters()
+				workflow = frappe.get_doc("Workflow", name) if exists else frappe.new_doc("Workflow")
+				workflow.update(
+					{
+						"workflow_name": name,
+						"document_type": doctype,
+						"workflow_state_field": STATE_FIELD,
+						"is_active": 1,
+						"send_email_alert": 1,
+						"override_status": 0,
+					}
+				)
+				workflow.set("states", [])
+				for state, doc_status, allow_edit in workflow_states(role):
+					workflow.append("states", {"state": state, "doc_status": doc_status, "allow_edit": allow_edit})
+				workflow.set("transitions", [])
+				for state, action, next_state, allowed, condition in workflow_transitions(role):
+					workflow.append(
+						"transitions",
+						{
+							"state": state,
+							"action": action,
+							"next_state": next_state,
+							"allowed": allowed,
+							"allow_self_approval": 0,
+							"condition": condition,
+						},
+					)
+				workflow.save(ignore_permissions=True)
+			elif exists and frappe.db.get_value("Workflow", name, "is_active"):
+				# Deactivate, never delete: Workflow Action history stays readable.
+				frappe.db.set_value("Workflow", name, "is_active", 0)
+				frappe.clear_cache(doctype=doctype)
+	finally:
+		frappe.flags.powerpack_workflow_sync = False
+
+
+def guard_managed_workflow(doc, method=None):
+	"""doc_events on Workflow (validate, on_trash): only the settings sync may touch ours."""
+	name = doc.name or doc.get("workflow_name") or ""
+	if name.startswith(WORKFLOW_PREFIX) and not frappe.flags.powerpack_workflow_sync:
+		frappe.throw(_("This workflow is managed by PowerPack Settings → Pricing. Change it there."))

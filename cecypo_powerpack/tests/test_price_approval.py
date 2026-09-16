@@ -4,6 +4,74 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+ROLE = "_MSP Override Role"
+
+
+def ensure_workflow_state_columns():
+	"""Frappe adds `workflow_state` when a Workflow is first saved — DDL, which commits.
+	Create it up front (same definition Frappe uses) so tests never trigger it."""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	from cecypo_powerpack import price_approval as pa
+
+	pa.setup_custom_fields()
+	for dt in pa.APPROVAL_DOCTYPES:
+		if not frappe.get_meta(dt).get_field(pa.STATE_FIELD):
+			create_custom_field(
+				dt,
+				{
+					"fieldname": pa.STATE_FIELD, "label": "Workflow State", "fieldtype": "Link",
+					"options": "Workflow State", "hidden": 1, "allow_on_submit": 1, "no_copy": 1,
+				},
+				ignore_validate=True,
+			)
+	if not frappe.db.exists("Role", ROLE):
+		frappe.get_doc({"doctype": "Role", "role_name": ROLE}).insert()
+	frappe.db.commit()
+
+
+class SettingsSnapshot:
+	"""Put the site's own PowerPack Settings values back when the class is done.
+
+	FrappeTestCase rolls the database back once per class, and its next class's
+	setUpClass commits whatever is still pending — so a test that saves the
+	singleton would otherwise overwrite the site's real configuration.
+	"""
+
+	SETTINGS_FIELDS = (
+		"enable_min_selling_price",
+		"min_selling_price_default_basis",
+		"min_selling_price_default_percent",
+		"min_selling_price_override_role",
+		"min_selling_price_skip_if_pricing_rule",
+		"min_selling_price_whole_sale",
+		"msp_approval_quotation",
+		"msp_approval_sales_order",
+		"msp_approval_sales_invoice",
+		"msp_approval_delivery_note",
+	)
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		settings = frappe.get_single("PowerPack Settings")
+		cls._settings_before = {field: settings.get(field) for field in cls.SETTINGS_FIELDS}
+
+	@classmethod
+	def tearDownClass(cls):
+		# Drop everything the class wrote first: the rollback below the restore is
+		# FrappeTestCase's own class cleanup, which runs *after* the commit here and
+		# so cannot undo it — without this the commit would persist the test
+		# workflows and their workflow_state writes on real documents.
+		frappe.db.rollback()
+		settings = frappe.get_single("PowerPack Settings")
+		for field, value in cls._settings_before.items():
+			settings.set(field, value)
+		settings.flags.ignore_version = True
+		settings.save()
+		frappe.db.commit()
+		super().tearDownClass()
+
 
 class TestPriceApprovalFields(FrappeTestCase):
 	def test_custom_fields_exist_on_every_approval_doctype(self):
@@ -36,7 +104,12 @@ class TestPriceApprovalFields(FrappeTestCase):
 		self.assertEqual(len(names), 1)
 
 
-class TestPriceApprovalSettings(FrappeTestCase):
+class TestPriceApprovalSettings(SettingsSnapshot, FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		ensure_workflow_state_columns()
+
 	def tearDown(self):
 		frappe.clear_cache(doctype="PowerPack Settings")
 
@@ -66,30 +139,111 @@ class TestPriceApprovalSettings(FrappeTestCase):
 			s.save()
 
 	def test_routing_refuses_a_foreign_active_workflow(self):
-		if not frappe.db.exists("Role", "_MSP Override Role"):
-			frappe.get_doc({"doctype": "Role", "role_name": "_MSP Override Role"}).insert()
+		if not frappe.db.exists("Role", ROLE):
+			frappe.get_doc({"doctype": "Role", "role_name": ROLE}).insert()
 		if frappe.db.exists("Workflow", "_MSP Foreign SO Workflow"):
 			frappe.delete_doc("Workflow", "_MSP Foreign SO Workflow", force=True)
-		had_state_field = bool(frappe.db.exists("Custom Field", "Sales Order-workflow_state"))
-		foreign = frappe.get_doc({
+		frappe.get_doc({
 			"doctype": "Workflow", "workflow_name": "_MSP Foreign SO Workflow", "document_type": "Sales Order",
 			"workflow_state_field": "workflow_state", "is_active": 1,
 			"states": [{"state": "Draft", "doc_status": "0", "allow_edit": "All"}],
 		}).insert()
 		try:
-			s = self._settings(msp_approval_sales_order=1, min_selling_price_override_role="_MSP Override Role")
+			s = self._settings(msp_approval_sales_order=1, min_selling_price_override_role=ROLE)
 			with self.assertRaisesRegex(frappe.ValidationError, "_MSP Foreign SO Workflow"):
 				s.save()
 		finally:
-			# Workflow.on_update creates the workflow_state Custom Field, whose ALTER TABLE
-			# implicitly commits — so this workflow outlives the test rollback. Left behind it
-			# would be an *active* workflow on every Sales Order on the site.
-			frappe.delete_doc("Workflow", foreign.name, force=True)
-			if not had_state_field:
-				frappe.delete_doc("Custom Field", "Sales Order-workflow_state", force=True)
-			frappe.db.commit()
 			frappe.clear_cache(doctype="Sales Order")
 
 	def test_routing_off_needs_nothing(self):
 		s = self._settings()
 		s.save()  # must not raise
+
+
+class TestWorkflowSync(SettingsSnapshot, FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		ensure_workflow_state_columns()
+
+	def tearDown(self):
+		from cecypo_powerpack import price_approval as pa
+
+		for dt in pa.APPROVAL_DOCTYPES:
+			frappe.clear_cache(doctype=dt)
+		frappe.clear_cache(doctype="PowerPack Settings")
+
+	def _configure(self, **flags):
+		s = frappe.get_single("PowerPack Settings")
+		s.enable_min_selling_price = 1
+		s.min_selling_price_default_percent = 4
+		s.min_selling_price_override_role = ROLE
+		for f in ("msp_approval_quotation", "msp_approval_sales_order", "msp_approval_sales_invoice", "msp_approval_delivery_note"):
+			s.set(f, flags.get(f, 0))
+		s.save()
+		frappe.clear_cache(doctype="PowerPack Settings")
+		return s
+
+	def test_sync_creates_the_workflow_with_states_transitions_and_roles(self):
+		from cecypo_powerpack import price_approval as pa
+
+		self._configure(msp_approval_sales_order=1)
+		wf = frappe.get_doc("Workflow", pa.workflow_name_for("Sales Order"))
+		self.assertEqual(wf.document_type, "Sales Order")
+		self.assertEqual(wf.is_active, 1)
+		self.assertEqual(wf.send_email_alert, 1)
+		self.assertEqual(
+			[(s.state, s.doc_status, s.allow_edit) for s in wf.states],
+			[
+				(pa.STATE_DRAFT, "0", "All"),
+				(pa.STATE_PENDING, "0", ROLE),
+				(pa.STATE_APPROVED, "0", "All"),
+				(pa.STATE_SUBMITTED, "1", "All"),
+				(pa.STATE_CANCELLED, "2", "All"),
+			],
+		)
+		self.assertEqual(
+			[(t.state, t.action, t.next_state, t.allowed, t.condition or "") for t in wf.transitions],
+			[
+				(pa.STATE_DRAFT, pa.ACTION_REQUEST, pa.STATE_PENDING, "All", "doc.powerpack_price_breach"),
+				(pa.STATE_DRAFT, pa.ACTION_SUBMIT, pa.STATE_SUBMITTED, "All", "not doc.powerpack_price_breach"),
+				(pa.STATE_PENDING, pa.ACTION_APPROVE, pa.STATE_APPROVED, ROLE, ""),
+				(pa.STATE_PENDING, pa.ACTION_REJECT, pa.STATE_DRAFT, ROLE, ""),
+				(pa.STATE_APPROVED, pa.ACTION_SUBMIT, pa.STATE_SUBMITTED, "All", ""),
+				(pa.STATE_APPROVED, pa.ACTION_WITHDRAW, pa.STATE_DRAFT, "All", ""),
+				(pa.STATE_SUBMITTED, pa.ACTION_CANCEL, pa.STATE_CANCELLED, "All", ""),
+			],
+		)
+		self.assertFalse(frappe.db.exists("Workflow", pa.workflow_name_for("Quotation")))
+
+	def test_unticking_deactivates_but_keeps_the_workflow(self):
+		from cecypo_powerpack import price_approval as pa
+
+		self._configure(msp_approval_sales_order=1)
+		self._configure(msp_approval_sales_order=0)
+		self.assertEqual(frappe.db.get_value("Workflow", pa.workflow_name_for("Sales Order"), "is_active"), 0)
+
+	def test_role_change_resyncs(self):
+		from cecypo_powerpack import price_approval as pa
+
+		other = "_MSP Other Role"
+		if not frappe.db.exists("Role", other):
+			frappe.get_doc({"doctype": "Role", "role_name": other}).insert()
+		self._configure(msp_approval_sales_order=1)
+		s = frappe.get_single("PowerPack Settings")
+		s.min_selling_price_override_role = other
+		s.save()
+		wf = frappe.get_doc("Workflow", pa.workflow_name_for("Sales Order"))
+		approve = next(t for t in wf.transitions if t.action == pa.ACTION_APPROVE)
+		self.assertEqual(approve.allowed, other)
+
+	def test_manual_edit_and_delete_are_refused(self):
+		from cecypo_powerpack import price_approval as pa
+
+		self._configure(msp_approval_sales_order=1)
+		wf = frappe.get_doc("Workflow", pa.workflow_name_for("Sales Order"))
+		wf.send_email_alert = 0
+		with self.assertRaisesRegex(frappe.ValidationError, "managed by PowerPack Settings"):
+			wf.save()
+		with self.assertRaisesRegex(frappe.ValidationError, "managed by PowerPack Settings"):
+			frappe.delete_doc("Workflow", wf.name)

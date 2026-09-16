@@ -221,7 +221,11 @@ doc_events = {
 	},
 	"Payment Reconciliation": {
 		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
-	}
+	},
+	"Workflow": {
+		"validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
+		"on_trash": "cecypo_powerpack.price_approval.guard_managed_workflow",
+	},
 }
 
 # Scheduled Tasks

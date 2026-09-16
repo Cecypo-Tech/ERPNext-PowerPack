@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from cecypo_powerpack.price_approval import validate_price_approval_settings
+from cecypo_powerpack.price_approval import sync_price_approval_workflows, validate_price_approval_settings
 
 
 class PowerPackSettings(Document):
@@ -42,3 +42,5 @@ class PowerPackSettings(Document):
 		                "enable_item_list_powerup", "enable_duplicate_tax_id_check",
 		                "prevent_etr_invoice_cancellation", "enable_warnings"]:
 			frappe.cache().delete_value(f"powerpack_feature_{feature}")
+
+		sync_price_approval_workflows(self)
