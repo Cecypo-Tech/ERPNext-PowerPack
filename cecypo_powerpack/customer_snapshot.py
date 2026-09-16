@@ -14,6 +14,23 @@ from frappe.utils import flt, getdate, today
 MAX_CONTACTS = 3
 
 
+def _allowed_values(doctype):
+	"""None when the user has no User Permission rows for doctype, else the allowed names."""
+	from frappe.core.doctype.user_permission.user_permission import get_user_permissions
+
+	rows = get_user_permissions().get(doctype)
+	return None if not rows else {r.get("doc") for r in rows}
+
+
+def check_snapshot_access(customer, company=None):
+	"""The snapshot shows the customer's full position, so it checks what still matters:
+	the user can read this customer, and is not restricted away from this company."""
+	frappe.has_permission("Customer", "read", doc=customer, throw=True)
+	allowed_companies = _allowed_values("Company")
+	if company and allowed_companies is not None and company not in allowed_companies:
+		frappe.throw(frappe._("Not permitted for company {0}").format(company), frappe.PermissionError)
+
+
 def highlight_for(overdue_count, outstanding_total, advances_total):
 	if overdue_count > 0:
 		return "red"

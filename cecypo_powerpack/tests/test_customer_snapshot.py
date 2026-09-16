@@ -136,6 +136,59 @@ class TestCustomerSnapshot(FrappeTestCase):
 		self.assertEqual(row["grand_total"], round(expected, 2))
 		self.assertEqual(row["paid"], round(expected - si.outstanding_amount, 2))
 
+	def _sales_only_user(self):
+		email = "_pp_sales_only@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({
+				"doctype": "User", "email": email, "first_name": "PP Sales",
+				"send_welcome_email": 0, "roles": [{"role": "Sales User"}],
+			}).insert(ignore_permissions=True)
+		return email
+
+	def test_sales_user_sees_the_full_position(self):
+		from cecypo_powerpack.api import get_customer_snapshot
+
+		si = make_invoice(days_ago_posted=30, days_to_due=-5, rate=120)
+		pe = make_advance(300)
+		email = self._sales_only_user()
+		frappe.set_user(email)
+		try:
+			snap = get_customer_snapshot(CUSTOMER, COMPANY)
+			self.assertIn(si.name, [r["name"] for r in snap["invoices"]])
+			self.assertIn(pe.name, [a["name"] for a in snap["advances"]])
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_customer_user_permission_is_enforced(self):
+		from cecypo_powerpack.api import get_customer_snapshot
+
+		email = self._sales_only_user()
+		if not frappe.db.exists("Customer", "_Test Customer 1"):
+			self.skipTest("_Test Customer 1 missing")
+		frappe.get_doc({"doctype": "User Permission", "user": email, "allow": "Customer", "for_value": "_Test Customer 1"}).insert(ignore_permissions=True)
+		frappe.clear_cache(user=email)
+		frappe.set_user(email)
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				get_customer_snapshot(CUSTOMER, COMPANY)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_company_user_permission_is_enforced(self):
+		from cecypo_powerpack.api import get_customer_snapshot
+
+		email = self._sales_only_user()
+		if not frappe.db.exists("Company", "_Test Company 1"):
+			self.skipTest("_Test Company 1 missing")
+		frappe.get_doc({"doctype": "User Permission", "user": email, "allow": "Company", "for_value": "_Test Company 1"}).insert(ignore_permissions=True)
+		frappe.clear_cache(user=email)
+		frappe.set_user(email)
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				get_customer_snapshot(CUSTOMER, COMPANY)
+		finally:
+			frappe.set_user("Administrator")
+
 
 class TestWarningsDescription(FrappeTestCase):
 	def test_description_describes_the_dialog(self):
