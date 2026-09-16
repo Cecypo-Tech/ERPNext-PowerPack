@@ -248,3 +248,31 @@ body.compact-theme .grid-body .editable-row .checkbox {
 .cecypo-short-url a:hover { color: var(--text-color); }
 .cecypo-short-url .cecypo-short-url-copy { cursor: copy; flex-shrink: 0; }
 .cecypo-short-url .icon { vertical-align: text-bottom; }
+
+/* Customer snapshot icon + dialog */
+.pp-customer-info {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color .1s;
+}
+.pp-customer-info:hover { color: var(--text-color); }
+.pp-customer-info.is-amber { color: var(--orange-500, #f97316); }
+.pp-customer-info.is-red { color: var(--red-500); }
+
+.pp-snap .pp-snap-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.pp-snap .pp-snap-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; min-width: 0; }
+.pp-snap .pp-snap-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; white-space: nowrap; }
+.pp-snap .pp-snap-value { font-size: 14px; font-weight: 700; }
+.pp-snap .pp-snap-section { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+.pp-snap .pp-snap-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.pp-snap .pp-snap-table th, .pp-snap .pp-snap-table td { padding: 3px 8px; border-bottom: 1px solid var(--border-color); }
+.pp-snap .pp-snap-table th { color: var(--text-muted); background: var(--subtle-fg); text-align: left; }
+.pp-snap .pp-snap-table .r { text-align: right; }
+.pp-snap .pp-snap-table .pp-strong { font-weight: 700; }
+.pp-snap .pp-snap-table .pp-overdue { color: var(--red); font-weight: 700; }
+.pp-snap .pp-snap-contact { font-size: 12px; }
+@media (max-width: 640px) { .pp-snap .pp-snap-cards { grid-template-columns: repeat(2, 1fr); } }

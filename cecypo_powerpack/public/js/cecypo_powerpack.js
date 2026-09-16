@@ -448,155 +448,179 @@ CecypoPowerPack.Warnings = {
         }
     },
 
-    /**
-     * Check if the selected customer has overdue invoices and show a dialog if so.
-     * @param {Object} frm - The form object
-     * @param {String} customer - Customer docname
-     */
-    checkCustomerOverdue: function(frm, customer) {
-        let enabled = false;
-        CecypoPowerPack.Settings.get(function(settings) {
-            enabled = settings.enable_warnings === 1;
-        });
-        if (!enabled || !customer) return;
+};
 
-        frappe.call({
-            method: 'cecypo_powerpack.api.get_customer_overdue_invoices',
-            args: { customer: customer, company: frm.doc.company || '' },
-            callback: function(r) {
-                if (r.message && r.message.has_overdue) {
-                    CecypoPowerPack.Warnings.showOverdueDialog(r.message);
+/**
+ * Customer snapshot: an (i) icon next to Customer that opens a dialog with the
+ * customer's outstanding invoices, open payments, credit limit and contact.
+ * Red when overdue, amber when anything is pending, neutral when clean.
+ */
+CecypoPowerPack.CustomerInfo = {
+    ICON: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+
+    /**
+     * Put (or refresh) the icon next to a customer field and fetch the snapshot.
+     * @param {Object} frm
+     * @param {String} fieldname - 'customer' or 'party_name'
+     * @param {String} customer
+     * @param {Object} opts - { auto_open: Boolean } open the dialog by itself when overdue
+     */
+    attach: function(frm, fieldname, customer, opts) {
+        opts = opts || {};
+        const field = frm.get_field(fieldname);
+        if (!field || !field.$wrapper) return;
+        const $label = field.$wrapper.find('.control-label').first();
+        $label.find('.pp-customer-info').remove();
+        if (!customer) return;
+
+        CecypoPowerPack.Settings.isEnabled('enable_warnings', function(enabled) {
+            if (!enabled) return;
+            const $icon = $('<span class="pp-customer-info" title="' + __('Customer snapshot') + '"></span>').html(CecypoPowerPack.CustomerInfo.ICON);
+            $label.append($icon);
+            $icon.on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                CecypoPowerPack.CustomerInfo.open(customer, frm.doc.company || '');
+            });
+            CecypoPowerPack.CustomerInfo.fetch(customer, frm.doc.company || '', function(snap) {
+                if (!snap) return;
+                $icon.removeClass('is-red is-amber');
+                if (snap.highlight) $icon.addClass('is-' + snap.highlight);
+                $icon.attr('title', snap.overdue_count
+                    ? __('{0} overdue invoice(s) \u2014 click for details', [snap.overdue_count])
+                    : snap.highlight ? __('Outstanding or advances pending \u2014 click for details') : __('Customer snapshot'));
+                if (opts.auto_open && snap.overdue_count > 0 && frm.doc.docstatus === 0) {
+                    CecypoPowerPack.CustomerInfo.render(snap);
                 }
-            }
+            });
         });
     },
 
-    /**
-     * Show a red-bordered dialog listing overdue invoices for the selected customer.
-     * @param {Object} data - Response from get_customer_overdue_invoices
-     */
-    showOverdueDialog: function(data) {
-        const invoices = data.invoices || [];
-        const customer_name = data.customer_name || '';
-
-        // Calculate total outstanding
-        let total_outstanding = 0;
-        const currency = invoices.length ? (invoices[0].currency || '') : '';
-        invoices.forEach(function(inv) {
-            total_outstanding += flt(inv.outstanding_amount);
-        });
-
-        let rows = '';
-        invoices.forEach(function(inv) {
-            const due = frappe.datetime.str_to_user(inv.due_date);
-            const amount = format_currency(inv.grand_total, inv.currency);
-            const outstanding = format_currency(inv.outstanding_amount, inv.currency);
-            rows += `
-                <tr>
-                    <td style="padding:6px;">
-                        <a href="/app/sales-invoice/${inv.name}" target="_blank">${inv.name}</a>
-                    </td>
-                    <td style="padding:6px; color: var(--red-500); font-weight:500;">${due}</td>
-                    <td style="padding:6px; text-align:right;">${amount}</td>
-                    <td style="padding:6px; text-align:right; font-weight:500;">${outstanding}</td>
-                </tr>`;
-        });
-
-        const total_fmt = format_currency(total_outstanding, currency);
-
-        const html = `
-            <div style="margin-bottom:12px; padding:10px; background:var(--alert-bg,var(--bg-color)); border-left:3px solid var(--red-500); border-radius:4px;">
-                <strong style="color:var(--red-500);">&#9888; ${invoices.length} overdue invoice${invoices.length !== 1 ? 's' : ''} found</strong>
-            </div>
-            <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px;">
-                <table class="table table-sm" style="margin-bottom:0; font-size:12px; color:var(--text-color);">
-                    <thead style="position:sticky; top:0; background:var(--fg-color); z-index:1;">
-                        <tr>
-                            <th style="padding:8px;">Invoice</th>
-                            <th style="padding:8px;">Due Date</th>
-                            <th style="padding:8px; text-align:right;">Amount</th>
-                            <th style="padding:8px; text-align:right;">Outstanding</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                    <tfoot>
-                        <tr style="background:var(--fg-color);">
-                            <td colspan="3" style="padding:8px; font-weight:600; text-align:right;">Total Outstanding:</td>
-                            <td style="padding:8px; font-weight:600; text-align:right; color:var(--red-500);">${total_fmt}</td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>`;
-
-        const d = new frappe.ui.Dialog({
-            title: __('Overdue Invoices \u2014 {0}', [customer_name]),
-            indicator: 'red',
-            fields: [{ fieldtype: 'HTML', options: html }],
-            primary_action_label: __('Copy Reminder'),
-            primary_action: function() {
-                CecypoPowerPack.Warnings.copyReminderText(customer_name, invoices, total_outstanding, currency);
-            },
-            secondary_action_label: __('Close'),
-            secondary_action: function() { d.hide(); }
-        });
-
-        d.show();
-
-        d.$wrapper.find('.modal-content').css({
-            'border': '2px solid var(--red-500)',
-            'box-shadow': '0 4px 20px rgba(220, 53, 69, 0.3)'
+    fetch: function(customer, company, callback) {
+        frappe.call({
+            method: 'cecypo_powerpack.api.get_customer_snapshot',
+            args: { customer: customer, company: company },
+            callback: function(r) { callback(r.message && r.message.customer ? r.message : null); }
         });
     },
 
-    /**
-     * Build a plain-text payment reminder and copy it to the clipboard.
-     * @param {String} customer_name
-     * @param {Array}  invoices
-     * @param {Number} total_outstanding
-     * @param {String} currency
-     */
-    copyReminderText: function(customer_name, invoices, total_outstanding, currency) {
-        const pad = function(str, len) {
-            str = String(str);
-            return str + ' '.repeat(Math.max(0, len - str.length));
+    open: function(customer, company) {
+        CecypoPowerPack.CustomerInfo.fetch(customer, company, function(snap) {
+            if (snap) CecypoPowerPack.CustomerInfo.render(snap);
+            else frappe.show_alert({ message: __('Customer snapshot is not available'), indicator: 'orange' }, 4);
+        });
+    },
+
+    render: function(snap) {
+        const cur = snap.currency;
+        const money = function(v) { return format_currency(v || 0, cur); };
+        const date = function(d) { return d ? frappe.datetime.str_to_user(d) : '\u2014'; };
+        const card = function(label, value, color) {
+            return '<div class="pp-snap-card"><div class="pp-snap-label">' + label + '</div>' +
+                '<div class="pp-snap-value"' + (color ? ' style="color:' + color + '"' : '') + '>' + value + '</div></div>';
         };
 
-        const sep = '-'.repeat(72);
-        let lines = [
-            'Dear ' + customer_name + ',',
-            'Please note that the following invoices are overdue:',
-            pad('Invoice', 22) + pad('Due Date', 16) + pad('Amount', 20) + 'Outstanding',
-            sep
-        ];
+        const cards =
+            card(__('Total Outstanding'), money(snap.outstanding_total), snap.outstanding_total > 0 ? 'var(--red)' : 'var(--green)') +
+            card(__('Overdue'), (snap.overdue_count || 0) + ' \u00b7 ' + money(snap.overdue_total), snap.overdue_count ? 'var(--red)' : '') +
+            card(__('Unallocated Advances'), money(snap.advances_total), snap.advances_total > 0 ? 'var(--green)' : '') +
+            card(__('Credit Limit'), snap.credit_limit != null ? money(snap.credit_limit) : '\u2014');
 
-        invoices.forEach(function(inv) {
-            const due = frappe.datetime.str_to_user(inv.due_date);
-            const amount = format_currency(inv.grand_total, inv.currency);
-            const outstanding = format_currency(inv.outstanding_amount, inv.currency);
-            lines.push(pad(inv.name, 22) + pad(due, 16) + pad(amount, 20) + outstanding);
+        const inv_rows = (snap.invoices || []).map(function(r) {
+            return '<tr>' +
+                '<td><a href="/app/sales-invoice/' + r.name + '" target="_blank">' + r.name + '</a></td>' +
+                '<td>' + date(r.posting_date) + '</td>' +
+                '<td>' + date(r.due_date) + '</td>' +
+                '<td class="r' + (r.days_overdue > 0 ? ' pp-overdue' : '') + '">' + (r.days_overdue || 0) + '</td>' +
+                '<td class="r">' + money(r.grand_total) + '</td>' +
+                '<td class="r">' + money(r.paid) + '</td>' +
+                '<td class="r pp-strong">' + money(r.outstanding_amount) + '</td></tr>';
+        }).join('');
+        const invoices = inv_rows
+            ? '<table class="pp-snap-table"><thead><tr><th>' + __('Invoice') + '</th><th>' + __('Date') + '</th><th>' + __('Due') + '</th><th class="r">' + __('Days overdue') + '</th><th class="r">' + __('Amount') + '</th><th class="r">' + __('Paid') + '</th><th class="r">' + __('Outstanding') + '</th></tr></thead><tbody>' + inv_rows + '</tbody></table>'
+            : '<div class="text-muted">' + __('No outstanding invoices') + '</div>';
+
+        const adv_rows = (snap.advances || []).map(function(a) {
+            return '<tr><td><a href="/app/payment-entry/' + a.name + '" target="_blank">' + a.name + '</a></td>' +
+                '<td>' + date(a.posting_date) + '</td><td class="r">' + money(a.paid_amount) + '</td>' +
+                '<td class="r pp-strong" style="color:var(--green)">' + money(a.unallocated_amount) + '</td></tr>';
+        }).join('');
+        const advances = adv_rows
+            ? '<table class="pp-snap-table"><thead><tr><th>' + __('Payment Entry') + '</th><th>' + __('Date') + '</th><th class="r">' + __('Paid') + '</th><th class="r">' + __('Unallocated') + '</th></tr></thead><tbody>' + adv_rows + '</tbody></table>'
+            : '<div class="text-muted">' + __('No open payments') + '</div>';
+
+        const c = snap.primary_contact;
+        let contact = '<span class="text-muted">' + __('No contact on file') + '</span>';
+        if (c) {
+            contact = '<strong>' + frappe.utils.escape_html(c.name || '') + '</strong>' +
+                (c.email ? ' \u00b7 <a href="mailto:' + c.email + '">' + c.email + '</a>' : '') +
+                (c.phone ? ' \u00b7 <a href="tel:' + c.phone + '">' + c.phone + '</a>' : '');
+        }
+        if (snap.payment_terms) contact += '<div class="text-muted">' + __('Payment Terms') + ': ' + snap.payment_terms + '</div>';
+
+        const html =
+            '<div class="pp-snap">' +
+            '<div class="pp-snap-cards">' + cards + '</div>' +
+            '<div class="pp-snap-section">' + __('Outstanding invoices') + '</div>' + invoices +
+            '<div class="pp-snap-section">' + __('Open payments') + '</div>' + advances +
+            '<div class="pp-snap-section">' + __('Contact') + '</div><div class="pp-snap-contact">' + contact + '</div>' +
+            '</div>';
+
+        const d = new frappe.ui.Dialog({
+            title: snap.customer_name || snap.customer,
+            indicator: snap.overdue_count ? 'red' : 'blue',
+            size: 'large',
+            fields: [{ fieldtype: 'HTML', fieldname: 'body', options: html }],
+            primary_action_label: __('Email Customer'),
+            primary_action: function() { CecypoPowerPack.CustomerInfo.email(snap); },
+            secondary_action_label: __('Copy to Clipboard'),
+            secondary_action: function() { CecypoPowerPack.CustomerInfo.copy(snap); }
         });
+        d.add_custom_action(__('Close'), function() { d.hide(); });
+        d.show();
+    },
 
-        const total_fmt = format_currency(total_outstanding, currency);
-        lines.push(sep);
-        lines.push('Total Outstanding: ' + total_fmt);
-        lines.push('');
-        lines.push('Kindly arrange for payment at your earliest convenience.');
-        lines.push('Thank you.');
-
-        const text = lines.join('\n');
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(function() {
-                frappe.show_alert({ message: __('Reminder copied to clipboard'), indicator: 'green' }, 4);
-            }).catch(function() {
-                CecypoPowerPack.Warnings._fallbackCopy(text);
+    build_text: function(snap) {
+        const pad = function(s, n) { s = String(s == null ? '' : s); return s + ' '.repeat(Math.max(0, n - s.length)); };
+        const money = function(v) { return format_currency(v || 0, snap.currency); };
+        const sep = '-'.repeat(72);
+        const lines = ['Dear ' + (snap.customer_name || snap.customer) + ',', ''];
+        if ((snap.invoices || []).length) {
+            lines.push('Your account currently shows the following outstanding invoices:');
+            lines.push(pad('Invoice', 22) + pad('Due Date', 14) + pad('Days Overdue', 14) + 'Outstanding');
+            lines.push(sep);
+            snap.invoices.forEach(function(r) {
+                lines.push(pad(r.name, 22) + pad(frappe.datetime.str_to_user(r.due_date), 14) + pad(r.days_overdue || 0, 14) + money(r.outstanding_amount));
             });
+            lines.push(sep);
+            lines.push('Total Outstanding: ' + money(snap.outstanding_total));
         } else {
-            CecypoPowerPack.Warnings._fallbackCopy(text);
+            lines.push('Your account has no outstanding invoices.');
+        }
+        if ((snap.advances || []).length) {
+            lines.push('');
+            lines.push('Unallocated payments on your account:');
+            snap.advances.forEach(function(a) {
+                lines.push(pad(a.name, 22) + pad(frappe.datetime.str_to_user(a.posting_date), 14) + money(a.unallocated_amount));
+            });
+            lines.push('Net position: ' + money(snap.net_position));
+        }
+        lines.push('');
+        lines.push(snap.overdue_count ? 'Kindly arrange for payment at your earliest convenience.' : 'Thank you for your business.');
+        return lines.join('\n');
+    },
+
+    copy: function(snap) {
+        const text = CecypoPowerPack.CustomerInfo.build_text(snap);
+        const done = function() { frappe.show_alert({ message: __('Copied to clipboard'), indicator: 'green' }, 4); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(function() { CecypoPowerPack.CustomerInfo._fallbackCopy(text, done); });
+        } else {
+            CecypoPowerPack.CustomerInfo._fallbackCopy(text, done);
         }
     },
 
-    _fallbackCopy: function(text) {
+    _fallbackCopy: function(text, done) {
         const el = document.createElement('textarea');
         el.value = text;
         el.style.position = 'fixed';
@@ -604,13 +628,20 @@ CecypoPowerPack.Warnings = {
         document.body.appendChild(el);
         el.focus();
         el.select();
-        try {
-            document.execCommand('copy');
-            frappe.show_alert({ message: __('Reminder copied to clipboard'), indicator: 'green' }, 4);
-        } catch (e) {
-            frappe.show_alert({ message: __('Could not copy to clipboard'), indicator: 'red' }, 4);
-        }
+        try { document.execCommand('copy'); done(); }
+        catch (e) { frappe.show_alert({ message: __('Could not copy to clipboard'), indicator: 'red' }, 4); }
         document.body.removeChild(el);
+    },
+
+    email: function(snap) {
+        const recipient = snap.primary_contact && snap.primary_contact.email ? snap.primary_contact.email : '';
+        const subject = __('Account statement \u2014 {0}: {1} outstanding', [snap.customer_name || snap.customer, format_currency(snap.outstanding_total || 0, snap.currency)]);
+        new frappe.views.CommunicationComposer({
+            doc: { doctype: 'Customer', name: snap.customer },
+            subject: subject,
+            recipients: recipient,
+            message: '<pre style="font-family:inherit;white-space:pre-wrap">' + frappe.utils.escape_html(CecypoPowerPack.CustomerInfo.build_text(snap)) + '</pre>'
+        });
     }
 };
 
@@ -802,23 +833,25 @@ frappe.ui.form.on('Purchase Invoice', {
 	},
 });
 
-// Overdue invoice checks for sales documents
-frappe.ui.form.on('Sales Order', {
-    customer: function(frm) {
-        CecypoPowerPack.Warnings.checkCustomerOverdue(frm, frm.doc.customer);
-    }
-});
-
-frappe.ui.form.on('Sales Invoice', {
-    customer: function(frm) {
-        CecypoPowerPack.Warnings.checkCustomerOverdue(frm, frm.doc.customer);
-    }
+// Customer snapshot icon on sales documents
+['Sales Order', 'Sales Invoice', 'Delivery Note'].forEach(function(doctype) {
+    frappe.ui.form.on(doctype, {
+        refresh: function(frm) {
+            CecypoPowerPack.CustomerInfo.attach(frm, 'customer', frm.doc.customer, { auto_open: false });
+        },
+        customer: function(frm) {
+            CecypoPowerPack.CustomerInfo.attach(frm, 'customer', frm.doc.customer, { auto_open: true });
+        }
+    });
 });
 
 frappe.ui.form.on('Quotation', {
+    refresh: function(frm) {
+        const customer = frm.doc.quotation_to === 'Customer' ? frm.doc.party_name : '';
+        CecypoPowerPack.CustomerInfo.attach(frm, 'party_name', customer, { auto_open: false });
+    },
     party_name: function(frm) {
-        if (frm.doc.quotation_to === 'Customer') {
-            CecypoPowerPack.Warnings.checkCustomerOverdue(frm, frm.doc.party_name);
-        }
+        const customer = frm.doc.quotation_to === 'Customer' ? frm.doc.party_name : '';
+        CecypoPowerPack.CustomerInfo.attach(frm, 'party_name', customer, { auto_open: true });
     }
 });

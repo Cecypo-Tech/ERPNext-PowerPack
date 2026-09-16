@@ -507,7 +507,7 @@
    "fieldname": "warnings_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer Overdue Invoices:</strong> When selecting a customer on a Quotation, Sales Order, or Sales Invoice, shows a popup if the customer has outstanding overdue invoices \u2014 with a copy button for sending a payment reminder.</p>"
+   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer snapshot:</strong> An (i) icon next to Customer on Quotation, Sales Order, Delivery Note and Sales Invoice opens the customer's outstanding invoices, open payments, credit limit and contact, with Copy to Clipboard and Email Customer. The icon is red when invoices are overdue and amber when anything is pending; on selecting a customer with overdue invoices the dialog opens by itself.</p>"
   },
   {
    "fieldname": "lens_section",
