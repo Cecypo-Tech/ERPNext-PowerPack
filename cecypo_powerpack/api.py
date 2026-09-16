@@ -390,12 +390,13 @@ def get_customer_snapshot(customer: str, company: str = None) -> dict:
     Feeds the (i) dialog next to Customer on sales documents. Empty when the
     Enable Warnings switch is off or no customer is given.
     """
-    from cecypo_powerpack.customer_snapshot import build_customer_snapshot
+    from cecypo_powerpack.customer_snapshot import build_customer_snapshot, check_snapshot_access
     from cecypo_powerpack.utils import is_feature_enabled
 
     if not is_feature_enabled("enable_warnings") or not customer:
         return {}
     frappe.has_permission("Sales Invoice", "read", throw=True)
+    check_snapshot_access(customer, company)
     return build_customer_snapshot(customer, company)
 
 
