@@ -122,3 +122,12 @@ class TestCustomerSnapshot(FrappeTestCase):
 		import cecypo_powerpack.api as api
 
 		self.assertFalse(hasattr(api, "get_customer_overdue_invoices"))
+
+
+class TestWarningsDescription(FrappeTestCase):
+	def test_description_describes_the_dialog(self):
+		note = frappe.get_meta("PowerPack Settings").get_field("warnings_description").options
+		self.assertIn("(i)", note)
+		self.assertIn("Copy", note)
+		self.assertIn("Email", note)
+		self.assertNotIn("popup if the customer has outstanding overdue invoices", note)
