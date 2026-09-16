@@ -190,6 +190,11 @@ def validate_min_selling_price(doc, method=None):
 		return
 
 	if not price_approval.routing_applies(doc, settings):
+		# An approved held order still covers its checkout invoice when invoice routing
+		# is off, so the till needs only the Sales Order switch.
+		if price_approval.carry_over_source_approval(doc):
+			price_approval.set_breach_flag(doc, 1)
+			return
 		# Today's hard block: the first breaching row, else the sale.
 		if breaches:
 			item, floor = breaches[0]

@@ -574,3 +574,45 @@ class TestRoutedBreach(SettingsSnapshot, FrappeTestCase):
 			si.submit()
 		frappe.delete_doc("Sales Order", so.name, ignore_permissions=True)  # must not raise
 		self.assertFalse(frappe.db.exists("Sales Order", so.name))
+
+	def test_invoice_draft_copies_the_order_stamp_at_save(self):
+		# klik's background submission runs after the held order is deleted, so the
+		# stamp must already be on the invoice when its draft is saved.
+		from cecypo_powerpack import price_approval as pa
+
+		so = self._approved_so(rate=90)
+		with as_requester():
+			si = self._si_from(so, rate=90)
+			si.insert()
+		self.assertEqual(pa.load_rows(si.get(pa.APPROVED_ROWS_FIELD)), pa.load_rows(so.get(pa.APPROVED_ROWS_FIELD)))
+		frappe.delete_doc("Sales Order", so.name, ignore_permissions=True)
+		with as_requester():
+			si = frappe.get_doc("Sales Invoice", si.name)
+			si.submit()
+		self.assertEqual(si.docstatus, 1)
+
+	def test_carry_over_works_with_invoice_routing_off(self):
+		from cecypo_powerpack import price_approval as pa
+
+		self._configure(msp_approval_sales_order=1)
+		so = self._approved_so(rate=90)
+		with as_requester():
+			si = self._si_from(so, rate=90)
+			si.insert()
+			self.assertTrue(si.get(pa.APPROVED_ROWS_FIELD))
+			si.submit()
+		self.assertEqual(si.docstatus, 1)
+
+	def test_invoice_routing_off_still_blocks_without_an_approved_order(self):
+		self._configure(msp_approval_sales_order=1)
+		with as_requester():
+			si = self._si_from(None, rate=90, source=False)
+			with self.assertRaisesRegex(frappe.ValidationError, "at least"):
+				si.insert()
+
+	def test_refusal_mentions_holding_the_order(self):
+		with as_requester():
+			so = self._so(90)
+			so.save()
+			with self.assertRaisesRegex(frappe.ValidationError, "hold the order"):
+				so.submit()

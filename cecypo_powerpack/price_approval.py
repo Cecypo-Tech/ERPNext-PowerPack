@@ -355,6 +355,23 @@ def copy_approval_from_order(doc, order):
 	)
 
 
+def carry_over_source_approval(doc):
+	"""True when a Sales Invoice is covered by its own stamp or by its source order's.
+
+	A covering source-order approval is copied onto the invoice right away, while the
+	order still exists: klik_pos deletes the held order at checkout and may submit the
+	invoice later from a background job.
+	"""
+	if doc.doctype != "Sales Invoice":
+		return False
+	approval = find_covering_approval(doc)
+	if approval is None:
+		return False
+	if approval is not doc:
+		copy_approval_from_order(doc, approval)
+	return True
+
+
 def handle_routed_breach(doc, breaches, sale_breach):
 	"""A breach the user may not override, on a doctype with routing on."""
 	rows = ", ".join(str(item.idx) for item, _floor in breaches) or _("the sale total")
@@ -363,7 +380,7 @@ def handle_routed_breach(doc, breaches, sale_breach):
 		approval = find_covering_approval(doc)
 		if approval is None:
 			frappe.throw(
-				_("Price approval needed for row(s) {0}. Save as draft and use <b>Request Price Approval</b>.").format(rows),
+				_("Price approval needed for row(s) {0}. Save as draft (or hold the order) and use <b>Request Price Approval</b>.").format(rows),
 				title=_(TITLE),
 			)
 		if approval is not doc:
@@ -371,6 +388,8 @@ def handle_routed_breach(doc, breaches, sale_breach):
 		return
 
 	set_breach_flag(doc, 1)
+	if not doc.get(APPROVED_ROWS_FIELD):
+		carry_over_source_approval(doc)
 	approved = load_rows(doc.get(APPROVED_ROWS_FIELD))
 	if approved and uncovered_rows(doc, approved):
 		frappe.throw(
@@ -379,7 +398,7 @@ def handle_routed_breach(doc, breaches, sale_breach):
 			),
 			title=_(TITLE),
 		)
-	if doc.get(STATE_FIELD) in (None, "", STATE_DRAFT):
+	if not approved and doc.get(STATE_FIELD) in (None, "", STATE_DRAFT):
 		frappe.msgprint(
 			_("Row(s) {0} are below the minimum selling price. Use <b>Request Price Approval</b> before submitting.").format(rows),
 			title=_(TITLE),
