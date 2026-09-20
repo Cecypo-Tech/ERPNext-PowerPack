@@ -61,6 +61,9 @@ doctype_js = {
     "Email Group": [
         "public/js/email_group_powerup.js",
     ],
+    "Email Queue": [
+        "public/js/email_queue_preview.js",
+    ],
 }
 
 # Svg Icons

@@ -4,7 +4,7 @@ Gives ERPNext Power ups! :facepunch:
 
 ### Features
 
-All features are toggled individually via **PowerPack Settings**.
+Most features are toggled individually via **PowerPack Settings**; a few marked *(always on)* below ship with no switch.
 
 | Feature | Description |
 |---|---|
@@ -21,6 +21,7 @@ All features are toggled individually via **PowerPack Settings**.
 | **Price List Importer** | Bulk-update item prices via CSV/Excel directly from the Item Price list view |
 | **Lens** | One-click item insights panel on every item row — recent sales to the current customer and to others, purchase history, all price lists, and live stock count with per-warehouse breakdown on hover. On Purchase Receipt and Purchase Invoice, update price list values directly from the panel |
 | **Minimum Selling Price** | Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group! |
+| **Email Queue Preview** *(always on)* | Renders the Email Queue message inline as the actual HTML email instead of raw MIME source, with a **View Raw Source** toggle to flip back |
 
 ##### Centralized Settings to enable/disable features
 ![](https://i.imgur.com/Y9JD8fX.png)
