@@ -51,11 +51,23 @@ function render_email_preview(frm) {
 	// Decode quoted-printable
 	// -------------------------------
 	function decodeQP(str) {
-		return str
-			.replace(/=\r?\n/g, '') // remove soft breaks
-			.replace(/=([A-Fa-f0-9]{2})/g, function (match, hex) {
-				return String.fromCharCode(parseInt(hex, 16));
-			});
+		// Quoted-printable escapes one BYTE at a time ("=E2=80=A2" is the three
+		// UTF-8 bytes of "•"), so the escapes must be collected into a byte array
+		// and decoded as UTF-8 as a whole. Converting each byte straight to a
+		// character with String.fromCharCode (as if it were Latin-1) mangles every
+		// multi-byte character - bullets, em dashes, curly quotes, accents, emoji -
+		// into mojibake like "â¢".
+		const withoutSoftBreaks = str.replace(/=\r?\n/g, '');
+		const bytes = [];
+		for (let i = 0; i < withoutSoftBreaks.length; i++) {
+			if (withoutSoftBreaks[i] === '=' && /^[A-Fa-f0-9]{2}$/.test(withoutSoftBreaks.substr(i + 1, 2))) {
+				bytes.push(parseInt(withoutSoftBreaks.substr(i + 1, 2), 16));
+				i += 2;
+			} else {
+				bytes.push(withoutSoftBreaks.charCodeAt(i));
+			}
+		}
+		return new TextDecoder('utf-8').decode(new Uint8Array(bytes));
 	}
 
 	const html = extractHTML(raw);
