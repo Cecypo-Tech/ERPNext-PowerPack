@@ -85,16 +85,21 @@
   "payment_reconciliation_section",
   "enable_payment_reconciliation_powerup",
   "payment_reconciliation_description",
-  "validation_section",
-  "enable_duplicate_tax_id_check",
-  "tax_id_validation_description",
-  "prevent_etr_invoice_cancellation",
-  "etr_validation_description",
   "warnings_section",
   "enable_warnings",
   "warnings_description",
+  "email_group_section",
+  "enable_email_group_powerup",
+  "email_group_description",
+  "validation_section",
+  "enable_duplicate_tax_id_check",
+  "tax_id_validation_description",
+  "column_break_validation_1",
+  "prevent_etr_invoice_cancellation",
+  "etr_validation_description",
   "public_link_section",
   "public_link_page",
+  "column_break_public_link_0",
   "public_link_description",
   "public_link_banner_section",
   "public_link_top_banner",
@@ -102,12 +107,14 @@
   "public_link_hide_header",
   "column_break_public_link_1",
   "public_link_header_content",
-  "public_link_footer_content",
-  "email_group_section",
-  "enable_email_group_powerup",
-  "email_group_description"
+  "public_link_footer_content"
  ],
  "fields": [
+  {
+   "fieldname": "appearance_tab",
+   "fieldtype": "Tab Break",
+   "label": "Appearance"
+  },
   {
    "fieldname": "theme_section",
    "fieldtype": "Section Break",
@@ -141,6 +148,11 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Add a colored border to the top and/or bottom of the site for each company. The border matching the user's default company is shown, making it easy to tell at a glance which company you are working in.</p>"
+  },
+  {
+   "fieldname": "sales_pos_tab",
+   "fieldtype": "Tab Break",
+   "label": "Sales & POS"
   },
   {
    "fieldname": "pos_powerup_section",
@@ -353,180 +365,6 @@
    "label": "Enable for Stock Entry"
   },
   {
-   "fieldname": "item_search_powerup_section",
-   "fieldtype": "Section Break",
-   "label": "Item Search Powerup"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_item_search_powerup",
-   "fieldtype": "Check",
-   "label": "Enable Item Search Powerup"
-  },
-  {
-   "fieldname": "item_search_powerup_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">Replaces the default item search in all forms with an enhanced multi-word and wildcard search. Supports splitting search terms by spaces (all tokens must match) and <code>%</code> as a mid-word wildcard (e.g. <code>sam%tv</code>). When disabled, the standard ERPNext item search is used.</p>"
-  },
-  {
-   "fieldname": "item_list_powerup_section",
-   "fieldtype": "Section Break",
-   "label": "Item List Powerup"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_item_list_powerup",
-   "fieldtype": "Check",
-   "label": "Enable Item List Powerup"
-  },
-  {
-   "fieldname": "item_list_powerup_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">Enable the Price List Bulk Editor client script for efficient bulk editing of item prices.</p>"
-  },
-  {
-   "fieldname": "payment_reconciliation_section",
-   "fieldtype": "Section Break",
-   "label": "Payment Reconciliation Powerup"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_payment_reconciliation_powerup",
-   "fieldtype": "Check",
-   "label": "Enable Payment Reconciliation Powerup"
-  },
-  {
-   "fieldname": "payment_reconciliation_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">Enables all Payment Reconciliation enhancements:<br><strong>Zero Allocate</strong> \u2014 create allocation rows with zero amounts for manual distribution without FIFO.<br><strong>Zero Reconcile</strong> \u2014 reconcile allocations, skipping zero-amount rows.<br><strong>2% Allocate</strong> (Supplier only) \u2014 set each allocation to 2% of the invoice net total (Kenya VAT withholding).<br><strong>Load Additional Doc Info</strong> \u2014 inline ETR numbers, supplier bill numbers, VAT withholding details, and credit note indicators.</p>"
-  },
-  {
-   "fieldname": "validation_section",
-   "fieldtype": "Section Break",
-   "label": "Validation & Checks"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_duplicate_tax_id_check",
-   "fieldtype": "Check",
-   "label": "Enable Duplicate Tax ID Check"
-  },
-  {
-   "fieldname": "tax_id_validation_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">When enabled, the system will warn you before saving a Customer or Supplier if the Tax ID is already used by other records. This helps prevent duplicate entries.</p>"
-  },
-  {
-   "default": "0",
-   "fieldname": "prevent_etr_invoice_cancellation",
-   "fieldtype": "Check",
-   "label": "Prevent Cancellation if ETR Number Set"
-  },
-  {
-   "fieldname": "etr_validation_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">When enabled, Sales Invoices and POS Invoices with an ETR Invoice Number cannot be cancelled. This prevents accidental cancellation of tax-registered invoices.</p>"
-  },
-  {
-   "fieldname": "public_link_section",
-   "fieldtype": "Section Break",
-   "label": "Public Document Links"
-  },
-  {
-   "fieldname": "public_link_page",
-   "fieldtype": "Data",
-   "label": "Builder Page Route",
-   "description": "Optional: route of a Frappe Builder page that displays the document (e.g. /doc-view). When set, short links redirect here with ?t=token instead of the built-in viewer."
-  },
-  {
-   "fieldname": "public_link_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">Controls the branded document viewer shown when a customer opens a public link. Leave <strong>Builder Page Route</strong> empty to use the built-in viewer below. Set a banner image and footer to customise it.</p>"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "public_link_banner_section",
-   "fieldtype": "Section Break",
-   "label": "Banner &amp; Footer"
-  },
-  {
-   "fieldname": "public_link_top_banner",
-   "fieldtype": "Attach Image",
-   "label": "Top Banner Image",
-   "description": "Full-width banner shown above the document (e.g. a promotion or company image)"
-  },
-  {
-   "fieldname": "public_link_top_banner_link",
-   "fieldtype": "Data",
-   "label": "Banner Link URL",
-   "description": "Optional URL the banner image links to when clicked"
-  },
-  {
-   "default": "0",
-   "fieldname": "public_link_hide_header",
-   "fieldtype": "Check",
-   "label": "Hide Header",
-   "description": "Hide the company logo and name header on the public document viewer"
-  },
-  {
-   "fieldname": "column_break_public_link_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "public_link_header_content",
-   "fieldtype": "Small Text",
-   "label": "Header Content",
-   "description": "Optional text or HTML shown below the header bar when no Top Banner Image is set",
-   "ignore_xss_filter": 1
-  },
-  {
-   "fieldname": "public_link_footer_content",
-   "fieldtype": "Small Text",
-   "label": "Footer Content",
-   "description": "Optional text or HTML shown in the page footer (e.g. contact details, tagline, promotion)",
-   "ignore_xss_filter": 1
-  },
-  {
-   "fieldname": "warnings_section",
-   "fieldtype": "Section Break",
-   "label": "Warnings"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_warnings",
-   "fieldtype": "Check",
-   "label": "Enable Warnings"
-  },
-  {
-   "fieldname": "warnings_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer snapshot:</strong> An (i) icon next to Customer on Quotation, Sales Order, Delivery Note and Sales Invoice opens the customer's outstanding invoices, open payments, credit limit and contact, with Copy to Clipboard and Email Customer. The icon is red when invoices are overdue and amber when anything is pending; on selecting a customer with overdue invoices the dialog opens by itself.</p>"
-  },
-  {
-   "fieldname": "lens_section",
-   "fieldtype": "Section Break",
-   "label": "Lens"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_lens",
-   "fieldtype": "Check",
-   "label": "Enable Lens"
-  },
-  {
-   "fieldname": "lens_description",
-   "fieldtype": "HTML",
-   "label": "Description",
-   "options": "<p class=\"text-muted\">Shows a per-item insights dialog on Quotation, Sales Order, Sales Invoice, Purchase Order, Purchase Receipt, and Purchase Invoice. Click the magnifying glass icon at the end of any item row to see sales/purchase history, rates billed to other parties, and price lists with live margin calculation.</p>"
-  },
-  {
    "fieldname": "quick_pay_section",
    "fieldtype": "Section Break",
    "label": "Quick Pay"
@@ -568,6 +406,28 @@
    "fieldname": "qp_update_stock",
    "fieldtype": "Check",
    "label": "Update Stock on invoice"
+  },
+  {
+   "fieldname": "lens_section",
+   "fieldtype": "Section Break",
+   "label": "Lens"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_lens",
+   "fieldtype": "Check",
+   "label": "Enable Lens"
+  },
+  {
+   "fieldname": "lens_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Shows a per-item insights dialog on Quotation, Sales Order, Sales Invoice, Purchase Order, Purchase Receipt, and Purchase Invoice. Click the magnifying glass icon at the end of any item row to see sales/purchase history, rates billed to other parties, and price lists with live margin calculation.</p>"
+  },
+  {
+   "fieldname": "pricing_tab",
+   "fieldtype": "Tab Break",
+   "label": "Pricing"
   },
   {
    "fieldname": "min_selling_price_section",
@@ -665,24 +525,42 @@
    "options": "Minimum Selling Price Rule"
   },
   {
-   "fieldname": "appearance_tab",
-   "fieldtype": "Tab Break",
-   "label": "Appearance"
-  },
-  {
-   "fieldname": "sales_pos_tab",
-   "fieldtype": "Tab Break",
-   "label": "Sales & POS"
-  },
-  {
-   "fieldname": "pricing_tab",
-   "fieldtype": "Tab Break",
-   "label": "Pricing"
-  },
-  {
    "fieldname": "items_tab",
    "fieldtype": "Tab Break",
    "label": "Items"
+  },
+  {
+   "fieldname": "item_search_powerup_section",
+   "fieldtype": "Section Break",
+   "label": "Item Powerups"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_item_search_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Item Search Powerup"
+  },
+  {
+   "fieldname": "item_search_powerup_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Replaces the default item search in all forms with an enhanced multi-word and wildcard search. Supports splitting search terms by spaces (all tokens must match) and <code>%</code> as a mid-word wildcard (e.g. <code>sam%tv</code>). When disabled, the standard ERPNext item search is used.</p>"
+  },
+  {
+   "fieldname": "item_list_powerup_section",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_item_list_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Item List Powerup"
+  },
+  {
+   "fieldname": "item_list_powerup_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Enable the Price List Bulk Editor client script for efficient bulk editing of item prices.</p>"
   },
   {
    "fieldname": "system_tab",
@@ -690,9 +568,41 @@
    "label": "System"
   },
   {
-   "fieldname": "email_group_section",
+   "fieldname": "payment_reconciliation_section",
    "fieldtype": "Section Break",
-   "label": "Email Group Powerup"
+   "label": "Powerups"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_payment_reconciliation_powerup",
+   "fieldtype": "Check",
+   "label": "Enable Payment Reconciliation Powerup"
+  },
+  {
+   "fieldname": "payment_reconciliation_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Enables all Payment Reconciliation enhancements:<br><strong>Zero Allocate</strong> \u2014 create allocation rows with zero amounts for manual distribution without FIFO.<br><strong>Zero Reconcile</strong> \u2014 reconcile allocations, skipping zero-amount rows.<br><strong>2% Allocate</strong> (Supplier only) \u2014 set each allocation to 2% of the invoice net total (Kenya VAT withholding).<br><strong>Load Additional Doc Info</strong> \u2014 inline ETR numbers, supplier bill numbers, VAT withholding details, and credit note indicators.</p>"
+  },
+  {
+   "fieldname": "warnings_section",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_warnings",
+   "fieldtype": "Check",
+   "label": "Enable Warnings"
+  },
+  {
+   "fieldname": "warnings_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">When enabled, activates two proactive warnings:<br><strong>1. Empty Tax ID:</strong> Shows a warning when saving a Customer or Supplier that has no Tax ID set.<br><strong>2. Customer snapshot:</strong> An (i) icon next to Customer on Quotation, Sales Order, Delivery Note and Sales Invoice opens the customer's outstanding invoices, open payments, credit limit and contact, with Copy to Clipboard and Email Customer. The icon is red when invoices are overdue and amber when anything is pending; on selecting a customer with overdue invoices the dialog opens by itself.</p>"
+  },
+  {
+   "fieldname": "email_group_section",
+   "fieldtype": "Column Break"
   },
   {
    "default": "1",
@@ -704,12 +614,109 @@
    "fieldname": "email_group_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">Adds two actions to Email Group:<br><strong>Import Subscribers by Item Purchased</strong> — add every customer who bought a given item or item group as a subscriber.<br><strong>Export Subscribers (CSV)</strong> — download the group as a CSV with company name, first name, last name and email, ready to import into Zoho Campaigns, Mailchimp or any bulk mail tool.</p>"
+   "options": "<p class=\"text-muted\">Adds two actions to Email Group:<br><strong>Import Subscribers by Item Purchased</strong> \u2014 add every customer who bought a given item or item group as a subscriber.<br><strong>Export Subscribers (CSV)</strong> \u2014 download the group as a CSV with company name, first name, last name and email, ready to import into Zoho Campaigns, Mailchimp or any bulk mail tool.</p>"
+  },
+  {
+   "fieldname": "validation_section",
+   "fieldtype": "Section Break",
+   "label": "Validation & Checks"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_duplicate_tax_id_check",
+   "fieldtype": "Check",
+   "label": "Enable Duplicate Tax ID Check"
+  },
+  {
+   "fieldname": "tax_id_validation_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">When enabled, the system will warn you before saving a Customer or Supplier if the Tax ID is already used by other records. This helps prevent duplicate entries.</p>"
+  },
+  {
+   "fieldname": "column_break_validation_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "prevent_etr_invoice_cancellation",
+   "fieldtype": "Check",
+   "label": "Prevent Cancellation if ETR Number Set"
+  },
+  {
+   "fieldname": "etr_validation_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">When enabled, Sales Invoices and POS Invoices with an ETR Invoice Number cannot be cancelled. This prevents accidental cancellation of tax-registered invoices.</p>"
+  },
+  {
+   "fieldname": "public_link_section",
+   "fieldtype": "Section Break",
+   "label": "Public Document Links"
+  },
+  {
+   "fieldname": "public_link_page",
+   "fieldtype": "Data",
+   "label": "Builder Page Route",
+   "description": "Optional: route of a Frappe Builder page that displays the document (e.g. /doc-view). When set, short links redirect here with ?t=token instead of the built-in viewer."
+  },
+  {
+   "fieldname": "column_break_public_link_0",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "public_link_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Controls the branded document viewer shown when a customer opens a public link. Leave <strong>Builder Page Route</strong> empty to use the built-in viewer below. Set a banner image and footer to customise it.</p>"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "public_link_banner_section",
+   "fieldtype": "Section Break",
+   "label": "Banner &amp; Footer"
+  },
+  {
+   "fieldname": "public_link_top_banner",
+   "fieldtype": "Attach Image",
+   "label": "Top Banner Image",
+   "description": "Full-width banner shown above the document (e.g. a promotion or company image)"
+  },
+  {
+   "fieldname": "public_link_top_banner_link",
+   "fieldtype": "Data",
+   "label": "Banner Link URL",
+   "description": "Optional URL the banner image links to when clicked"
+  },
+  {
+   "default": "0",
+   "fieldname": "public_link_hide_header",
+   "fieldtype": "Check",
+   "label": "Hide Header",
+   "description": "Hide the company logo and name header on the public document viewer"
+  },
+  {
+   "fieldname": "column_break_public_link_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "public_link_header_content",
+   "fieldtype": "Small Text",
+   "label": "Header Content",
+   "description": "Optional text or HTML shown below the header bar when no Top Banner Image is set",
+   "ignore_xss_filter": 1
+  },
+  {
+   "fieldname": "public_link_footer_content",
+   "fieldtype": "Small Text",
+   "label": "Footer Content",
+   "description": "Optional text or HTML shown in the page footer (e.g. contact details, tagline, promotion)",
+   "ignore_xss_filter": 1
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-01-29 00:00:00.000000",
+ "modified": "2026-09-23 19:35:04.056745",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "PowerPack Settings",
