@@ -1147,7 +1147,21 @@ def get_accounting_dimensions_for_doc(doctype, docname):
 
 @frappe.whitelist()
 def get_document_public_link(doctype, name):
-	"""Return a short public link for a document.
+	"""Return a short public link for a document the caller can read.
+
+	The link opens the document for anyone who has it, without logging in, so it is
+	only handed out for a document the caller could open themselves. Print formats
+	reach the same link through the Jinja method of this name in
+	``cecypo_powerpack.jinja``, which does not check: a share-key web view renders
+	the print format as Guest.
+	"""
+	doc = frappe.get_doc(doctype, name)
+	doc.check_permission("read")
+	return build_public_link(doc)
+
+
+def build_public_link(doc):
+	"""Return a short public link for ``doc``. No permission check - callers do that.
 
 	Generates (or reuses) a PowerPack Short Link record with a token of the
 	form ``{name}-{4-char-random}`` and returns a URL like:
@@ -1160,7 +1174,7 @@ def get_document_public_link(doctype, name):
 	import random
 	import string
 
-	doc = frappe.get_doc(doctype, name)
+	doctype, name = doc.doctype, doc.name
 
 	# Build the full target URL (v15/v16 compatible)
 	if hasattr(doc, "get_document_share_key"):

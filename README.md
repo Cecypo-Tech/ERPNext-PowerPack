@@ -41,7 +41,7 @@ A custom and simple price list updater. On `/desk/item-price/`, open **Powerup**
 ##### Copy as Message (QT/SO/SI)
 **Powerup ▸ Copy as Message** on a Quotation, Sales Order or Sales Invoice copies a short message with a public link to the document, ready to paste into WhatsApp, SMS or email. Your bank / paybill details go in the `PAYMENT_DETAILS` block at the top of each script (per Company, `'*'` for any) and are added while the document is unpaid.
 
-These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that PowerPack creates once. They belong to your site: edit them, or untick **Enabled** to switch one off — updates never overwrite them. To get the latest shipped version, delete the script and run `bench migrate`. The older hand-made `SI - Copy to Clipboard` script is disabled (not deleted) when they are created, so copy its bank details across.
+These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that PowerPack creates only when missing. They belong to your site: edit them, or untick **Enabled** to switch one off — updates never overwrite them. To get the latest shipped version, delete the script and run `bench migrate`. The older hand-made `SI - Copy to Clipboard` script is disabled (not deleted) when they are created, so copy its bank details across.
 
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
@@ -68,7 +68,9 @@ bench install-app cecypo_powerpack
 
 #### `get_document_public_link(doctype, name)`
 
-Generates a public shareable link for any document (Quotation, Sales Invoice, etc.) that a customer can open to view/print without logging in.
+Generates a public shareable link for any document (Quotation, Sales Invoice, etc.) that a customer can open to view/print without logging in. The caller must have read permission on the document, otherwise it raises `PermissionError`.
+
+In a print format use the Jinja method of the same name, which does not check permission (a shared link renders the print format as Guest): `{{ get_document_public_link(doc.doctype, doc.name) }}`.
 
 Compatible with both Frappe v15 and v16+.
 
@@ -82,7 +84,7 @@ frappe.call({
     args: { doctype: frm.doc.doctype, name: frm.doc.name },
     callback(r) {
         // r.message is the shareable URL, e.g.:
-        // https://yoursite.com/Quotation/QTN-0001?key=abc123...
+        // https://yoursite.com/s/QTN-0001-x7kQ
     }
 });
 ```
