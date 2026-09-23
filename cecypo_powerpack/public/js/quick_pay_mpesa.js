@@ -46,7 +46,7 @@ frappe.ui.form.on('Sales Order', {
                         if (r.message && r.message.available) {
                             frm.add_custom_button(__('Quick Pay - Mpesa'), () => {
                                 show_mpesa_pay_dialog(frm);
-                            }, __('Actions'));
+                            }, __('Powerup'));
                         }
                     }
                 });

@@ -44,7 +44,7 @@ frappe.ui.form.on('Sales Order', {
 						return;
 					}
 					show_quick_pay_dialog(frm);
-				}, __('Actions'));
+				}, __('Powerup'));
 
 				if (outstanding <= 0) {
 					btn.prop('disabled', true).addClass('disabled');
