@@ -36,7 +36,7 @@ Most features are toggled individually via **PowerPack Settings**; a few marked 
 ##### Bulk Selection for QT/SO/SI + enhanced search
 ![](https://i.imgur.com/odv7pO5.gif)
 ##### Price List Importer
-A custom and simple price list updater. Simply select any item(s) on `/desk/item-price/`, so the **ACTION** dropdown displays and select **"Import Prices (PowerPack)"**. Required columns: `item_code`, `price_list`, `rate`. That's it — no ID's!
+A custom and simple price list updater. On `/desk/item-price/`, open **Powerup** and select **"Import Prices"** — no rows need to be selected. Required columns: `item_code`, `price_list`, `rate`. That's it — no ID's!
 ![](https://i.imgur.com/KA8X1v0.png)
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
