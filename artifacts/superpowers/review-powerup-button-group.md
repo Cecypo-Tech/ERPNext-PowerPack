@@ -13,8 +13,8 @@ pointless tick. Introduced by c5e8110.
 
 ## Change
 - `price_import_powerup.js`: `add_inner_button("Import Prices", …, "Powerup")`.
-- `quick_pay.js`, `quick_pay_mpesa.js`: Sales Order form group `Actions` → `Powerup`
-  (app convention; also avoids sitting beside frappe's workflow "Actions" button).
+- ~~`quick_pay.js`, `quick_pay_mpesa.js`: Sales Order form group `Actions` → `Powerup`~~
+  Reverted at the user's request — Quick Pay stays under `Actions`.
 - README: Import Prices instructions updated.
 
 Audited and left alone: Permission Manager's own page "Actions" menu (intentional),
@@ -34,6 +34,4 @@ this repo; not changed.
 ## Findings
 - Blocker: none
 - Major: none
-- Minor: users who learned "Actions ▸ Quick Pay" on Sales Order will find it under
-  Powerup now.
 - Nit: label shortened to "Import Prices" since the Powerup group already says whose it is.
