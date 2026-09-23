@@ -38,6 +38,11 @@ Most features are toggled individually via **PowerPack Settings**; a few marked 
 ##### Price List Importer
 A custom and simple price list updater. On `/desk/item-price/`, open **Powerup** and select **"Import Prices"** — no rows need to be selected. Required columns: `item_code`, `price_list`, `rate`. That's it — no ID's!
 ![](https://i.imgur.com/KA8X1v0.png)
+##### Copy as Message (QT/SO/SI)
+**Powerup ▸ Copy as Message** on a Quotation, Sales Order or Sales Invoice copies a short message with a public link to the document, ready to paste into WhatsApp, SMS or email. Your bank / paybill details go in the `PAYMENT_DETAILS` block at the top of each script (per Company, `'*'` for any) and are added while the document is unpaid.
+
+These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that PowerPack creates once. They belong to your site: edit them, or untick **Enabled** to switch one off — updates never overwrite them. To get the latest shipped version, delete the script and run `bench migrate`. The older hand-made `SI - Copy to Clipboard` script is disabled (not deleted) when they are created, so copy its bank details across.
+
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
 ![](https://i.imgur.com/mBs8uZc.png)
