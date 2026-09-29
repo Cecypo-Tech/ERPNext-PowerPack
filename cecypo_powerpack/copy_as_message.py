@@ -20,6 +20,7 @@ SCRIPTS = {
 	"PowerPack - Copy as Message (Quotation)": ("Quotation", "copy_as_message_quotation.js"),
 	"PowerPack - Copy as Message (Sales Order)": ("Sales Order", "copy_as_message_sales_order.js"),
 	"PowerPack - Copy as Message (Sales Invoice)": ("Sales Invoice", "copy_as_message_sales_invoice.js"),
+	"PowerPack - Copy as Message (Purchase Order)": ("Purchase Order", "copy_as_message_purchase_order.js"),
 }
 
 # Hand-made site scripts the above replace, by the DocType they cover. Disabled - never

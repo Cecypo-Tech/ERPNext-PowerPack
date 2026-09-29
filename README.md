@@ -42,8 +42,10 @@ Margin is always profit ÷ net (ex-tax) sale, so the same deal shows the same ma
 ##### Price List Importer
 A custom and simple price list updater. On `/desk/item-price/`, open **Powerup** and select **"Import Prices"** — no rows need to be selected. Required columns: `item_code`, `price_list`, `rate`. That's it — no ID's!
 ![](https://i.imgur.com/KA8X1v0.png)
-##### Copy as Message (QT/SO/SI)
+##### Copy as Message (QT/SO/SI/PO)
 **Powerup ▸ Copy as Message** on a Quotation, Sales Order or Sales Invoice copies a short message with a public link to the document, ready to paste into WhatsApp, SMS or email. Your bank / paybill details go in the `PAYMENT_DETAILS` block at the top of each script (per Company, `'*'` for any) and are added while the document is unpaid.
+
+On a **Purchase Order** the message is for the supplier: PO number, your company and date, Required By, total, and the link; it says so when the PO is a Draft, On Hold or Closed. There are no payment details; instead a `NOTES` block (per Company, `'*'` for any) is added to the end, e.g. delivery instructions or "quote the PO number on your invoice". The public link page shows your PowerPack Public Link banner, header and footer on every document type, so keep customer-only wording (such as payment prompts) out of them if you send POs this way.
 
 These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that PowerPack creates only when missing. They belong to your site: edit them, or untick **Enabled** to switch one off — updates never overwrite them. To get the latest shipped version, delete the script and run `bench migrate`. The older hand-made `SI - Copy to Clipboard` script is disabled (not deleted) when they are created, so copy its bank details across.
 
