@@ -331,3 +331,26 @@ html[data-theme="dark"] .item-profit-indicator.profit-excellent {
     color: #4db56d;
     border-color: rgba(21, 87, 36, 0.4);
 }
+
+/* No cost / no price: neutral, so an uncosted row never reads as a margin band */
+.item-profit-indicator.profit-none {
+    background: var(--subtle-fg);
+    color: var(--text-muted);
+    border: 1px dashed var(--border-color);
+    font-weight: 500;
+}
+
+/* "Costed 4/5" — profit covers only some rows; semantic tokens so dark mode follows */
+.profit-metrics-section .metric-coverage {
+    background: var(--bg-yellow);
+    color: var(--text-on-yellow);
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: help;
+    opacity: 1;
+}
+
+/* metric-mini is inline-flex, which drops the space before an inline note */
+.profit-metrics-section .metric-mini .tax-info {
+    margin-left: 4px;
+}

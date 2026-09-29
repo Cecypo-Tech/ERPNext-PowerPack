@@ -1,974 +1,354 @@
 // Copyright (c) 2024, Cecypo.Tech and contributors
 // For license information, please see license.txt
 
+/**
+ * Sales Powerup: stock, cost, purchase/sale history and a margin badge under each item
+ * row of Quotation / Sales Order / Sales Invoice / POS Invoice, and a profit summary by
+ * the Items label. Toggled from the form's Powerup ▾ menu (Show / Hide Item Insights).
+ *
+ * Data for every row comes from one call, cecypo_powerpack.sales_insights
+ * .get_sales_item_insights, cached for a few minutes per (company, customer, item,
+ * warehouse). Cost fields arrive only for users with `sales_visible_to_role`; the
+ * server enforces that, the browser just follows `can_see_cost`.
+ *
+ * Nothing here writes to the doc: dirtying the form flips Submit back to Save.
+ * All maths is in profit_calculator.js.
+ */
+
 frappe.provide('cecypo_powerpack.sales_powerup');
 
-cecypo_powerpack.sales_powerup = {
-	enabled: false,
-	settings: {},
-	// Cache valuation rates separately to avoid writing to item docs (which dirties the form)
-	_valuation_cache: {},
+(function () {
+	const FEATURE_BY_DOCTYPE = {
+		'Quotation': 'enable_quotation_powerup',
+		'Sales Order': 'enable_sales_order_powerup',
+		'Sales Invoice': 'enable_sales_invoice_powerup',
+		'POS Invoice': 'enable_pos_invoice_powerup',
+	};
+	const CACHE_TTL_MS = 5 * 60 * 1000;
+	const FETCH_DELAY_MS = 150;
+	const RENDER_DELAY_MS = 100;
 
-	// Get valuation rate from cache for an item row
-	get_valuation_rate: function(item_doc) {
-		return cecypo_powerpack.sales_powerup._valuation_cache[item_doc.name] || 0;
-	},
+	const flt = (v) => {
+		const n = parseFloat(v);
+		return isNaN(n) ? 0 : n;
+	};
+	const esc = (v) => frappe.utils.escape_html(v == null ? '' : String(v));
+	const amount = (v) => format_number(v, null, 2);
+	const qty = (v) => format_number(v, null, 0);
+	const short_date = (d) => moment(d).format('DD-MMM-YY');
+	const pct = (v) => (v === null || v === undefined) ? '—' : `${v.toFixed(1)}%`;
 
-	// Helper function to check if feature is enabled for a specific doctype
-	is_enabled_for_doctype: function(doctype) {
-		const settings = cecypo_powerpack.sales_powerup.settings;
-		const doctype_map = {
-			'Quotation': 'enable_quotation_powerup',
-			'Sales Order': 'enable_sales_order_powerup',
-			'Sales Invoice': 'enable_sales_invoice_powerup',
-			'POS Invoice': 'enable_pos_invoice_powerup'
-		};
-		const field_name = doctype_map[doctype];
-		return field_name && settings[field_name] === 1;
-	},
+	const sp = cecypo_powerpack.sales_powerup = {
+		settings: {},
+		can_see_cost: false,
+		_cache: {},     // key → {data, at}
+		_inflight: {},  // key → true while a request for it is out
 
-	check_and_setup: function(frm, from_item_change) {
-		// Clear valuation cache only on a full form load (not when triggered by item changes)
-		if (!from_item_change) {
-			cecypo_powerpack.sales_powerup._valuation_cache = {};
-		}
+		is_enabled(frm) {
+			return cint(sp.settings[FEATURE_BY_DOCTYPE[frm.doctype]]) === 1;
+		},
 
-		// Fetch settings first, through CecypoPowerPack.Settings rather than
-		// frappe.client.get: the latter permission-checks the singleton, and that check
-		// walks the Link fields of its config child rows, so a user scoped by a User
-		// Permission (Item Group, Company) gets "No permission for PowerPack Settings"
-		// and loses the sales powerup entirely.
-		CecypoPowerPack.Settings.get(function(settings) {
-			if (!settings || !Object.keys(settings).length) return;
-
-			cecypo_powerpack.sales_powerup.settings = settings;
-			cecypo_powerpack.sales_powerup.enabled = cecypo_powerpack.sales_powerup.is_enabled_for_doctype(frm.doctype);
-
-			// On first load, initialise visibility from the setting.
-			// Subsequent calls within the same session preserve the user's toggle choice.
-			if (frm._powerpack_visible === undefined) {
-				frm._powerpack_visible = settings.sales_powerup_shown_by_default !== 0;
-				cecypo_powerpack.sales_powerup.update_button_state(frm);
+		customer_of(frm) {
+			if (frm.doctype === 'Quotation') {
+				// party_name holds a Lead or Prospect unless quoting to a Customer
+				return frm.doc.quotation_to === 'Customer' ? frm.doc.party_name : null;
 			}
+			return frm.doc.customer || null;
+		},
 
-			if (cecypo_powerpack.sales_powerup.enabled) {
-				cecypo_powerpack.sales_powerup.setup_all_items(frm);
-			}
-		});
-	},
+		warehouse_of(frm, row) {
+			return row.warehouse || frm.doc.set_warehouse || null;
+		},
 
-	setup_all_items: function(frm) {
-		if (!frm.doc.items || !frm.doc.items.length) {
-			return;
-		}
+		key(frm, row) {
+			return [frm.doc.company, sp.customer_of(frm), row.item_code, sp.warehouse_of(frm, row)]
+				.map(v => v || '').join('\u001f');
+		},
 
-		if (!frm._powerpack_visible) {
-			return;
-		}
+		// ---- lifecycle -------------------------------------------------------------
 
-		// Process each item in the grid
-		frm.doc.items.forEach(function(item) {
-			if (item.item_code) {
-				cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-			}
-		});
-
-		// Add profit metrics if user has the required role
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (frappe.user.has_role(visible_role)) {
-			cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-		}
-	},
-
-	add_item_info: function(frm, item_doc) {
-		const item_code = item_doc.item_code;
-		const customer = frm.doc.party_name || frm.doc.customer;
-		// Quotation uses set_warehouse, other doctypes use item warehouse
-		const warehouse = item_doc.warehouse || frm.doc.set_warehouse;
-		const item_rate = item_doc.rate || 0;
-
-		// Only show info when item_code, customer and warehouse are present
-		if (!item_code || !customer || !warehouse) {
-			return;
-		}
-
-
-		// Find the grid row for this item
-		const grid_row = frm.fields_dict.items.grid.grid_rows_by_docname[item_doc.name];
-		if (!grid_row || !grid_row.wrapper) {
-			return;
-		}
-
-
-		// Remove existing info container first
-		grid_row.wrapper.find('.sales-item-info').remove();
-
-		// Create new info container
-		const info_container = $('<div class="sales-item-info"></div>');
-
-		// Try multiple insertion strategies
-		let inserted = false;
-
-		// Strategy 1: After form-in-grid (when row is expanded)
-		const form_grid = grid_row.wrapper.find('.form-in-grid');
-		if (form_grid.length > 0) {
-			form_grid.after(info_container);
-			inserted = true;
-		}
-
-		// Strategy 2: After grid-row
-		if (!inserted) {
-			const row_elem = grid_row.wrapper.find('.grid-row').first();
-			if (row_elem.length > 0) {
-				row_elem.after(info_container);
-				inserted = true;
-			}
-		}
-
-		// Strategy 3: Append to wrapper
-		if (!inserted) {
-			grid_row.wrapper.append(info_container);
-			inserted = true;
-		}
-
-		if (!inserted) {
-			return;
-		}
-
-		// Show loading state
-		info_container.html('<div class="text-muted" style="padding: 5px 10px; font-size: 11px;">Loading item info...</div>');
-
-		// Fetch item information
-		frappe.call({
-			method: 'cecypo_powerpack.api.get_item_info_for_quotation',
-			args: {
-				item_code: item_code,
-				customer: customer,
-				warehouse: warehouse
-			},
-			callback: function(r) {
-				if (r.message) {
-					cecypo_powerpack.sales_powerup.render_item_info(info_container, r.message, item_rate, item_doc);
-
-					// Store valuation rate in a separate cache (NOT on the item doc)
-					// to avoid dirtying the form, which causes Submit to revert to Save/Update.
-					const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-					if (r.message.valuation_rate && frappe.user.has_role(visible_role)) {
-						cecypo_powerpack.sales_powerup._valuation_cache[item_doc.name] = r.message.valuation_rate;
-
-						// Update profit metrics after setting valuation rate
-						setTimeout(function() {
-							cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-						}, 200);
-					}
-				} else {
-					info_container.empty();
+		setup(frm) {
+			CecypoPowerPack.Settings.get(function (settings) {
+				if (!settings || !Object.keys(settings).length) return;
+				sp.settings = settings;
+				if (!sp.is_enabled(frm)) return;
+				// First load in this session takes the setting; later loads keep the user's toggle.
+				if (frm._powerpack_visible === undefined) {
+					frm._powerpack_visible = settings.sales_powerup_shown_by_default !== 0;
 				}
-			},
-			error: function(err) {
-				console.error('Error fetching item info:', err);
-				info_container.empty();
-			}
-		});
-	},
+				sp.add_toggle(frm);
+				sp.fetch(frm);
+			});
+		},
 
-	add_powerup_button: function(frm) {
-		// Remove existing button
-		frm.page.remove_inner_button('PowerUp');
+		add_toggle(frm) {
+			const group = __('Powerup');
+			const show = __('Show Item Insights');
+			const hide = __('Hide Item Insights');
+			frm.remove_custom_button(show, group);
+			frm.remove_custom_button(hide, group);
+			frm.add_custom_button(frm._powerpack_visible ? hide : show, () => sp.toggle(frm), group);
+		},
 
-		frm.add_custom_button(__('PowerUp'), function() {
+		toggle(frm) {
 			frm._powerpack_visible = !frm._powerpack_visible;
-
 			if (frm._powerpack_visible) {
-				cecypo_powerpack.sales_powerup.check_and_setup(frm, true);
-				frappe.show_alert({message: __('PowerPack Enabled'), indicator: 'green'});
+				sp.fetch(frm);
 			} else {
-				$('.sales-item-info').remove();
-				$('.profit-metrics-section').remove();
-				frappe.show_alert({message: __('PowerPack Disabled'), indicator: 'orange'});
+				sp.clear(frm);
 			}
+			sp.add_toggle(frm);
+		},
 
-			cecypo_powerpack.sales_powerup.update_button_state(frm);
-		});
+		clear(frm) {
+			$(frm.wrapper).find('.sales-item-info, .profit-metrics-section').remove();
+		},
 
-		// State not yet initialised at button-add time; defer to after settings load
-		cecypo_powerpack.sales_powerup.update_button_state(frm);
-	},
+		active(frm) {
+			return sp.is_enabled(frm) && frm._powerpack_visible;
+		},
 
-	update_button_state: function(frm) {
-		const enabled = !!frm._powerpack_visible;
-		const button = frm.page.btn_secondary.find('.btn:contains("PowerUp")');
-		if (button.length > 0) {
-			if (enabled) {
-				button.removeClass('btn-default').addClass('btn-primary');
-				button.attr('title', 'Click to disable PowerPack features');
-			} else {
-				button.removeClass('btn-primary').addClass('btn-default');
-				button.attr('title', 'Click to enable PowerPack features');
-			}
-		}
-	},
+		// ---- data --------------------------------------------------------------------
 
-	render_item_info: function(container, data, item_rate, item_doc) {
-		let html_parts = [];
+		schedule_fetch(frm) {
+			if (!sp.active(frm)) return;
+			clearTimeout(frm._pp_fetch_timer);
+			frm._pp_fetch_timer = setTimeout(() => sp.fetch(frm), FETCH_DELAY_MS);
+		},
 
-		// Check if user has the required role
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		const has_permission = frappe.user.has_role(visible_role);
-
-		// Get visibility settings
-		const settings = cecypo_powerpack.sales_powerup.settings;
-		const show_stock = settings.show_stock_info !== 0; // Default true
-		const show_valuation = settings.show_valuation_rate !== 0; // Default true
-		const show_profit = settings.show_profit_indicator !== 0; // Default true
-		const show_last_purchase = settings.show_last_purchase !== 0; // Default true
-		const show_last_sale = settings.show_last_sale !== 0; // Default true
-		const show_last_sale_customer = settings.show_last_sale_to_customer !== 0; // Default true
-
-		// Use shared profit calculator for consistent calculations
-		const profit_calc = cecypo_powerpack.profit_calculator;
-		const tax_inclusive = profit_calc.is_tax_inclusive(cur_frm);
-		const item_tax_rate = profit_calc.calculate_item_tax_rate(item_doc.rate, item_doc.net_rate);
-
-		// "+" label: shown when document has taxes NOT included in print rate,
-		// meaning cost/purchase reference values will have tax added on top.
-		// item_tax_rate cannot be used here — when tax is non-inclusive, rate == net_rate so it is always 0.
-		const has_doc_taxes = cur_frm.doc.taxes && cur_frm.doc.taxes.some(t => (t.rate || 0) > 0);
-		const plus_sign = !tax_inclusive && has_doc_taxes ? '+' : '';
-
-		// Helper function to format currency without symbol
-		// If tax-inclusive, add tax to the value for display
-		const format_amount = (value, add_tax = false) => {
-			let display_value = value;
-			if (add_tax && tax_inclusive && item_tax_rate > 0) {
-				display_value = value * (1 + item_tax_rate);
-			}
-			return frappe.format(display_value, {fieldtype: 'Float', precision: 2});
-		};
-
-		// Helper function to format date as DD-MMM-YY
-		const format_short_date = (date) => {
-			return moment(date).format('DD-MMM-YY');
-		};
-
-		// Helper function to get profit indicator based on margin
-		const get_profit_indicator = (margin) => {
-			let profit_class, profit_label;
-
-			if (margin < 0) {
-				profit_class = 'profit-loss';
-				profit_label = 'Loss';
-			} else if (margin < 10) {
-				profit_class = 'profit-low';
-				profit_label = 'Low';
-			} else if (margin < 20) {
-				profit_class = 'profit-medium';
-				profit_label = 'Med';
-			} else if (margin < 30) {
-				profit_class = 'profit-good';
-				profit_label = 'Good';
-			} else {
-				profit_class = 'profit-excellent';
-				profit_label = 'Excel';
-			}
-
-			return `<span class="item-profit-indicator ${profit_class}" title="Profit Margin: ${margin.toFixed(1)}%">
-						<span class="profit-dot"></span>
-						${margin.toFixed(1)}%
-					</span>`;
-		};
-
-		// Stock information (detailed breakdown)
-		if (show_stock && data.actual_qty !== null && data.actual_qty !== undefined) {
-			let stock_parts = [];
-
-			// Physical stock
-			stock_parts.push(`Phy: ${frappe.format(data.actual_qty, {fieldtype: 'Float', precision: 0})}`);
-
-			// Reserved stock
-			if (data.reserved_qty && data.reserved_qty > 0) {
-				stock_parts.push(`Res: ${frappe.format(data.reserved_qty, {fieldtype: 'Float', precision: 0})}`);
-			}
-
-			// Available stock
-			if (data.available_qty !== null && data.available_qty !== undefined) {
-				stock_parts.push(`Avl: ${frappe.format(data.available_qty, {fieldtype: 'Float', precision: 0})}`);
-			}
-
-			html_parts.push(`<span class="info-item"><strong>Stock:</strong> ${stock_parts.join('&nbsp;&bull;&nbsp;')}</span>`);
-		}
-
-		// Valuation rate (with permission check)
-		// Show with tax if tax-inclusive to make it comparable to item rate
-		if (has_permission && show_valuation && data.valuation_rate !== null && data.valuation_rate !== undefined) {
-			const value_text = format_amount(data.valuation_rate, true);
-			const tax_label = plus_sign;
-			html_parts.push(`<span class="info-item"><strong>Value:</strong> ${value_text}${tax_label}</span>`);
-		}
-
-		// Last purchase (with permission check)
-		// Show with tax if tax-inclusive to make it comparable to item rate
-		if (has_permission && show_last_purchase && data.last_purchase_rate !== null && data.last_purchase_rate !== undefined) {
-			let purchase_text = format_amount(data.last_purchase_rate, true) + plus_sign;
-			if (data.last_purchase_date) {
-				purchase_text += ` (${format_short_date(data.last_purchase_date)})`;
-			}
-			html_parts.push(`<span class="info-item"><strong>Last Purchase:</strong> ${purchase_text}</span>`);
-		}
-
-		// Last sale to anyone
-		// Show with tax if tax-inclusive to make it comparable to item rate
-		if (show_last_sale && data.last_sale_rate !== null && data.last_sale_rate !== undefined) {
-			let last_sale_text = format_amount(data.last_sale_rate, true) + plus_sign;
-			if (data.last_sale_date) {
-				last_sale_text += ` (${format_short_date(data.last_sale_date)})`;
-			}
-			html_parts.push(`<span class="info-item"><strong>Last Sale:</strong> ${last_sale_text}</span>`);
-		}
-
-		// Last sale to this customer
-		// Show with tax if tax-inclusive to make it comparable to item rate
-		if (show_last_sale_customer && data.last_sale_to_customer_rate !== null && data.last_sale_to_customer_rate !== undefined) {
-			let customer_sale_text = format_amount(data.last_sale_to_customer_rate, true) + plus_sign;
-			if (data.last_sale_to_customer_date) {
-				customer_sale_text += ` (${format_short_date(data.last_sale_to_customer_date)})`;
-			}
-			html_parts.push(`<span class="info-item"><strong>Last Sold to Customer:</strong> ${customer_sale_text}</span>`);
-		}
-
-		// Calculate profit indicator separately (positioned on far right via CSS)
-		let profit_indicator_html = '';
-		if (has_permission && show_profit && data.valuation_rate !== null && data.valuation_rate !== undefined) {
-			// Use shared profit calculator for consistent calculations
-			const profit_result = profit_calc.calculate_item_profit({
-				rate: item_rate || 0,
-				net_rate: item_doc.net_rate || item_rate || 0,
-				valuation_rate: data.valuation_rate || 0,
-				qty: 1,
-				tax_inclusive: tax_inclusive
+		/** Request every row whose data is missing or stale, all in one call. */
+		fetch(frm) {
+			if (!sp.active(frm)) return;
+			const now = Date.now();
+			const wanted = {};
+			(frm.doc.items || []).forEach(row => {
+				if (!row.item_code) return;
+				const k = sp.key(frm, row);
+				const hit = sp._cache[k];
+				if ((hit && now - hit.at < CACHE_TTL_MS) || sp._inflight[k]) return;
+				wanted[k] = { item_code: row.item_code, warehouse: sp.warehouse_of(frm, row) };
 			});
-			profit_indicator_html = get_profit_indicator(profit_result.margin);
-		}
 
-		// Render the info if we have any data
-		if (html_parts.length > 0 || profit_indicator_html) {
-			const html = `<div class="sales-item-details" data-item-name="${item_doc.name}">${html_parts.join('')}${profit_indicator_html}</div>`;
-			container.html(html);
-		} else {
-			container.html('');
-		}
-	},
+			const keys = Object.keys(wanted);
+			if (!keys.length) {
+				sp.schedule_render(frm);
+				return;
+			}
+			keys.forEach(k => { sp._inflight[k] = true; });
 
-	update_profit_indicator: function(frm, item_doc) {
-		// Update profit indicator dynamically when rate changes
-		const settings = cecypo_powerpack.sales_powerup.settings;
-		const visible_role = settings.sales_visible_to_role || 'System Manager';
-		const has_permission = frappe.user.has_role(visible_role);
-		const show_profit = settings.show_profit_indicator !== 0;
-
-		const cached_valuation = cecypo_powerpack.sales_powerup.get_valuation_rate(item_doc);
-		if (!has_permission || !show_profit || !cached_valuation) {
-			return;
-		}
-
-		// Find the profit indicator element for this item
-		const info_container = $(`.sales-item-details[data-item-name="${item_doc.name}"]`);
-		if (info_container.length === 0) {
-			return;
-		}
-
-		// Use shared profit calculator for consistent calculations
-		const profit_calc = cecypo_powerpack.profit_calculator;
-		const tax_inclusive = profit_calc.is_tax_inclusive(frm);
-
-		// Calculate new profit margin using shared calculator
-		const profit_result = profit_calc.calculate_item_profit({
-			rate: item_doc.rate || 0,
-			net_rate: item_doc.net_rate || item_doc.rate || 0,
-			valuation_rate: cached_valuation,
-			qty: 1,
-			tax_inclusive: tax_inclusive
-		});
-		const profit_margin = profit_result.margin;
-
-		// Determine profit class
-		let profit_class, profit_label;
-		if (profit_margin < 0) {
-			profit_class = 'profit-loss';
-			profit_label = 'Loss';
-		} else if (profit_margin < 10) {
-			profit_class = 'profit-low';
-			profit_label = 'Low';
-		} else if (profit_margin < 20) {
-			profit_class = 'profit-medium';
-			profit_label = 'Med';
-		} else if (profit_margin < 30) {
-			profit_class = 'profit-good';
-			profit_label = 'Good';
-		} else {
-			profit_class = 'profit-excellent';
-			profit_label = 'Excel';
-		}
-
-		// Update the indicator
-		const indicator_html = `<span class="item-profit-indicator ${profit_class}" title="Profit Margin: ${profit_margin.toFixed(1)}%">
-									<span class="profit-dot"></span>
-									${profit_margin.toFixed(1)}%
-								</span>`;
-
-		// Remove old indicator and add new one
-		info_container.find('.item-profit-indicator').remove();
-		info_container.append(indicator_html);
-	},
-
-	add_profit_metrics: function(frm) {
-		// Remove existing profit metrics
-		$('.profit-metrics-section').remove();
-		frm.fields_dict.items.$wrapper.find('.clearfix').removeClass('profit-positive-bg profit-negative-bg');
-
-		if (!frm.doc.items || !frm.doc.items.length) {
-			return;
-		}
-
-		// Build items array with cached valuation rates for profit calculation
-		const cache = cecypo_powerpack.sales_powerup._valuation_cache;
-		const items_with_valuation = frm.doc.items.map(function(item) {
-			return Object.assign({}, item, {
-				valuation_rate: cache[item.name] || 0
+			const customer = sp.customer_of(frm);
+			const company = frm.doc.company;
+			frappe.call({
+				method: 'cecypo_powerpack.sales_insights.get_sales_item_insights',
+				args: {
+					doctype: frm.doctype,
+					items: JSON.stringify(Object.values(wanted)),
+					customer: customer,
+					company: company,
+				},
+				callback(r) {
+					const msg = r.message || {};
+					sp.can_see_cost = !!msg.can_see_cost;
+					(msg.items || []).forEach(d => {
+						const k = [company, customer, d.item_code, d.warehouse].map(v => v || '').join('\u001f');
+						sp._cache[k] = { data: d, at: Date.now() };
+					});
+				},
+				always() {
+					keys.forEach(k => { delete sp._inflight[k]; });
+					sp.schedule_render(frm);
+				},
 			});
-		});
+		},
 
-		// Use shared profit calculator for consistent calculations
-		const profit_calc = cecypo_powerpack.profit_calculator;
-		const metrics = profit_calc.calculate_doc_profit(frm, items_with_valuation);
+		// ---- rendering ---------------------------------------------------------------
 
-		const {
-			total_cost,
-			net_total,
-			grand_total,
-			total_taxes,
-			profit,
-			margin,
-			tax_inclusive
-		} = metrics;
+		/** Coalesces the burst of events one edit fires (rate, qty, taxes, totals…). */
+		schedule_render(frm) {
+			clearTimeout(frm._pp_render_timer);
+			frm._pp_render_timer = setTimeout(() => sp.render(frm), RENDER_DELAY_MS);
+		},
 
-		// Count items with cost for display purposes
-		let items_with_cost = 0;
-		items_with_valuation.forEach(function(item) {
-			if (item.valuation_rate && item.valuation_rate > 0) {
-				items_with_cost++;
+		render(frm) {
+			if (!sp.active(frm)) {
+				sp.clear(frm);
+				return;
 			}
-		});
-
-		// Format values without currency symbols
-		const format_amt = (val) => frappe.format(val, {fieldtype: 'Float', precision: 2});
-
-		// Calculate cost with tax for display (when tax_inclusive)
-		const doc_tax_rate = total_taxes > 0 && net_total > 0 ? total_taxes / net_total : 0;
-		const display_cost = tax_inclusive && doc_tax_rate > 0 ? total_cost * (1 + doc_tax_rate) : total_cost;
-
-		// Determine profit class
-		let profit_class = '';
-		if (items_with_cost > 0) {
-			profit_class = profit >= 0 ? 'profit-positive-bg' : 'profit-negative-bg';
-		}
-
-		// Create profit metrics section based on tax setting
-		let metrics_html;
-		if (tax_inclusive && total_taxes > 0) {
-			// Show tax-inclusive amounts (what customer sees)
-			metrics_html = `
-				<div class="profit-metrics-section ${profit_class}">
-					<span class="metric-mini">Cost: ${format_amt(display_cost)} <span class="tax-info">(incl. tax)</span></span>
-					<span class="metric-mini">Sale: ${format_amt(grand_total)} <span class="tax-info">(incl. tax)</span></span>
-					<span class="metric-mini tax-info">Tax: ${format_amt(total_taxes)}</span>
-					<span class="metric-mini metric-highlight">Profit: ${format_amt(profit)}</span>
-					<span class="metric-mini">Margin: ${margin.toFixed(1)}%</span>
-				</div>
-			`;
-		} else {
-			// Show tax-exclusive amounts
-			metrics_html = `
-				<div class="profit-metrics-section ${profit_class}">
-					<span class="metric-mini">Cost: ${format_amt(display_cost)}</span>
-					<span class="metric-mini">Sale: ${format_amt(net_total)}</span>
-					${total_taxes > 0 ? `<span class="metric-mini tax-info">+Tax: ${format_amt(total_taxes)}</span>` : ''}
-					<span class="metric-mini metric-highlight">Profit: ${format_amt(profit)}</span>
-					<span class="metric-mini">Margin: ${margin.toFixed(1)}%</span>
-				</div>
-			`;
-		}
-
-		// Try multiple approaches to find the right place
-		const wrapper = frm.fields_dict.items.$wrapper;
-
-		// Approach 1: Find the clearfix div that contains the label
-		let label_container = wrapper.find('.clearfix').first();
-
-		if (label_container.length > 0) {
-			// Insert at the end of the label container
-			label_container.append(metrics_html);
-		} else {
-			// Approach 2: Insert before the grid
-			const grid_wrapper = frm.fields_dict.items.grid.wrapper;
-			grid_wrapper.before(metrics_html);
-		}
-	}
-};
-
-// Hook into Quotation form
-frappe.ui.form.on('Quotation', {
-	refresh: function(frm) {
-		// Add PowerUp button for System Managers
-		if (frappe.user.has_role('System Manager')) {
-			cecypo_powerpack.sales_powerup.add_powerup_button(frm);
-		}
-
-		// Small delay to ensure grid is fully rendered
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-
-	onload: function(frm) {
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-
-	// Update profit metrics when taxes change
-	total_taxes_and_charges: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-
-	grand_total: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	}
-});
-
-// Also trigger when items are added or changed
-frappe.ui.form.on('Quotation Item', {
-	item_code: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				// Update profit metrics
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-
-	items_add: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				// Update profit metrics
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-
-	items_remove: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				// Update profit metrics after removal
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-
-	warehouse: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				// Update profit metrics
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-
-	qty: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-
-	rate: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-
-			// Update profit indicator for this specific item
-			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
-
-			// Update overall profit metrics if user has permission
-			if (frappe.user.has_role(visible_role)) {
-				setTimeout(function() {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}, 300);
+			const valuations = {};
+			(frm.doc.items || []).forEach(row => {
+				const hit = row.item_code && sp._cache[sp.key(frm, row)];
+				const data = hit ? hit.data : null;
+				valuations[row.name] = data ? data.valuation_rate : null;
+				sp.render_row(frm, row, data);
+			});
+			if (sp.can_see_cost && sp.settings.show_profit_indicator !== 0) {
+				sp.render_summary(frm, valuations);
+			} else {
+				$(frm.wrapper).find('.profit-metrics-section').remove();
 			}
-		}
-	}
-});
+		},
 
-// Hook into Sales Order form
-frappe.ui.form.on('Sales Order', {
-	refresh: function(frm) {
-		if (frappe.user.has_role('System Manager')) {
-			cecypo_powerpack.sales_powerup.add_powerup_button(frm);
-		}
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-	onload: function(frm) {
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-	total_taxes_and_charges: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-	grand_total: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	}
-});
-
-frappe.ui.form.on('Sales Order Item', {
-	item_code: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	items_add: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	items_remove: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	warehouse: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	qty: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-	rate: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
-			if (frappe.user.has_role(visible_role)) {
-				setTimeout(function() {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}, 300);
+		render_row(frm, row, data) {
+			const grid_row = frm.fields_dict.items.grid.grid_rows_by_docname[row.name];
+			if (!grid_row || !grid_row.wrapper) return;
+			let $info = grid_row.wrapper.find('.sales-item-info');
+			const html = data ? sp.row_html(frm, row, data) : '';
+			if (!html) {
+				$info.remove();
+				return;
 			}
-		}
-	}
-});
-
-// Hook into Sales Invoice form
-frappe.ui.form.on('Sales Invoice', {
-	refresh: function(frm) {
-		if (frappe.user.has_role('System Manager')) {
-			cecypo_powerpack.sales_powerup.add_powerup_button(frm);
-		}
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-	onload: function(frm) {
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-	total_taxes_and_charges: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-	grand_total: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	}
-});
-
-frappe.ui.form.on('Sales Invoice Item', {
-	item_code: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	items_add: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	items_remove: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	warehouse: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	qty: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-	rate: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
-			if (frappe.user.has_role(visible_role)) {
-				setTimeout(function() {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}, 300);
+			if (!$info.length) {
+				$info = $('<div class="sales-item-info"></div>');
+				const $form = grid_row.wrapper.find('.form-in-grid');
+				const $row = grid_row.wrapper.find('.grid-row').first();
+				if ($form.length) $form.after($info);
+				else if ($row.length) $row.after($info);
+				else grid_row.wrapper.append($info);
 			}
-		}
-	}
-});
-
-// Hook into POS Invoice form
-frappe.ui.form.on('POS Invoice', {
-	refresh: function(frm) {
-		if (frappe.user.has_role('System Manager')) {
-			cecypo_powerpack.sales_powerup.add_powerup_button(frm);
-		}
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-	onload: function(frm) {
-		setTimeout(function() {
-			cecypo_powerpack.sales_powerup.check_and_setup(frm);
-		}, 500);
-	},
-	total_taxes_and_charges: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-	grand_total: function(frm) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	}
-});
-
-frappe.ui.form.on('POS Invoice Item', {
-	item_code: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	items_add: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	items_remove: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	warehouse: function(frm, cdt, cdn) {
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-			setTimeout(function() {
-				if (item.item_code) {
-					cecypo_powerpack.sales_powerup.add_item_info(frm, item);
-				}
-				if (frappe.user.has_role(visible_role)) {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}
-			}, 500);
-		}
-	},
-	qty: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible && frappe.user.has_role(visible_role)) {
-			setTimeout(function() {
-				cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-			}, 300);
-		}
-	},
-	rate: function(frm, cdt, cdn) {
-		const visible_role = cecypo_powerpack.sales_powerup.settings.sales_visible_to_role || 'System Manager';
-		if (cecypo_powerpack.sales_powerup.enabled && frm._powerpack_visible) {
-			const item = locals[cdt][cdn];
-			cecypo_powerpack.sales_powerup.update_profit_indicator(frm, item);
-			if (frappe.user.has_role(visible_role)) {
-				setTimeout(function() {
-					cecypo_powerpack.sales_powerup.add_profit_metrics(frm);
-				}, 300);
+			if ($info.data('html') !== html) {
+				$info.html(html).data('html', html);
 			}
-		}
-	}
-});
+		},
+
+		row_html(frm, row, data) {
+			const s = sp.settings;
+			const calc = cecypo_powerpack.profit_calculator;
+			const doc = frm.doc;
+			const tax_inclusive = calc.is_tax_inclusive(doc);
+			// '+' marks a value that has tax to add, like the row's own price does.
+			const plus = !tax_inclusive && (doc.taxes || []).some(t => flt(t.rate) > 0) ? '+' : '';
+			const shown = (v) => amount(calc.to_row_display(v, row, doc, true)) + plus;
+			const parts = [];
+
+			if (s.show_stock_info !== 0 && data.actual_qty !== null && data.actual_qty !== undefined) {
+				const scope = data.warehouse ? esc(data.warehouse) : __('all warehouses');
+				const bits = [`${__('Phy')}: ${qty(data.actual_qty)}`];
+				if (flt(data.reserved_qty) > 0) bits.push(`${__('Res')}: ${qty(data.reserved_qty)}`);
+				bits.push(`${__('Avl')}: ${qty(data.available_qty)}`);
+				const title = __('In stock / reserved / available (projected) in {0}, in stock UOM', [scope]);
+				parts.push(`<span class="info-item" title="${esc(title)}"><strong>${__('Stock')}:</strong> ${bits.join('&nbsp;&bull;&nbsp;')}</span>`);
+			}
+
+			if (sp.can_see_cost && s.show_valuation_rate !== 0 && data.valuation_rate) {
+				parts.push(`<span class="info-item"><strong>${__('Cost')}:</strong> ${shown(data.valuation_rate)}</span>`);
+			}
+
+			const history = [
+				['last_purchase', __('Last Purchase'), sp.can_see_cost && s.show_last_purchase !== 0],
+				['last_sale', __('Last Sale'), s.show_last_sale !== 0],
+				['last_sale_to_customer', __('Last Sold to Customer'), s.show_last_sale_to_customer !== 0],
+			];
+			history.forEach(([prefix, label, visible]) => {
+				const rate = data[`${prefix}_rate`];
+				if (!visible || rate === null || rate === undefined) return;
+				const date = data[`${prefix}_date`] ? ` (${short_date(data[`${prefix}_date`])})` : '';
+				parts.push(`<span class="info-item"><strong>${label}:</strong> ${shown(rate)}${date}</span>`);
+			});
+
+			let badge = '';
+			if (sp.can_see_cost && s.show_profit_indicator !== 0) {
+				badge = sp.badge_html(frm, row, data);
+			}
+			if (!parts.length && !badge) return '';
+			return `<div class="sales-item-details">${parts.join('')}${badge}</div>`;
+		},
+
+		badge_html(frm, row, data) {
+			const calc = cecypo_powerpack.profit_calculator;
+			const doc = frm.doc;
+			const r = calc.row_profit(row, doc, data.valuation_rate);
+			const uom = esc(row.uom || row.stock_uom || '');
+			if (r.cost === null) {
+				const why = data.actual_qty === null ? __('Not a stock item') : __('No valuation rate');
+				return `<span class="item-profit-indicator profit-none" title="${esc(why)}">${__('No cost')}</span>`;
+			}
+			if (r.margin === null) {
+				return `<span class="item-profit-indicator profit-none" title="${esc(__('No price'))}">—</span>`;
+			}
+			// Tooltip in the document's currency, ex tax, per row UOM so it can be checked
+			// against the row; the margin itself is currency-free.
+			const cr = flt(doc.conversion_rate) || 1;
+			const title = __('Net {0} − Cost {1} = {2} per {3} (ex. tax)', [
+				amount(r.net / cr), amount(r.cost / cr), amount(r.profit / cr), uom,
+			]) + '\n' + __('Margin {0} · Markup {1}', [pct(r.margin), pct(r.markup)]);
+			const band = calc.band(r.margin, sp.settings);
+			return `<span class="item-profit-indicator ${band.cls}" title="${esc(title)}">`
+				+ `<span class="profit-dot"></span>${pct(r.margin)}</span>`;
+		},
+
+		render_summary(frm, valuations) {
+			const $wrapper = frm.fields_dict.items.$wrapper;
+			const has_items = (frm.doc.items || []).some(row => row.item_code);
+			if (!has_items) {
+				$wrapper.find('.profit-metrics-section').remove();
+				return;
+			}
+			const calc = cecypo_powerpack.profit_calculator;
+			const m = calc.doc_profit(frm.doc, valuations);
+
+			// Summary amounts are company currency; say so when the document is in another.
+			const company_currency = window.erpnext && erpnext.get_currency
+				? erpnext.get_currency(frm.doc.company) : null;
+			const currency_note = company_currency && company_currency !== frm.doc.currency
+				? ` <span class="tax-info">${esc(company_currency)}</span>` : '';
+			const tax_note = flt(frm.doc.total_taxes_and_charges)
+				? ` <span class="tax-info">${__('ex. tax')}</span>` : '';
+
+			const cls = m.costed ? (m.profit >= 0 ? 'profit-positive-bg' : 'profit-negative-bg') : '';
+			let coverage = '';
+			if (m.costed < m.total) {
+				const title = __('Not costed: {0}. Profit and margin cover costed items only.', [m.uncosted.join(', ')]);
+				coverage = `<span class="metric-mini metric-coverage" title="${esc(title)}">`
+					+ `${__('Costed {0}/{1}', [m.costed, m.total])}</span>`;
+			}
+
+			// Nothing costed: zeros everywhere would read as a break-even sale.
+			const html = !m.costed ? `<div class="profit-metrics-section">${coverage}</div>` : `
+				<div class="profit-metrics-section ${cls}">
+					<span class="metric-mini">${__('Cost')}: ${amount(m.cost)}</span>
+					<span class="metric-mini">${__('Net Sale')}: ${amount(m.revenue)}${tax_note}</span>
+					<span class="metric-mini metric-highlight">${__('Profit')}: ${amount(m.profit)}${currency_note}</span>
+					<span class="metric-mini">${__('Margin')}: ${pct(m.margin)}</span>
+					<span class="metric-mini">${__('Markup')}: ${pct(m.markup)}</span>
+					${coverage}
+				</div>`;
+
+			let $section = $wrapper.find('.profit-metrics-section');
+			if ($section.length && $section.data('html') === html) return;
+			$section.remove();
+			$section = $(html).data('html', html);
+			const $label = $wrapper.find('.clearfix').first();
+			if ($label.length) $label.append($section);
+			else frm.fields_dict.items.grid.wrapper.before($section);
+		},
+	};
+
+	// ---- form events (same wiring for every sales doctype) ----------------------------
+
+	const fetch_events = ['customer', 'party_name', 'quotation_to', 'company', 'set_warehouse'];
+	const render_events = [
+		'conversion_rate', 'currency', 'taxes_and_charges', 'total_taxes_and_charges',
+		'grand_total', 'discount_amount', 'additional_discount_percentage', 'apply_discount_on',
+	];
+	const row_fetch_events = ['item_code', 'warehouse', 'items_add'];
+	const row_render_events = [
+		'qty', 'rate', 'uom', 'conversion_factor', 'discount_percentage', 'discount_amount',
+		'price_list_rate', 'items_remove',
+	];
+
+	Object.keys(FEATURE_BY_DOCTYPE).forEach(doctype => {
+		const parent_handlers = {
+			refresh(frm) {
+				sp.setup(frm);
+			},
+		};
+		fetch_events.forEach(ev => { parent_handlers[ev] = frm => sp.schedule_fetch(frm); });
+		render_events.forEach(ev => { parent_handlers[ev] = frm => sp.active(frm) && sp.schedule_render(frm); });
+		frappe.ui.form.on(doctype, parent_handlers);
+
+		const row_handlers = {};
+		row_fetch_events.forEach(ev => { row_handlers[ev] = frm => sp.schedule_fetch(frm); });
+		row_render_events.forEach(ev => { row_handlers[ev] = frm => sp.active(frm) && sp.schedule_render(frm); });
+		frappe.ui.form.on(`${doctype} Item`, row_handlers);
+	});
+})();

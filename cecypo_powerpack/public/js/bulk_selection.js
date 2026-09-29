@@ -1517,10 +1517,9 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         // Profit calculation (always use net total - tax is not business profit)
         const profit = net_total - total_cost;
 
-        // For margin: if tax-inclusive, show margin on grand total (what customer sees)
-        // This matches the sales form calculation: (net_rate - cost) / display_rate * 100
-        const margin_base = tax_inclusive ? grand_total : net_total;
-        const margin_pct = margin_base > 0 ? (profit / margin_base * 100) : 0;
+        // Margin is profit over the net (ex-tax) sale whatever the tax template, matching
+        // profit_calculator.js. Dividing by the tax-inclusive total understated it.
+        const margin_pct = net_total > 0 ? (profit / net_total * 100) : 0;
 
         // Calculate cost with tax for display (when tax_inclusive)
         const display_cost = tax_inclusive && doc_tax_rate > 0

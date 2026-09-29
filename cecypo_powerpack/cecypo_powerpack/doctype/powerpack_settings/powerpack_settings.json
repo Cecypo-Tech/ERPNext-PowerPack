@@ -39,6 +39,10 @@
   "show_last_sale",
   "show_last_sale_to_customer",
   "sales_powerup_shown_by_default",
+  "column_break_margin_bands",
+  "sales_margin_low_below",
+  "sales_margin_medium_below",
+  "sales_margin_good_below",
   "bulk_selection_section",
   "enable_quotation_bulk_selection",
   "enable_sales_order_bulk_selection",
@@ -317,7 +321,32 @@
    "fieldname": "sales_powerup_shown_by_default",
    "fieldtype": "Check",
    "label": "Shown by Default",
-   "description": "If checked, profit metrics show automatically on load. If unchecked, click the PowerUp button to reveal them."
+   "description": "If checked, item insights and profit metrics show automatically on load. If unchecked, use Powerup \u2192 Show Item Insights to reveal them."
+  },
+  {
+   "fieldname": "column_break_margin_bands",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "10",
+   "description": "Margin badge bands. Under 0% is always Loss; from 0% up to this is Low.",
+   "fieldname": "sales_margin_low_below",
+   "fieldtype": "Percent",
+   "label": "Low Margin Below (%)"
+  },
+  {
+   "default": "20",
+   "description": "From Low up to this is Medium.",
+   "fieldname": "sales_margin_medium_below",
+   "fieldtype": "Percent",
+   "label": "Medium Margin Below (%)"
+  },
+  {
+   "default": "30",
+   "description": "From Medium up to this is Good; at or above it, Excellent.",
+   "fieldname": "sales_margin_good_below",
+   "fieldtype": "Percent",
+   "label": "Good Margin Below (%)"
   },
   {
    "fieldname": "bulk_selection_section",
@@ -716,7 +745,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-23 19:35:04.056745",
+ "modified": "2026-09-29 11:30:00.000000",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "PowerPack Settings",
