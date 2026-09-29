@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import flt
 
 from cecypo_powerpack.price_approval import sync_price_approval_workflows, validate_price_approval_settings
 
@@ -27,6 +28,11 @@ class PowerPackSettings(Document):
 					indicator="orange",
 					alert=True
 				)
+
+		bands = [flt(self.sales_margin_low_below), flt(self.sales_margin_medium_below),
+		         flt(self.sales_margin_good_below)]
+		if bands != sorted(bands):
+			frappe.throw(_("Margin bands must rise: Low ≤ Medium ≤ Good."))
 
 		validate_price_approval_settings(self)
 

@@ -65,6 +65,7 @@ The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory an
 | `cecypo_powerpack/validations.py` | `before_cancel` handler for ETR invoice protection |
 | `cecypo_powerpack/overrides.py` | `Payment Reconciliation` validate hook for zero-allocation support |
 | `cecypo_powerpack/custom_payment_reconciliation.py` | `CustomPaymentReconciliation` class extending ERPNext's `PaymentReconciliation` |
+| `cecypo_powerpack/sales_insights.py` | Sales Powerup data: one call for all rows, values normalised to company currency / ex tax / per stock UOM; cost fields withheld server-side without `sales_visible_to_role` |
 | `cecypo_powerpack/permission_manager.py` | Server side of the Permission Manager page: read all rules, preview/commit a batched change set |
 | `cecypo_powerpack/cecypo_powerpack/page/powerpack_permissions/` | The Permission Manager desk page (`/app/powerpack-permissions`) |
 | `cecypo_powerpack/cecypo_powerpack/doctype/powerpack_settings/` | Singleton DocType definition |
@@ -109,9 +110,9 @@ app. The JS hash is stable.
 **Public JS files** (all bundled via `cecypo_powerpack.bundle.js`):
 - `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning
 - `point_of_sale_powerpack.js` — POS compact/thumbnail view toggle, enhanced search (wildcard `%` + multi-word), keyboard nav, barcode feedback
-- `sales_powerup.js` — Injects stock/valuation/purchase history info into item lines on Quotation/SO/SI/POS Invoice
+- `sales_powerup.js` — Item Insights (stock, cost, purchase/sale history, margin badge, profit summary) on Quotation/SO/SI/POS Invoice; toggled from Powerup ▾. One batched call to `sales_insights.get_sales_item_insights` for all rows, cached 5 min per (company, customer, item, warehouse); renders are debounced
 - `bulk_selection.js` — Bulk item selection dialog for sales documents
-- `profit_calculator.js` — Profit margin display
+- `profit_calculator.js` — Pure margin maths (Node tests in `tests/js/`, run by `test_profit_calculator_js.py`). One basis: company currency, ex tax, `base_net_rate` vs `valuation_rate × conversion_factor`; margin = profit ÷ net sale regardless of tax template
 - `payment_reconciliation_powerup.js` — "Zero Allocate" button for Payment Reconciliation
 
 ### Server-Side Extension Points
