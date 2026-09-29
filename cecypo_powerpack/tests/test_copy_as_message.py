@@ -33,7 +33,9 @@ class TestSeedCopyAsMessage(FrappeTestCase):
 			self.assertEqual(cs.view, "Form")
 			self.assertEqual(cs.enabled, 1)
 			self.assertEqual(cs.script, script_source(name))
-		self.assertEqual({d for d, _ in SCRIPTS.values()}, {"Quotation", "Sales Order", "Sales Invoice"})
+		self.assertEqual(
+			{d for d, _ in SCRIPTS.values()}, {"Quotation", "Sales Order", "Sales Invoice", "Purchase Order"}
+		)
 
 	def test_scripts_are_not_picked_up_by_the_client_script_fixture_filter(self):
 		# hooks.py exports Client Scripts with module "Cecypo PowerPack" as fixtures.
@@ -73,11 +75,23 @@ class TestSeedCopyAsMessage(FrappeTestCase):
 
 	def test_every_script_starts_with_an_empty_payment_details_block(self):
 		# The app ships no bank details; the site fills in its own.
-		for name in SCRIPTS:
+		for name, (doctype, _) in SCRIPTS.items():
 			src = script_source(name)
-			self.assertIn("const PAYMENT_DETAILS = {\n\t};", src)
 			self.assertIn("__('Copy as Message')", src)
 			self.assertIn("__('Powerup')", src)
+			if doctype == "Purchase Order":
+				continue
+			self.assertIn("const PAYMENT_DETAILS = {\n\t};", src)
+
+	def test_purchase_order_message_is_for_the_supplier(self):
+		# We pay the supplier, so no payment details; a per-company NOTES block carries
+		# delivery instructions instead, shipped empty like PAYMENT_DETAILS.
+		src = script_source("PowerPack - Copy as Message (Purchase Order)")
+		self.assertIn("frappe.ui.form.on('Purchase Order'", src)
+		self.assertIn("doc.supplier_name", src)
+		self.assertIn("const NOTES = {\n\t};", src)
+		self.assertNotIn("PAYMENT_DETAILS", src)
+		self.assertNotIn("customer", src)
 
 	def test_a_deleted_script_comes_back_as_the_shipped_version(self):
 		# Deleting is how a site resets a script to the latest shipped version.
