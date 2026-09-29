@@ -41,8 +41,9 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 	const sp = cecypo_powerpack.sales_powerup = {
 		settings: {},
 		can_see_cost: false,
-		_cache: {},     // key → {data, at}
+		_cache: {},     // key → {data, at}; data is null for a key the server did not answer
 		_inflight: {},  // key → true while a request for it is out
+		_denied: {},    // doctype → true once the server refused this user
 
 		is_enabled(frm) {
 			return cint(sp.settings[FEATURE_BY_DOCTYPE[frm.doctype]]) === 1;
@@ -71,7 +72,9 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 			CecypoPowerPack.Settings.get(function (settings) {
 				if (!settings || !Object.keys(settings).length) return;
 				sp.settings = settings;
-				if (!sp.is_enabled(frm)) return;
+				if (!sp.is_enabled(frm) || sp._denied[frm.doctype]) return;
+				sp.hook_totals();
+				sp.hook_grid(frm);
 				// First load in this session takes the setting; later loads keep the user's toggle.
 				if (frm._powerpack_visible === undefined) {
 					frm._powerpack_visible = settings.sales_powerup_shown_by_default !== 0;
@@ -100,6 +103,36 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 			sp.add_toggle(frm);
 		},
 
+		/**
+		 * ERPNext sets totals, taxes and every row's net_rate by assignment inside
+		 * calculate_taxes_and_totals, so no field event fires for them: switching to a
+		 * tax-inclusive template changed every margin without a single event. Wrap the
+		 * shared prototype once (forms reach it through extend_cscript's __proto__), after
+		 * ERPNext has loaded; PowerPack's bundle loads first.
+		 */
+		hook_totals() {
+			const proto = window.erpnext && erpnext.taxes_and_totals && erpnext.taxes_and_totals.prototype;
+			if (!proto || proto.__pp_render_hooked) return;
+			const original = proto.calculate_taxes_and_totals;
+			proto.calculate_taxes_and_totals = function (...args) {
+				const result = original.apply(this, args);
+				const frm = this.frm;
+				if (frm && FEATURE_BY_DOCTYPE[frm.doctype]) {
+					Promise.resolve(result).finally(() => sp.active(frm) && sp.schedule_render(frm));
+				}
+				return result;
+			};
+			proto.__pp_render_hooked = true;
+		},
+
+		/** The grid rebuilds its rows on paging and "Delete All" without row events. */
+		hook_grid(frm) {
+			const grid = frm.fields_dict.items && frm.fields_dict.items.grid;
+			if (!grid || grid.__pp_hooked) return;
+			grid.wrapper.on('change', () => sp.active(frm) && sp.schedule_render(frm));
+			grid.__pp_hooked = true;
+		},
+
 		clear(frm) {
 			$(frm.wrapper).find('.sales-item-info, .profit-metrics-section').remove();
 		},
@@ -118,8 +151,9 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 
 		/** Request every row whose data is missing or stale, all in one call. */
 		fetch(frm) {
-			if (!sp.active(frm)) return;
+			if (!sp.active(frm) || sp._denied[frm.doctype] || !frm.doc.company) return;
 			const now = Date.now();
+			sp.prune(now);
 			const wanted = {};
 			(frm.doc.items || []).forEach(row => {
 				if (!row.item_code) return;
@@ -154,10 +188,32 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 						sp._cache[k] = { data: d, at: Date.now() };
 					});
 				},
+				error(r) {
+					// Refused: stop asking for this doctype this session instead of
+					// showing "Not permitted" on every edit.
+					if (r && r.exc_type === 'PermissionError') {
+						sp._denied[frm.doctype] = true;
+						sp.clear(frm);
+						frm.remove_custom_button(__('Show Item Insights'), __('Powerup'));
+						frm.remove_custom_button(__('Hide Item Insights'), __('Powerup'));
+					}
+				},
 				always() {
-					keys.forEach(k => { delete sp._inflight[k]; });
+					// Anything unanswered is cached as "no data" for the TTL, so a failing
+					// request is not re-sent (and its error re-shown) on every keystroke.
+					const at = Date.now();
+					keys.forEach(k => {
+						delete sp._inflight[k];
+						if (!sp._cache[k] || sp._cache[k].at < now) sp._cache[k] = { data: null, at };
+					});
 					sp.schedule_render(frm);
 				},
+			});
+		},
+
+		prune(now) {
+			Object.keys(sp._cache).forEach(k => {
+				if (now - sp._cache[k].at > 2 * CACHE_TTL_MS) delete sp._cache[k];
 			});
 		},
 
@@ -181,7 +237,7 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 				valuations[row.name] = data ? data.valuation_rate : null;
 				sp.render_row(frm, row, data);
 			});
-			if (sp.can_see_cost && sp.settings.show_profit_indicator !== 0) {
+			if (sp.can_see_cost && sp.settings.show_profit_indicator !== 0 && !frm.doc.is_return) {
 				sp.render_summary(frm, valuations);
 			} else {
 				$(frm.wrapper).find('.profit-metrics-section').remove();
@@ -215,9 +271,11 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 			const calc = cecypo_powerpack.profit_calculator;
 			const doc = frm.doc;
 			const tax_inclusive = calc.is_tax_inclusive(doc);
-			// '+' marks a value that has tax to add, like the row's own price does.
+			// '+' marks a sale price that has tax to add, like the row's own price does.
+			// Costs never carry sales tax, so they get no '+' (and, on tax-inclusive
+			// documents, are grossed up only to sit beside the row's price).
 			const plus = !tax_inclusive && (doc.taxes || []).some(t => flt(t.rate) > 0) ? '+' : '';
-			const shown = (v) => amount(calc.to_row_display(v, row, doc, true)) + plus;
+			const shown = (v, is_sale) => amount(calc.to_row_display(v, row, doc, true)) + (is_sale ? plus : '');
 			const parts = [];
 
 			if (s.show_stock_info !== 0 && data.actual_qty !== null && data.actual_qty !== undefined) {
@@ -230,23 +288,24 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 			}
 
 			if (sp.can_see_cost && s.show_valuation_rate !== 0 && data.valuation_rate) {
-				parts.push(`<span class="info-item"><strong>${__('Cost')}:</strong> ${shown(data.valuation_rate)}</span>`);
+				parts.push(`<span class="info-item"><strong>${__('Cost')}:</strong> ${shown(data.valuation_rate, false)}</span>`);
 			}
 
 			const history = [
-				['last_purchase', __('Last Purchase'), sp.can_see_cost && s.show_last_purchase !== 0],
-				['last_sale', __('Last Sale'), s.show_last_sale !== 0],
-				['last_sale_to_customer', __('Last Sold to Customer'), s.show_last_sale_to_customer !== 0],
+				['last_purchase', __('Last Purchase'), sp.can_see_cost && s.show_last_purchase !== 0, false],
+				['last_sale', __('Last Sale'), s.show_last_sale !== 0, true],
+				['last_sale_to_customer', __('Last Sold to Customer'), s.show_last_sale_to_customer !== 0, true],
 			];
-			history.forEach(([prefix, label, visible]) => {
+			history.forEach(([prefix, label, visible, is_sale]) => {
 				const rate = data[`${prefix}_rate`];
 				if (!visible || rate === null || rate === undefined) return;
 				const date = data[`${prefix}_date`] ? ` (${short_date(data[`${prefix}_date`])})` : '';
-				parts.push(`<span class="info-item"><strong>${label}:</strong> ${shown(rate)}${date}</span>`);
+				parts.push(`<span class="info-item"><strong>${label}:</strong> ${shown(rate, is_sale)}${date}</span>`);
 			});
 
 			let badge = '';
-			if (sp.can_see_cost && s.show_profit_indicator !== 0) {
+			// A credit note's negative lines have no meaningful margin.
+			if (sp.can_see_cost && s.show_profit_indicator !== 0 && !doc.is_return) {
 				badge = sp.badge_html(frm, row, data);
 			}
 			if (!parts.length && !badge) return '';
@@ -333,7 +392,7 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 	const row_fetch_events = ['item_code', 'warehouse', 'items_add'];
 	const row_render_events = [
 		'qty', 'rate', 'uom', 'conversion_factor', 'discount_percentage', 'discount_amount',
-		'price_list_rate', 'items_remove',
+		'price_list_rate', 'items_remove', 'items_delete',
 	];
 
 	Object.keys(FEATURE_BY_DOCTYPE).forEach(doctype => {

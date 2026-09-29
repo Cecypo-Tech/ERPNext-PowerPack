@@ -113,7 +113,7 @@ frappe.provide('cecypo_powerpack.profit_calculator');
 				total++;
 				const valuation = flt(valuation_by_row[row.name]);
 				if (!(valuation > 0)) {
-					uncosted.push(row.item_code);
+					if (!uncosted.includes(row.item_code)) uncosted.push(row.item_code);
 					return;
 				}
 				costed++;

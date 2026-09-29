@@ -54,6 +54,7 @@ def get_sales_item_insights(doctype: str, items: str, customer: str | None = Non
 	feature = FEATURE_BY_DOCTYPE.get(doctype)
 	if not feature or not cint(settings.get(feature)):
 		frappe.throw(_("Sales Powerup is not enabled for {0}").format(doctype), frappe.PermissionError)
+	_check_access(doctype, company, customer)
 
 	pairs = _parse_items(items)
 	show_cost = can_see_cost(settings)
@@ -81,12 +82,40 @@ def get_sales_item_insights(doctype: str, items: str, customer: str | None = Non
 	return {"can_see_cost": show_cost, "items": out}
 
 
+def _check_access(doctype, company, customer):
+	"""Only a desk user who could read a `doctype` of this company for this customer.
+
+	Sales history per customer is commercially sensitive, and the caller chooses both
+	company and customer: without this, a portal user or a desk user limited to one
+	company could read what any customer paid anywhere. The probe doc runs the caller's
+	role and User Permission checks (Company, Customer) exactly as a real record would.
+	"""
+	if frappe.session.user == "Guest" or frappe.get_cached_value("User", frappe.session.user, "user_type") != "System User":
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	if not company:
+		frappe.throw(_("Company is required"))
+
+	probe = frappe.new_doc(doctype)
+	probe.owner = frappe.session.user
+	probe.company = company
+	if customer:
+		if doctype == "Quotation":
+			probe.quotation_to, probe.party_name = "Customer", customer
+		else:
+			probe.customer = customer
+	frappe.has_permission(doctype, "read", probe, throw=True)
+
+
 def _parse_items(items) -> list[tuple[str, str | None]]:
 	if isinstance(items, str):
 		items = json.loads(items or "[]")
 	seen, pairs = set(), []
-	for entry in items or []:
-		code = (entry or {}).get("item_code")
+	if not isinstance(items, list):
+		frappe.throw(_("items must be a list"))
+	for entry in items:
+		if not isinstance(entry, dict):
+			frappe.throw(_("Each item must be an object with item_code and warehouse"))
+		code = entry.get("item_code")
 		if not code:
 			continue
 		key = (code, (entry.get("warehouse") or None))

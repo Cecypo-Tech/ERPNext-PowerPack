@@ -292,6 +292,12 @@ def get_customer_snapshot(customer: str, company: str = None) -> dict:
     return build_customer_snapshot(customer, company)
 
 
+# Mirrors has_cost_permission() in bulk_selection.js, which decides whether the dialog
+# shows a cost column. Enforced here too so the value never reaches a user the dialog
+# would hide it from; the browser check alone let anyone read it off the endpoint.
+BULK_COST_ROLES = {"System Manager", "Stock Manager", "Accounts Manager", "Sales Master Manager", "Administrator"}
+
+
 @frappe.whitelist()
 def get_bulk_item_details(items, price_list: str, warehouse: str = None, customer: str = None,
                           tax_category: str = None, taxes_and_charges: str = None,
@@ -322,9 +328,10 @@ def get_bulk_item_details(items, price_list: str, warehouse: str = None, custome
         'Purchase Order': 'enable_purchase_order_bulk_selection'
     }
 
-    feature_name = feature_map.get(doctype, 'enable_sales_order_bulk_selection')
-    if not is_feature_enabled(feature_name):
+    feature_name = feature_map.get(doctype)
+    if not feature_name or not is_feature_enabled(feature_name):
         frappe.throw(_("Bulk Selection feature is not enabled for {0} in PowerPack Settings").format(doctype))
+    frappe.has_permission(doctype, "read", throw=True)
 
     # Parse items input
     if isinstance(items, str):
@@ -375,6 +382,9 @@ def get_bulk_item_details(items, price_list: str, warehouse: str = None, custome
 
         result['tax_category'] = tax_category or ''
         result['tax_rate'] = tax_rate
+        if not BULK_COST_ROLES & set(frappe.get_roles()):
+            for row in result.get('items') or []:
+                row['valuation_rate'] = None
         return result
 
     except Exception as e:
@@ -723,6 +733,9 @@ def get_bulk_stock_item_details(items, warehouse: str = None, doctype: str = 'St
     feature_name = feature_map.get(doctype)
     if not feature_name or not is_feature_enabled(feature_name):
         frappe.throw(_("Bulk Selection feature is not enabled for {0} in PowerPack Settings").format(doctype))
+    # Valuation is the whole point of the stock dialog (Stock Reconciliation rows carry it),
+    # so it is not withheld by role; reading the stock doctype is what entitles a user to it.
+    frappe.has_permission(doctype, "read", throw=True)
 
     # Parse items input
     if isinstance(items, str):

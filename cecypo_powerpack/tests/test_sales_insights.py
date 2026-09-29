@@ -130,6 +130,14 @@ class TestSalesItemInsights(FrappeTestCase):
 		self.assertEqual(row["actual_qty"], 4)
 		self.assertAlmostEqual(row["valuation_rate"], 20)
 
+	def test_other_company_bins_are_ignored(self):
+		other_wh = frappe.db.get_value("Warehouse", {"company": ("!=", COMPANY), "is_group": 0}, "name")
+		code = _code()
+		_bin(code, other_wh, actual_qty=100, valuation_rate=999)
+		_, row = self._one(code, warehouse=None)
+		self.assertEqual(row["actual_qty"], 0)
+		self.assertIsNone(row["valuation_rate"])
+
 	def test_last_purchase_is_per_stock_uom_and_skips_returns_and_drafts(self):
 		code = _code()
 		_invoice("Purchase Invoice", "2026-01-01", code, base_net_rate=50, party="_Test Supplier")
@@ -194,15 +202,9 @@ class TestSalesItemInsights(FrappeTestCase):
 		_invoice("Sales Invoice", "2026-02-10", code, base_net_rate=90, party=CUSTOMER)
 		frappe.db.set_single_value("PowerPack Settings", "sales_visible_to_role", "Accounts Manager")
 		self._clear_settings_cache()
-		user = frappe.get_doc({
-			"doctype": "User",
-			"email": f"pp-insights-{frappe.generate_hash(length=6)}@example.com",
-			"first_name": "Sales Clerk",
-			"send_welcome_email": 0,
-			"roles": [{"role": "Sales User"}],
-		}).insert(ignore_permissions=True)
-		self.assertNotIn("Accounts Manager", frappe.get_roles(user.name))
-		frappe.set_user(user.name)
+		user = self._user(["Sales User"])
+		self.assertNotIn("Accounts Manager", frappe.get_roles(user))
+		frappe.set_user(user)
 		res, row = self._one(code)
 		self.assertFalse(res["can_see_cost"])
 		self.assertIsNone(row["valuation_rate"])
@@ -211,6 +213,45 @@ class TestSalesItemInsights(FrappeTestCase):
 		# stock and sales history are not cost data
 		self.assertEqual(row["actual_qty"], 5)
 		self.assertAlmostEqual(row["last_sale_rate"], 90)
+
+	def _user(self, roles, user_type="System User", company_permission=None):
+		user = frappe.get_doc({
+			"doctype": "User",
+			"email": f"pp-insights-{frappe.generate_hash(length=6)}@example.com",
+			"first_name": "Insights Test",
+			"user_type": user_type,
+			"send_welcome_email": 0,
+			"roles": [{"role": r} for r in roles],
+		}).insert(ignore_permissions=True)
+		if company_permission:
+			frappe.get_doc({
+				"doctype": "User Permission", "user": user.name, "allow": "Company",
+				"for_value": company_permission, "apply_to_all_doctypes": 1,
+			}).insert(ignore_permissions=True)
+		return user.name
+
+	def test_portal_users_are_refused(self):
+		code = _code()
+		frappe.set_user(self._user(["Customer"], user_type="Website User"))
+		with self.assertRaises(frappe.PermissionError):
+			self._call([(code, WH)], customer=CUSTOMER)
+
+	def test_users_without_read_on_the_doctype_are_refused(self):
+		code = _code()
+		frappe.set_user(self._user(["Stock User"]))
+		with self.assertRaises(frappe.PermissionError):
+			self._call([(code, WH)])
+
+	def test_a_user_limited_to_another_company_is_refused(self):
+		other = frappe.db.get_value("Company", {"name": ("!=", COMPANY)}, "name")
+		code = _code()
+		frappe.set_user(self._user(["Sales User"], company_permission=other))
+		with self.assertRaises(frappe.PermissionError):
+			self._call([(code, WH)], company=COMPANY)
+
+	def test_company_is_required(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._call([(_code(), WH)], company=None)
 
 	def test_disabled_doctype_is_refused(self):
 		frappe.db.set_single_value("PowerPack Settings", "enable_sales_order_powerup", 0)

@@ -36,7 +36,7 @@ Most features are toggled individually via **PowerPack Settings**; a few marked 
 
 **Powerup ▸ Show / Hide Item Insights** on a Quotation, Sales Order, Sales Invoice or POS Invoice. Under each item: stock, cost, last purchase, last sale and last sale to this customer, stated the way the row is priced (its UOM, the document currency, and incl. tax when rates include tax; `+` means tax is added on top). The badge is the row's margin; hover it for the working (net − cost = profit per unit, margin and markup).
 
-Margin is always profit ÷ net (ex-tax) sale, so the same deal shows the same margin whatever the tax template. The summary by the Items label covers only rows with a cost; **Costed 4/5** means one row has none (service item, no valuation) and is left out — hover it to see which. Cost figures (cost, last purchase, badge, summary) are only sent to users with the **Visible to Role** set in PowerPack Settings; the badge colour bands are set there too.
+Margin is always profit ÷ net (ex-tax) sale, so the same deal shows the same margin whatever the tax template. The summary by the Items label covers only rows with a cost; **Costed 4/5** means one row has none (service item, no valuation) and is left out — hover it to see which. Cost figures (cost, last purchase, badge, summary) are only sent to users with the **Visible to Role** set in PowerPack Settings, and only to desk users who can read that document type for its company and customer; the badge colour bands are set there too. The Bulk Selection dialog's cost column is likewise withheld server-side from anyone outside System, Stock, Accounts or Sales Master Manager.
 ##### Bulk Selection for QT/SO/SI + enhanced search
 ![](https://i.imgur.com/odv7pO5.gif)
 ##### Price List Importer

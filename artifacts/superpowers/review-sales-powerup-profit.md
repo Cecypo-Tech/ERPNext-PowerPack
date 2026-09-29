@@ -86,3 +86,34 @@ Both appear side by side. Fix: move the toggle into the `Powerup ▾` group.
    test or a node unit test of the pure functions.
 4. Batch endpoint + single debounced render (#7, #8), dedupe handlers (#14).
 5. UI items above.
+
+---
+
+## Implementation (branch feat/sales-powerup-profit)
+
+All of #1–#16 and the UI suggestions implemented. Verified: full
+`bench run-tests --app cecypo_powerpack` (341 tests, OK; 1 pre-existing Quick Pay skip),
+node suite `tests/js/profit_calculator.test.mjs` (14), browser on dev.localhost:
+POS-01217 shows 23.9% (was 20.6%); a new SI going from no tax to a 16% inclusive VAT row
+re-renders 34.4% → 23.9% with no item event; mixed-cost SI shows Costed 2/3 and a No cost
+chip; one request per form load; Powerup ▾ holds Show/Hide Item Insights + Copy as Message.
+
+### Code review (subagent) — findings and outcome
+- Important: new endpoint had no permission check beyond the feature flag (portal users,
+  users limited to another company could read per-customer sales history). **Fixed**:
+  desk users only; company required; probe-doc `has_permission(doctype, "read")` applies
+  role + User Permission (Company/Customer) checks. Tests for portal user, missing doctype
+  read, other-company User Permission, missing company.
+- Important: tax template changes never re-rendered (totals set by assignment). **Fixed**:
+  wrap `erpnext.taxes_and_totals.prototype.calculate_taxes_and_totals` once. Browser-verified.
+- Important: `get_bulk_item_details` returned valuation to anyone. **Fixed**: server
+  withholds it outside the dialog's own cost roles; both bulk endpoints now require read
+  on the doctype. Tests in `test_bulk_selection_cost.py`.
+- Minor fixed: Delete All / grid paging re-render (grid `change`), failed requests cached
+  for the TTL and permission refusals stop fetching, no badge/summary on credit notes,
+  uncosted list deduped, malformed `items` → validation error, no `+` on costs, cache prune,
+  other-company Bin test.
+- Minor not changed: toggle moves to the end of the dropdown when its label flips —
+  editing the label in place leaves Frappe's mobile menu copy stale; cosmetic.
+- Minor not changed: window-function history queries — 4 ms on dev; revisit with a date
+  bound if a large site is slow.

@@ -99,16 +99,18 @@ test("document profit leaves uncosted rows out of both sides", () => {
 			{ name: "b", item_code: "BOX", qty: 1, conversion_factor: 12, base_net_amount: 1200 },
 			{ name: "c", item_code: "SVC", qty: 1, conversion_factor: 1, base_net_amount: 500 },
 			{ name: "d", item_code: "", qty: 1 },
+			{ name: "e", item_code: "SVC", qty: 1, conversion_factor: 1, base_net_amount: 100 },
 		],
 	};
-	const r = calc.doc_profit(doc, { a: 60, b: 90, c: null });
+	const r = calc.doc_profit(doc, { a: 60, b: 90, c: null, e: null });
 	close(r.revenue, 1400);
 	close(r.cost, 120 + 1080);
 	close(r.profit, 200);
 	close(r.margin, 14.29);
 	close(r.markup, 16.67);
 	assert.equal(r.costed, 2);
-	assert.equal(r.total, 3);
+	assert.equal(r.total, 4);
+	// listed once however many rows it is on
 	assert.deepEqual([...r.uncosted], ["SVC"]);
 });
 
