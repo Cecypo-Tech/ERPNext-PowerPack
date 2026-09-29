@@ -32,14 +32,20 @@
 
 		const lines = [
 			`${doc.supplier_name || doc.supplier || __('Supplier')},`,
-			__('Purchase Order {0} dated {1}', [doc.name, frappe.datetime.str_to_user(doc.transaction_date)]),
+			__('Purchase Order {0} from {1} dated {2}', [
+				doc.name, doc.company, frappe.datetime.str_to_user(doc.transaction_date),
+			]),
 		];
 		if (doc.schedule_date) {
 			lines.push(__('Required By: {0}', [frappe.datetime.str_to_user(doc.schedule_date)]));
 		}
-		lines.push(__('Items: {0}', [(doc.items || []).length]));
 		lines.push(__('Total: {0}', [format_currency(flt(doc.rounded_total || doc.grand_total), doc.currency)]));
-		if (doc.docstatus === 0) lines.push(__('Status: {0}', [__('Draft')]));
+		// Only states the supplier must act on; "To Receive and Bill" and the like are ours.
+		if (doc.docstatus === 0) {
+			lines.push(__('Status: {0}', [__('Draft')]));
+		} else if (['On Hold', 'Closed'].includes(doc.status)) {
+			lines.push(__('Status: {0}', [__(doc.status)]));
+		}
 		lines.push(__('View it here: {0}', [url]));
 
 		await copy(lines.join('\n') + notes(doc.company));
