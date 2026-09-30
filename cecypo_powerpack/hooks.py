@@ -91,7 +91,9 @@ doctype_js = {
 # Website Route Rules
 # -------------------
 website_route_rules = [
-	{"from_route": "/s/<token>", "to_route": "s"},
+	# path: tokens minted before build_public_link cleaned names can contain "/"
+	# (LPO/26/09/00109-Fq0R); the default converter stops at the first one.
+	{"from_route": "/s/<path:token>", "to_route": "s"},
 ]
 
 # Jinja

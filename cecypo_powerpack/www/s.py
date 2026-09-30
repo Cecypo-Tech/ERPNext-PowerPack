@@ -1,6 +1,6 @@
 """
 Public document viewer for PowerPack short links.
-Handles URLs of the form /s/{doc.name}-{4-char-token}
+Handles URLs of the form /s/{doc.name, URL-safe}-{4-char-token}
 
 - If PowerPack Settings.public_link_page is set, redirects to that Builder page
   with ?t=<token> so the Builder component handles the display.
