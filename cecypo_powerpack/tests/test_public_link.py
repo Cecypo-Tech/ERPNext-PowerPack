@@ -71,3 +71,55 @@ class TestGetDocumentPublicLink(FrappeTestCase):
 		frappe.set_user("Guest")
 
 		self.assertIn("/s/", jinja_fn(DOCTYPE, NAME))
+
+
+class TestShortLinkRoute(FrappeTestCase):
+	"""Tokens start with the document name, and names can contain "/" (LPO/26/09/00109).
+
+	Tokens minted before names were cleaned up are still in the wild - the route has to
+	match them across path segments, or the link a customer already sent 404s.
+	"""
+
+	def _match(self, path):
+		from werkzeug.exceptions import NotFound
+		from werkzeug.routing import Map, Rule
+
+		rules = [
+			Rule(r["from_route"], endpoint=r["to_route"])
+			for r in frappe.get_hooks("website_route_rules", app_name="cecypo_powerpack")
+		]
+		try:
+			return Map(rules).bind("localhost").match(path)
+		except NotFound:
+			return None
+
+	def test_a_plain_token_resolves(self):
+		self.assertEqual(self._match("/s/QTN-0001-x7kQ"), ("s", {"token": "QTN-0001-x7kQ"}))
+
+	def test_a_token_containing_slashes_resolves(self):
+		self.assertEqual(
+			self._match("/s/LPO/26/09/00109-Fq0R"), ("s", {"token": "LPO/26/09/00109-Fq0R"})
+		)
+
+
+class TestTokenForNamesWithSlashes(FrappeTestCase):
+	"""A new token keeps the name readable but drops characters that break a URL."""
+
+	SLASHED = "PP/Slash Test/00109"
+
+	def setUp(self):
+		if not frappe.db.exists("Role", self.SLASHED):
+			frappe.get_doc({"doctype": "Role", "role_name": self.SLASHED}).insert(ignore_permissions=True)
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def test_new_token_is_url_safe_and_still_resolves(self):
+		from cecypo_powerpack.api import build_public_link, get_short_link_target
+
+		url = build_public_link(frappe.get_doc("Role", self.SLASHED))
+		token = url.rsplit("/s/", 1)[1]
+
+		self.assertRegex(token, r"^PP-Slash-Test-00109-[A-Za-z0-9]{4}$")
+		target = get_short_link_target(token)
+		self.assertEqual((target["doctype"], target["name"]), ("Role", self.SLASHED))

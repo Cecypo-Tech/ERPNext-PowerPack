@@ -1071,12 +1071,16 @@ def build_public_link(doc):
 	Generates (or reuses) a PowerPack Short Link record with a token of the
 	form ``{name}-{4-char-random}`` and returns a URL like:
 	    https://yoursite.com/s/QTN-0001-x7kQ
+	Characters in the name outside ``[A-Za-z0-9._-]`` become ``-``, so a name like
+	``LPO/26/09/00109`` gives ``LPO-26-09-00109-x7kQ``. A reused token is returned as
+	stored - older ones may still contain "/", which the ``<path:token>`` route accepts.
 
 	The short link redirects to the full document URL secured by a share key.
 	Compatible with both v15 (signature-based) and v16+ (DocumentShareKey).
 	On v15 sites, System Settings must have allow_older_web_view_links enabled.
 	"""
 	import random
+	import re
 	import string
 
 	doctype, name = doc.doctype, doc.name
@@ -1101,9 +1105,10 @@ def build_public_link(doc):
 
 	# Generate a unique 4-char alphanumeric suffix
 	chars = string.ascii_letters + string.digits
+	slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "doc"
 	for _ in range(10):
 		suffix = "".join(random.choices(chars, k=4))
-		token = f"{name}-{suffix}"
+		token = f"{slug}-{suffix}"
 		if not frappe.db.exists("PowerPack Short Link", token):
 			break
 
