@@ -44,11 +44,17 @@ class TestStitchPages(FrappeTestCase):
 
 		self.assertEqual(image.height, 100 + 100 + 30 + copy_as_image.TRIM_MARGIN)
 
-	def test_keeps_a_blank_last_page_whole(self):
-		# Nothing to trim to - don't collapse it to zero height.
-		image = stitch_pages([_page(100), _page(100, ink_until=0)])
+	def test_drops_blank_pages_at_the_end(self):
+		# A format ending in a page break leaves an empty last page - not a blank A4 in chat.
+		image = stitch_pages([_page(100), _page(100, ink_until=30), _page(100, ink_until=0), _page(100, ink_until=0)])
 
-		self.assertEqual(image.height, 200)
+		self.assertEqual(image.height, 100 + 30 + copy_as_image.TRIM_MARGIN)
+
+	def test_keeps_one_page_when_every_page_is_blank(self):
+		# Nothing to trim to - don't collapse it to zero height.
+		image = stitch_pages([_page(100, ink_until=0), _page(100, ink_until=0)])
+
+		self.assertEqual(image.height, 100)
 
 
 class TestPdfToPng(FrappeTestCase):
@@ -67,6 +73,31 @@ class TestPdfToPng(FrappeTestCase):
 		full = Image.open(io.BytesIO(pdf_to_png(_pdf(MAX_PAGES))))
 
 		self.assertEqual(capped.height, full.height)
+
+
+def _call(doctype, name, **kwargs):
+	# The render itself is covered above; here only the guard and the response matter.
+	with patch.object(copy_as_image, "pdf_to_png", return_value=PNG_MAGIC + b"png"):
+		with patch.object(frappe, "get_print", return_value=b"%PDF") as get_print:
+			get_print_image(doctype, name, **kwargs)
+	return get_print
+
+
+class TestGetPrintImageGuards(FrappeTestCase):
+	"""Checked before the document is loaded, so they need none on the site."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def test_refuses_doctypes_outside_the_four(self):
+		with self.assertRaises(frappe.ValidationError):
+			_call("User", "Administrator")
+
+	def test_refuses_when_the_setting_is_off(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_copy_as_image", 0)
+
+		with self.assertRaises(frappe.ValidationError):
+			_call("Sales Invoice", "does-not-matter")
 
 
 class TestGetPrintImage(FrappeTestCase):
@@ -91,15 +122,12 @@ class TestGetPrintImage(FrappeTestCase):
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
-	def _call(self, doctype="Sales Invoice", **kwargs):
-		# The render itself is covered above; here only the guard and the response matter.
-		with patch.object(copy_as_image, "pdf_to_png", return_value=PNG_MAGIC + b"png"):
-			with patch.object(frappe, "get_print", return_value=b"%PDF") as get_print:
-				get_print_image(doctype, self.name, **kwargs)
-		return get_print
+	def _call(self, **kwargs):
+		return _call("Sales Invoice", self.name, **kwargs)
 
 	def test_returns_the_png_inline(self):
-		self._call()
+		# Named, because a site's default format may be a raw (ESC/P) one, which is refused.
+		self._call(print_format="Standard")
 
 		response = frappe.local.response
 		self.assertEqual(response.filecontent, PNG_MAGIC + b"png")
@@ -119,18 +147,42 @@ class TestGetPrintImage(FrappeTestCase):
 		self.assertEqual(kwargs["no_letterhead"], 1)
 		self.assertIn(kwargs["pdf_generator"], ("wkhtmltopdf", "chrome"))
 
+	def test_renders_with_the_print_settings_ticked_in_the_preview_sidebar(self):
+		# Compact Item Print etc. reach printview through form_dict.settings, as with the PDF button.
+		seen = {}
+
+		def get_print(*args, **kwargs):
+			seen["settings"] = frappe.form_dict.get("settings")
+			return b"%PDF"
+
+		settings = '{"compact_item_print": 1}'
+		with patch.object(copy_as_image, "pdf_to_png", return_value=PNG_MAGIC):
+			with patch.object(frappe, "get_print", side_effect=get_print):
+				get_print_image("Sales Invoice", self.name, print_format="Standard", settings=settings)
+
+		self.assertEqual(seen["settings"], settings)
+
+	def test_refuses_a_raw_printing_format(self):
+		# ESC/P and ESC/POS formats are printer commands; there is no PDF to picture.
+		frappe.get_doc(
+			{
+				"doctype": "Print Format",
+				"name": "PP Copy as Image Raw Test",
+				"doc_type": "Sales Invoice",
+				"standard": "No",
+				"custom_format": 1,
+				"raw_printing": 1,
+				"raw_commands": "ESC @",
+			}
+		).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self._call(print_format="PP Copy as Image Raw Test")
+		self.assertIn("raw printing", str(caught.exception))
+
 	def test_refuses_a_user_who_cannot_print_the_document(self):
 		frappe.set_user(NO_ACCESS_USER)
 
 		with self.assertRaises(frappe.PermissionError):
 			self._call()
 
-	def test_refuses_doctypes_outside_the_four(self):
-		with self.assertRaises(frappe.ValidationError):
-			self._call(doctype="User")
-
-	def test_refuses_when_the_setting_is_off(self):
-		frappe.db.set_single_value("PowerPack Settings", "enable_copy_as_image", 0)
-
-		with self.assertRaises(frappe.ValidationError):
-			self._call()

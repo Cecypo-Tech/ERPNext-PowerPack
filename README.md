@@ -52,7 +52,7 @@ These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that Pow
 ##### Copy as Image (QT/SO/SI/PO)
 **Powerup ▸ Copy as Image** on a Quotation, Sales Order, Sales Invoice or Purchase Order puts a picture of the document's print on the clipboard — paste it straight into WhatsApp, Telegram or any chat. The print preview (`/app/print/…`) of those documents gets a **Copy as Image** button too, which uses the print format, letterhead and language selected there; the form button uses the defaults.
 
-The image is rendered on the server from the same PDF the **PDF** button downloads, so it looks exactly like the print. Every page is stacked into one tall image (up to 10 pages) and blank space below the last page's content is trimmed. It needs Print permission on the document. If the browser cannot put an image on the clipboard, the PNG is downloaded instead. Switch it off with **Enable Copy as Image** in PowerPack Settings ▸ Sales & POS.
+The image is rendered on the server from the same PDF the **PDF** button downloads, so it looks exactly like the print. Every page is stacked into one tall image (up to 10 pages), and blank pages and space at the end are trimmed. It shows the saved document, so save first, and it needs Print permission. Raw printing formats (ESC/P, ESC/POS) are printer commands with nothing to picture: if a doctype's default format is one, use the print preview and pick another. If the browser cannot put an image on the clipboard, the PNG is downloaded instead. Switch it off with **Enable Copy as Image** in PowerPack Settings ▸ Sales & POS.
 
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!

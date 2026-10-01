@@ -38,3 +38,26 @@ Scope: `copy_as_image.py`, `public/js/copy_as_image.js`, PowerPack Settings
 ## Deploy
 `bench migrate` (new Check field + patch that turns it on) and
 `bench build --app cecypo_powerpack` (new bundle import).
+
+## Independent review (code-reviewer subagent) and fixes
+Verdict: "With fixes". All findings verified against frappe source before acting.
+- Important - print preview menu item duplicated, and add_button's own mobile item never
+  hidden (shown on every doctype below 992px, even with the setting off). Cause:
+  `add_dropdown_item` dedupes on `span[data-label]`, which its template never sets.
+  FIXED: find add_button's item by label; e2e at 375px and 1400px: exactly 1 button + 1 item,
+  hidden on User / raw formats, shown on Quotation.
+- Important - preview sidebar print settings (Compact Item Print...) not sent. FIXED: client
+  sends `settings` (view.additional_settings), server puts it on form_dict as the PDF button
+  does; unit test. (These controls do not render on dev's print page, so not browser-toggled.)
+- Minor - no concurrency cap. FIXED: `frappe.concurrent_limit()` where it exists (v16.33+;
+  no-op getattr fallback, since the app supports frappe >=15) + client ignores clicks while
+  a copy is running (e2e: triple click -> 1 request).
+- Minor - pypdfium2 undeclared. FIXED: pyproject dependency.
+- Minor - blank trailing pages kept. FIXED: dropped (at least one page kept); tests.
+- Minor - raw-printing formats. FIXED and upgraded: server refuses them with a clear message
+  (dev's Sales Invoice default IS raw - `Calibration Grid - ESC/P` - so the form button there
+  says to choose another format); preview button hidden while a raw format is selected
+  (patched toggle_raw_printing + re-check after show() settles).
+- Minor - unsaved form copies saved version. FIXED: asks to save first.
+- Minor - fallback wording. FIXED: "Could not copy the image, so it was downloaded instead".
+- Minor - guard tests skipped without data. FIXED: allow-list and gate tests need no document.

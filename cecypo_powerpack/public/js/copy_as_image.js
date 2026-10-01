@@ -19,6 +19,9 @@ cecypo_powerpack.copy_as_image = {
 	// during the click, so the ClipboardItem is handed the pending fetch right away
 	// rather than created after the image arrives.
 	copy(args) {
+		// A render takes a few seconds and holds a server worker; ignore repeat clicks.
+		if (this.busy) return;
+		this.busy = true;
 		frappe.show_alert({ message: __('Preparing image…'), indicator: 'blue' }, 10);
 
 		const png = this.fetch_png(args);
@@ -32,19 +35,23 @@ cecypo_powerpack.copy_as_image = {
 		written
 			.then(() => frappe.show_alert({ message: __('Image copied'), indicator: 'green' }))
 			.catch(() =>
-				// Either the browser cannot put an image on the clipboard, or the render
-				// failed. Download it in the first case; say why in the second.
+				// Either the clipboard refused the image (an older browser, or the tab lost
+				// focus while it rendered), or the render failed. Download it in the first
+				// case; say why in the second.
 				png.then(
 					(blob) => {
 						this.download(blob, args.name);
 						frappe.show_alert({
-							message: __('This browser cannot copy images, so it was downloaded instead'),
+							message: __('Could not copy the image, so it was downloaded instead'),
 							indicator: 'orange',
 						});
 					},
 					(e) => frappe.msgprint(e.message || __('Failed to create the image'))
 				)
-			);
+			)
+			.finally(() => {
+				this.busy = false;
+			});
 	},
 
 	async fetch_png(args) {
@@ -92,7 +99,18 @@ cecypo_powerpack.copy_as_image = {
 		const show = PrintView.prototype.show;
 		PrintView.prototype.show = function (frm) {
 			const result = show.apply(this, arguments);
-			cecypo_powerpack.copy_as_image.setup_print_view_button(this);
+			const me = cecypo_powerpack.copy_as_image;
+			me.setup_print_view_button(this);
+			// show() picks this document's print format in async tasks; look again once set.
+			Promise.resolve(result).then(() => me.update_print_view_button(this));
+			return result;
+		};
+		// Runs whenever the print format changes. A raw-printing format has no PDF, and
+		// frappe hides its own PDF button for one, so hide this too.
+		const toggle_raw_printing = PrintView.prototype.toggle_raw_printing;
+		PrintView.prototype.toggle_raw_printing = function () {
+			const result = toggle_raw_printing.apply(this, arguments);
+			cecypo_powerpack.copy_as_image.update_print_view_button(this);
 			return result;
 		};
 		return PrintView;
@@ -110,19 +128,32 @@ cecypo_powerpack.copy_as_image = {
 					letterhead: view.with_letterhead() ? view.get_letterhead() : '',
 					no_letterhead: view.with_letterhead() ? 0 : 1,
 					lang: view.lang_code,
+					// The sidebar's Compact Item Print etc., as the PDF button sends them.
+					settings: JSON.stringify(view.additional_settings || {}),
 				});
 			const $button = view.page.add_button(label, click, { icon: 'image' });
-			// add_button also adds a mobile menu item; asking again returns that same item.
-			const $item = view.page.add_menu_item(label, click, false).parent();
+			// add_button also adds a menu item for narrow screens (the toolbar is hidden
+			// there). It returns only the button, so find that item by its label.
+			const $item = view.page.menu
+				.find('.menu-item-label')
+				.filter((i, el) => el.textContent.trim() === label)
+				.closest('li');
 			view._pp_copy_image = $button.add($item);
 		}
 
 		// One PrintView serves every document, so decide per document.
-		view._pp_copy_image.toggle(false);
+		view._pp_copy_image_allowed = false;
+		this.update_print_view_button(view);
 		if (!this.DOCTYPES.includes(view.frm.doctype)) return;
 		CecypoPowerPack.Settings.isEnabled('enable_copy_as_image', (enabled) => {
-			view._pp_copy_image.toggle(!!enabled && this.DOCTYPES.includes(view.frm.doctype));
+			view._pp_copy_image_allowed = !!enabled && this.DOCTYPES.includes(view.frm.doctype);
+			this.update_print_view_button(view);
 		});
+	},
+
+	update_print_view_button(view) {
+		if (!view._pp_copy_image) return;
+		view._pp_copy_image.toggle(!!view._pp_copy_image_allowed && !view.is_raw_printing());
 	},
 };
 
@@ -137,7 +168,14 @@ cecypo_powerpack.copy_as_image = {
 					if (!enabled) return;
 					frm.add_custom_button(
 						__('Copy as Image'),
-						() => me.copy({ doctype: frm.doc.doctype, name: frm.doc.name }),
+						() => {
+							// The image is rendered from the saved document.
+							if (frm.is_dirty()) {
+								frappe.msgprint(__('Save the document first: the image shows the saved version.'));
+								return;
+							}
+							me.copy({ doctype: frm.doc.doctype, name: frm.doc.name });
+						},
 						__('Powerup')
 					);
 				});
