@@ -9,3 +9,4 @@ cecypo_powerpack.patches.v1.default_qp_update_stock
 cecypo_powerpack.patches.v1.add_mpesa_c2b_index
 cecypo_powerpack.patches.v1.default_email_group_powerup
 cecypo_powerpack.patches.v1.default_sales_margin_bands
+cecypo_powerpack.patches.v1.default_copy_as_image

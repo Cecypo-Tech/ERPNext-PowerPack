@@ -25,3 +25,4 @@ import "./bulk_selection.js";
 import "./payment_reconciliation_powerup.js";
 import "./lens_powerup.js";
 import "./price_import_powerup.js";
+import "./copy_as_image.js";

@@ -49,6 +49,11 @@ On a **Purchase Order** the message is for the supplier: PO number, your company
 
 These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that PowerPack creates only when missing. They belong to your site: edit them, or untick **Enabled** to switch one off — updates never overwrite them. To get the latest shipped version, delete the script and run `bench migrate`. The older hand-made `SI - Copy to Clipboard` script is disabled (not deleted) when they are created, so copy its bank details across.
 
+##### Copy as Image (QT/SO/SI/PO)
+**Powerup ▸ Copy as Image** on a Quotation, Sales Order, Sales Invoice or Purchase Order puts a picture of the document's print on the clipboard — paste it straight into WhatsApp, Telegram or any chat. The print preview (`/app/print/…`) of those documents gets a **Copy as Image** button too, which uses the print format, letterhead and language selected there; the form button uses the defaults.
+
+The image is rendered on the server from the same PDF the **PDF** button downloads, so it looks exactly like the print. Every page is stacked into one tall image (up to 10 pages) and blank space below the last page's content is trimmed. It needs Print permission on the document. If the browser cannot put an image on the clipboard, the PNG is downloaded instead. Switch it off with **Enable Copy as Image** in PowerPack Settings ▸ Sales & POS.
+
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
 ![](https://i.imgur.com/mBs8uZc.png)
