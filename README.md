@@ -54,6 +54,9 @@ These are ordinary Client Scripts (`PowerPack - Copy as Message (…)`) that Pow
 
 The image is rendered on the server from the same PDF the **PDF** button downloads, so it looks exactly like the print. Every page is stacked into one tall image (up to 10 pages), and blank pages and space at the end are trimmed. It shows the saved document, so save first, and it needs Print permission. Raw printing formats (ESC/P, ESC/POS) are printer commands with nothing to picture: if a doctype's default format is one, use the print preview and pick another. If the browser cannot put an image on the clipboard, the PNG is downloaded instead. Switch it off with **Enable Copy as Image** in PowerPack Settings ▸ Sales & POS.
 
+##### Rate Price Picker (QT/SO/SI)
+Click or tab into an item's **Rate** on a Quotation, Sales Order or Sales Invoice and a dropdown lists that item's price on every enabled selling price list in the document's currency (for the row's UOM, customer-specific and dated prices respected, as ERPNext would fetch them), then an editable **Custom Price** when you are allowed to change the rate. ↑/↓ and Enter pick, Esc closes, Alt+↓ reopens, and typing straight into Rate keeps your own figure. Picking a list price sets it as the row's list price with no discount or margin; Custom Price sets the rate as if typed. With **Minimum Selling Price** on, prices below the floor are tagged *below min* (saving still runs the normal check). As in ERPNext, changing Qty afterwards re-applies the document's price list, so pick after setting Qty. Off by default: **Enable Rate Price Picker** in PowerPack Settings ▸ Sales & POS.
+
 ##### Minimum Selling Price
 Ensure profitable margin targets based off valuation or last purchase price. Easily manage all your items by simply setting the floor %age per Item Group!
 ![](https://i.imgur.com/mBs8uZc.png)

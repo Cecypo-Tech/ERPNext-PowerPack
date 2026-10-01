@@ -26,3 +26,4 @@ import "./payment_reconciliation_powerup.js";
 import "./lens_powerup.js";
 import "./price_import_powerup.js";
 import "./copy_as_image.js";
+import "./rate_price_picker.js";
