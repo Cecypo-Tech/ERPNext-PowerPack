@@ -67,6 +67,7 @@ The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory an
 | `cecypo_powerpack/custom_payment_reconciliation.py` | `CustomPaymentReconciliation` class extending ERPNext's `PaymentReconciliation` |
 | `cecypo_powerpack/sales_insights.py` | Sales Powerup data: one call for all rows, values normalised to company currency / ex tax / per stock UOM; cost fields withheld server-side without `sales_visible_to_role` |
 | `cecypo_powerpack/copy_as_image.py` | Copy as Image: renders the print PDF to one stacked PNG (pypdfium2) for `public/js/copy_as_image.js`, which writes it to the clipboard from the form Powerup menu and the print preview toolbar |
+| `cecypo_powerpack/rate_price_picker.py` | Rate Price Picker data: an item's price per selling list via ERPNext's `get_price_list_rate_for` (pass `qty`, or it drops an exact-UOM match), plus a below-floor flag from `min_selling_price.row_floor` - never the floor itself |
 | `cecypo_powerpack/permission_manager.py` | Server side of the Permission Manager page: read all rules, preview/commit a batched change set |
 | `cecypo_powerpack/cecypo_powerpack/page/powerpack_permissions/` | The Permission Manager desk page (`/app/powerpack-permissions`) |
 | `cecypo_powerpack/cecypo_powerpack/doctype/powerpack_settings/` | Singleton DocType definition |
@@ -115,6 +116,7 @@ app. The JS hash is stable.
 - `bulk_selection.js` — Bulk item selection dialog for sales documents
 - `profit_calculator.js` — Pure margin maths (Node tests in `tests/js/`, run by `test_profit_calculator_js.py`). One basis: company currency, ex tax, `base_net_rate` vs `valuation_rate × conversion_factor`; margin = profit ÷ net sale regardless of tax template
 - `copy_as_image.js` — Copy as Image on QT/SO/SI/PO forms and print preview. Patches `frappe.ui.form.PrintView` through a property setter, because the print page defines that class after the bundle loads
+- `rate_price_picker.js` — Rate Price Picker dropdown on the items grid Rate. Keys and the read-only cell are handled in the capture phase: frappe's grid navigation (Up/Down/Enter) and a disabled input's swallowed clicks otherwise win. Custom Price availability comes from the document state, not the grid DOM, which may be mid-redraw
 - `payment_reconciliation_powerup.js` — "Zero Allocate" button for Payment Reconciliation
 
 ### Server-Side Extension Points
@@ -234,6 +236,7 @@ SCSS sources (plain CSS or nested), imported by `cecypo_powerpack.bundle.scss` �
 - `quick_pay.scss` — Quick Pay dialog
 - `lens_powerup.scss` — Lens powerup panels
 - `powerpack_permissions.scss` — Permission Manager page
+- `rate_price_picker.scss` — Rate Price Picker dropdown
 
 ## Skill routing
 

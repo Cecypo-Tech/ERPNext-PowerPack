@@ -107,6 +107,38 @@ def _judged_rows(doc, settings, rules, default_basis, default_percent):
 		yield item, chosen, has_override
 
 
+def row_floor(doctype, company, item_code, conversion_factor=1, warehouse=None, has_pricing_rule=False):
+	"""The floor for one row's net rate in company currency, per the row's UOM, or None.
+
+	For showing a price against the floor before it is entered (Rate Price Picker). Same
+	rules as the validator's per-row check: None when the feature is off, no rule covers
+	the item's group, whole-sale mode leaves the group to the sale gate, the row has a
+	Pricing Rule and those are exempt, or there is no cost.
+	"""
+	if not is_feature_enabled("enable_min_selling_price"):
+		return None
+	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
+	if cint(has_pricing_rule) and settings.get("min_selling_price_skip_if_pricing_rule"):
+		return None
+	rules = _build_rules(settings)
+	default_basis = settings.get("min_selling_price_default_basis") or "Valuation Rate"
+	default_percent = flt(settings.get("min_selling_price_default_percent"))
+	chain = _group_chain(frappe.get_cached_value("Item", item_code, "item_group"))
+	chosen = pick_rule(chain, rules, default_basis, default_percent)
+	if not chosen:
+		return None
+	if cint(settings.get("min_selling_price_whole_sale")) and not any(group in rules for group in chain):
+		return None
+
+	basis, percent = chosen
+	row = frappe._dict(item_code=item_code, conversion_factor=flt(conversion_factor) or 1.0, warehouse=warehouse)
+	rate_field = "valuation_rate" if doctype in ("Sales Order", "Quotation") else "incoming_rate"
+	basis_rate = _basis_rate(frappe._dict(company=company), row, basis, rate_field)
+	if basis_rate <= 0:
+		return None
+	return compute_floor(basis_rate, percent, frappe.get_precision(f"{doctype} Item", "base_net_rate"))
+
+
 def judged_items(doc):
 	"""The rows the floor applies to under the current settings (for approval snapshots)."""
 	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)

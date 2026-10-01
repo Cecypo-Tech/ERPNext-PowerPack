@@ -63,6 +63,8 @@
   "lens_description",
   "copy_as_image_section",
   "enable_copy_as_image",
+  "rate_price_picker_section",
+  "enable_rate_price_picker",
   "pricing_tab",
   "min_selling_price_section",
   "enable_min_selling_price",
@@ -466,6 +468,18 @@
    "fieldname": "enable_copy_as_image",
    "fieldtype": "Check",
    "label": "Enable Copy as Image"
+  },
+  {
+   "fieldname": "rate_price_picker_section",
+   "fieldtype": "Section Break",
+   "label": "Rate Price Picker"
+  },
+  {
+   "default": "0",
+   "description": "On Quotation, Sales Order and Sales Invoice, focusing an item's Rate opens a dropdown of that item's price on each selling price list (in the document's currency), plus an editable Custom Price when the rate can be edited. Prices below the Minimum Selling Price floor are marked.",
+   "fieldname": "enable_rate_price_picker",
+   "fieldtype": "Check",
+   "label": "Enable Rate Price Picker"
   },
   {
    "fieldname": "pricing_tab",
