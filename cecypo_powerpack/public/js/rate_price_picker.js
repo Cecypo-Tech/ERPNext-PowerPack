@@ -19,8 +19,9 @@ cecypo_powerpack.rate_price_picker = {
 	RATE_CELL: '.grid-row .grid-static-col[data-fieldname="rate"]',
 	WIDTH: 260,
 
-	popup: null, // { $el, options, index, cdt, cdn, anchor }
+	popup: null, // { $el, lines, index, cdt, cdn, anchor, frm, can_pick, set_list_price }
 	loading: null, // row name being fetched: the click and the focus that follows both ask
+	skip_focus: null,
 	cache: new Map(),
 
 	enabled_for(frm) {
@@ -33,6 +34,7 @@ cecypo_powerpack.rate_price_picker = {
 		const grid = frm.fields_dict.items && frm.fields_dict.items.grid;
 		const $row = $(el).closest('.grid-row');
 		const cdn = $row.attr('data-name');
+		// Only the form's own items grid: the Taxes grid has a `rate` column too.
 		if (!grid || !cdn || !$row.closest(grid.wrapper).length) return null;
 		const row = locals[grid.doctype] && locals[grid.doctype][cdn];
 		return row && row.item_code ? { frm, row } : null;
@@ -59,6 +61,7 @@ cecypo_powerpack.rate_price_picker = {
 			// The row's net / gross: inclusive taxes and the document discount, so the
 			// floor flag is judged like the check on save. 1 until the row has a rate.
 			net_factor: rate ? flt(row.net_rate) / rate || 1 : 1,
+			has_pricing_rule: row.pricing_rules ? 1 : 0,
 		};
 	},
 
@@ -78,6 +81,25 @@ cecypo_powerpack.rate_price_picker = {
 		return this.cache.get(key);
 	},
 
+	// Whether a pick may change this row's rate at all: a draft, and write permission at the
+	// rate's permlevel - without it frappe resets the rate on save, so a pick would not stick.
+	// A rate that is only read-only (fixed price) still allows choosing among the lists.
+	can_pick(frm) {
+		const df = frm.fields_dict.items.grid.get_docfield('rate');
+		return (
+			frm.doc.docstatus === 0 &&
+			!!df &&
+			frappe.perm.has_perm(frm.doctype, df.permlevel || 0, 'write', frm.doc)
+		);
+	},
+
+	// Custom Price: only where the user could type a rate. Decided from the document, not the
+	// grid's DOM, which may be mid-redraw.
+	rate_editable(frm) {
+		const df = frm.fields_dict.items.grid.get_docfield('rate');
+		return this.can_pick(frm) && !df.read_only;
+	},
+
 	async open(el, editable_input) {
 		const ctx = this.row_for(el);
 		if (!ctx) return;
@@ -85,40 +107,34 @@ cecypo_powerpack.rate_price_picker = {
 		if ((this.popup && this.popup.cdn === row.name) || this.loading === row.name) return;
 		this.close();
 
+		// If the user types while prices load, the dropdown must not open over their figure.
+		const typed_before = editable_input ? editable_input.value : null;
 		this.loading = row.name;
-		let options;
+		let data;
 		try {
-			options = await this.fetch(this.args(frm, row));
+			data = await this.fetch(this.args(frm, row));
 		} catch (e) {
 			return;
 		} finally {
 			this.loading = null;
 		}
-		// The rate field may have lost focus while prices loaded.
-		if (editable_input && document.activeElement !== editable_input) return;
+		if (editable_input && (document.activeElement !== editable_input || editable_input.value !== typed_before)) {
+			return;
+		}
 
-		const lines = options.map((o) => ({ ...o, label: o.price_list }));
-		// Decided from the document, not the grid's DOM, which may be mid-redraw. Custom
-		// Price has its own input in the dropdown, so it needs no grid input either.
-		if (this.rate_editable(frm, row)) {
+		const can_pick = this.can_pick(frm);
+		const lines = data.options.map((o) => ({ ...o, label: o.price_list }));
+		if (this.rate_editable(frm)) {
 			lines.push({ label: __('Custom Price'), rate: flt(row.rate), custom: true });
 		}
 		if (!lines.length) return;
-		this.render(frm, row, lines, editable_input || el);
+		this.render(frm, row, lines, editable_input || el, can_pick, data.set_list_price);
 	},
 
-	rate_editable(frm, row) {
-		const df = frm.fields_dict.items.grid.get_docfield('rate');
-		return (
-			frm.doc.docstatus === 0 &&
-			!!df &&
-			!df.read_only &&
-			frappe.perm.has_perm(frm.doctype, df.permlevel || 0, 'write', frm.doc)
-		);
-	},
-
-	render(frm, row, lines, anchor) {
+	render(frm, row, lines, anchor, can_pick, set_list_price) {
 		const $el = $('<div class="pp-rate-picker" role="listbox"></div>').appendTo(document.body);
+		$el.toggleClass('pp-rate-picker-readonly', !can_pick);
+		const rate_precision = precision('rate', row);
 		lines.forEach((line, i) => {
 			const $line = $(`<div class="pp-rate-picker-line" role="option">
 					<span class="pp-rate-picker-label"></span>
@@ -129,11 +145,19 @@ cecypo_powerpack.rate_price_picker = {
 				$line.find('.pp-rate-picker-value').html(
 					`<input class="pp-rate-picker-custom" type="text" inputmode="decimal" autocomplete="off">`
 				);
-				$line.find('input').val(line.rate);
+				// In the user's number format: flt() reads it back with the same grouping,
+				// where a raw 600.5 would read as 6005 under #.###,##.
+				$line.find('input')
+					.val(format_number(line.rate, null, rate_precision))
+					.on('focus', () => {
+						if (this.popup) {
+							this.popup.index = i;
+							this.highlight();
+						}
+					});
 			} else {
 				$line.find('.pp-rate-picker-value').html(format_currency(line.rate, frm.doc.currency));
 				if (line.below_floor) {
-					$line.addClass('pp-below-floor');
 					$line.find('.pp-rate-picker-label').append(
 						` <span class="pp-rate-picker-tag">${__('below min')}</span>`
 					);
@@ -146,16 +170,27 @@ cecypo_powerpack.rate_price_picker = {
 			});
 		});
 
-		const r = anchor.getBoundingClientRect();
-		const height = lines.length * 38 + 12;
-		$el.css({
-			left: Math.max(8, Math.min(r.left, window.innerWidth - this.WIDTH - 8)),
-			...(r.bottom + height <= window.innerHeight
-				? { top: r.bottom + 4 }
-				: { bottom: window.innerHeight - r.top + 4 }),
-		});
-		this.popup = { $el, lines, index: 0, cdt: row.doctype, cdn: row.name, anchor, frm };
+		this.popup = {
+			$el, lines, index: 0, cdt: row.doctype, cdn: row.name, anchor, frm, can_pick, set_list_price,
+		};
+		this.position();
 		this.highlight();
+	},
+
+	// Pinned under (or above) the anchor; kept there while the page or grid scrolls.
+	position() {
+		const p = this.popup;
+		if (!p) return;
+		if (!document.body.contains(p.anchor)) return this.close();
+		const r = p.anchor.getBoundingClientRect();
+		if (r.bottom < 0 || r.top > window.innerHeight) return this.close();
+		const height = p.$el.outerHeight();
+		const below = r.bottom + height + 4 <= window.innerHeight || r.top < height + 4;
+		p.$el.css({
+			left: Math.max(8, Math.min(r.left, window.innerWidth - this.WIDTH - 8)),
+			top: below ? r.bottom + 4 : 'auto',
+			bottom: below ? 'auto' : window.innerHeight - r.top + 4,
+		});
 	},
 
 	close() {
@@ -171,6 +206,8 @@ cecypo_powerpack.rate_price_picker = {
 		const p = this.popup;
 		p.index = (p.index + step + p.lines.length) % p.lines.length;
 		this.highlight();
+		const $line = p.$el.find('.pp-rate-picker-line').eq(p.index);
+		$line[0].scrollIntoView({ block: 'nearest' });
 		const input = p.$el.find('.pp-rate-picker-custom')[0];
 		if (p.lines[p.index].custom) {
 			input.focus();
@@ -178,38 +215,66 @@ cecypo_powerpack.rate_price_picker = {
 			// typing prepends to the seeded rate instead of replacing it.
 			setTimeout(() => input.select(), 0);
 		} else if (input && document.activeElement === input) {
-			$(p.anchor).trigger('focus');
+			this.refocus(p.anchor);
 		}
 	},
 
 	async pick(i) {
-		const { lines, cdt, cdn, frm, anchor } = this.popup;
+		const { lines, cdt, cdn, frm, anchor, can_pick, set_list_price } = this.popup;
 		const line = lines[i];
-		const rate = line.custom ? flt(this.popup.$el.find('.pp-rate-picker-custom').val()) : line.rate;
+		let rate = line.rate;
+		if (line.custom) {
+			const typed = this.popup.$el.find('.pp-rate-picker-custom').val().trim();
+			if (!typed || isNaN(flt(typed))) {
+				this.close();
+				this.refocus(anchor);
+				return;
+			}
+			rate = flt(typed);
+		}
+		if (!can_pick) return; // the lines are for reference only
 		this.close();
-		if (frm.doc.docstatus !== 0) return;
 
-		if (!line.custom) {
+		const row = locals[cdt][cdn];
+		if (!line.custom && set_list_price) {
 			// A list price replaces the row's price outright: list price = picked price, no
-			// margin, no discount. ERPNext's own rate handler then derives the rest.
-			const row = locals[cdt][cdn];
+			// margin, no discount. ERPNext's rate handler finds nothing to derive.
 			Object.assign(row, {
 				price_list_rate: rate,
+				rate_with_margin: rate,
 				margin_type: '',
 				margin_rate_or_amount: 0,
 				discount_percentage: 0,
 				discount_amount: 0,
 			});
-			if (flt(row.rate) === rate) {
-				// No change event for an unchanged rate: run the handler ourselves.
-				await frm.script_manager.trigger('rate', cdt, cdn);
-				frm.dirty();
-				frm.refresh_field('items');
-				return;
-			}
 		}
-		await frappe.model.set_value(cdt, cdn, 'rate', rate);
+		if (flt(row.rate) === rate) {
+			// No change event for an unchanged rate: run the handler ourselves.
+			await frm.script_manager.trigger('rate', cdt, cdn);
+			frm.dirty();
+			frm.refresh_field('items');
+		} else {
+			// Without set_list_price (Stock Settings would write the list price back to the
+			// document's own list on save) a list pick is just a rate, as if typed.
+			await frappe.model.set_value(cdt, cdn, 'rate', rate);
+		}
 		this.refocus(anchor);
+	},
+
+	// Put focus back in the row's rate field without reopening the dropdown. Opened from a
+	// cell, the anchor is not focusable, so find the row's input.
+	refocus(anchor) {
+		const input =
+			anchor && anchor.matches && anchor.matches('input') && document.body.contains(anchor)
+				? anchor
+				: $(anchor).closest('.grid-row').find('input[data-fieldname="rate"]:not(:disabled)')[0];
+		if (!input || document.activeElement === input) return;
+		this.skip_focus = input;
+		input.focus();
+		// If focus did not land (input hidden mid-redraw), do not skip a later real focus.
+		setTimeout(() => {
+			if (this.skip_focus === input) this.skip_focus = null;
+		}, 0);
 	},
 
 	on_keydown(e) {
@@ -240,7 +305,9 @@ cecypo_powerpack.rate_price_picker = {
 			this.move(-1);
 		} else if (e.key === 'Enter') {
 			swallow();
-			this.pick(this.popup.index);
+			// Enter in the Custom Price box means that box, wherever the highlight is.
+			const custom = this.popup.lines.findIndex((l) => l.custom);
+			this.pick(in_custom && custom >= 0 ? custom : this.popup.index);
 		} else if (e.key === 'Escape') {
 			swallow();
 			const anchor = this.popup.anchor;
@@ -248,21 +315,7 @@ cecypo_powerpack.rate_price_picker = {
 			this.refocus(anchor);
 		} else if (e.key === 'Tab') {
 			this.close();
-		} else if (in_rate && e.key.length === 1) {
-			this.close(); // typing in the field is your own price
 		}
-	},
-
-	// Put focus back in the row's rate field without reopening the dropdown. Opened from a
-	// cell, the anchor is not focusable, so find the row's input.
-	refocus(anchor) {
-		const input =
-			anchor && anchor.matches && anchor.matches('input')
-				? anchor
-				: $(anchor).closest('.grid-row').find('input[data-fieldname="rate"]:not(:disabled)')[0];
-		if (!input || document.activeElement === input) return;
-		this.skip_focus = input;
-		input.focus();
 	},
 
 	on_mousedown(e) {
@@ -276,7 +329,7 @@ cecypo_powerpack.rate_price_picker = {
 			return;
 		}
 		const cell = t.closest(this.RATE_CELL);
-		if (!cell || (this.popup && this.popup.anchor === cell)) return;
+		if (!cell || !this.row_for(cell) || (this.popup && this.popup.anchor === cell)) return;
 		// Let the grid make the row editable first: clicking a row that is not yet in edit
 		// mode draws its inputs after this event. Never open from here when the rate is
 		// editable - only focus it, and its focusin opens - or a late open could land after
@@ -301,6 +354,8 @@ cecypo_powerpack.rate_price_picker = {
 			}
 			if (!e.target.disabled) this.open(e.target, e.target);
 		});
+		// Any edit of the field itself - typing, Backspace, paste - is the user's own price.
+		$(document).on('input', this.RATE_INPUT, () => this.close());
 		$(document).on('focusout', `${this.RATE_INPUT}, .pp-rate-picker-custom`, () => {
 			setTimeout(() => {
 				const p = this.popup;
@@ -309,9 +364,16 @@ cecypo_powerpack.rate_price_picker = {
 				}
 			}, 150);
 		});
-		// A fixed popup would drift away from its cell.
-		window.addEventListener('scroll', () => this.close(), true);
-		window.addEventListener('resize', () => this.close());
+		// Follow the cell rather than close: focusing a cell scrolls it into view, and a
+		// phone's keyboard resizes the window.
+		window.addEventListener(
+			'scroll',
+			(e) => {
+				if (this.popup && !this.popup.$el[0].contains(e.target)) this.position();
+			},
+			true
+		);
+		window.addEventListener('resize', () => this.position());
 		$(document).on('page-change', () => {
 			this.close();
 			this.cache.clear();

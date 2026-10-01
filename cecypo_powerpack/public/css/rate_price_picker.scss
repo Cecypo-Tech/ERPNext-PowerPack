@@ -9,6 +9,13 @@
 	border: 1px solid var(--border-color);
 	border-radius: var(--border-radius-lg, 10px);
 	box-shadow: var(--shadow-lg);
+	max-height: min(320px, calc(100vh - 16px));
+	overflow-y: auto;
+}
+
+// Rate the user may not change: the prices are shown for reference only.
+.pp-rate-picker-readonly .pp-rate-picker-line {
+	cursor: default;
 }
 
 .pp-rate-picker-line {

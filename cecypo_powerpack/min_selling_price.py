@@ -107,16 +107,19 @@ def _judged_rows(doc, settings, rules, default_basis, default_percent):
 		yield item, chosen, has_override
 
 
-def row_floor(doctype, company, item_code, conversion_factor=1, warehouse=None):
+def row_floor(doctype, company, item_code, conversion_factor=1, warehouse=None, has_pricing_rule=False):
 	"""The floor for one row's net rate in company currency, per the row's UOM, or None.
 
 	For showing a price against the floor before it is entered (Rate Price Picker). Same
 	rules as the validator's per-row check: None when the feature is off, no rule covers
-	the item's group, whole-sale mode leaves the group to the sale gate, or there is no cost.
+	the item's group, whole-sale mode leaves the group to the sale gate, the row has a
+	Pricing Rule and those are exempt, or there is no cost.
 	"""
 	if not is_feature_enabled("enable_min_selling_price"):
 		return None
 	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
+	if cint(has_pricing_rule) and settings.get("min_selling_price_skip_if_pricing_rule"):
+		return None
 	rules = _build_rules(settings)
 	default_basis = settings.get("min_selling_price_default_basis") or "Valuation Rate"
 	default_percent = flt(settings.get("min_selling_price_default_percent"))

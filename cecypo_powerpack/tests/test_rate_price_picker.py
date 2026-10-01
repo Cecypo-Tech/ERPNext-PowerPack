@@ -5,6 +5,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
+from unittest.mock import patch
+
 from cecypo_powerpack.rate_price_picker import get_rate_options
 
 COMPANY = "_Test Company"
@@ -76,7 +78,13 @@ def _options(item_code, **kwargs):
 		"net_factor": 1,
 	}
 	args.update(kwargs)
-	return get_rate_options(**args)
+	return get_rate_options(**args)["options"]
+
+
+def _deny(kwargs):
+	if kwargs.get("throw"):
+		raise frappe.PermissionError
+	return False
 
 
 def _by_list(options):
@@ -150,6 +158,16 @@ class TestRateOptions(RatePickerTestCase):
 
 		self.assertEqual(_by_list(_options(item, uom="Box", conversion_factor=12))[pl]["rate"], 540)
 
+	def test_a_variant_falls_back_to_its_templates_price(self):
+		template, variant = _item(), _item()
+		pl = _price_list()
+		_price(template, pl, 300)  # before it is a template: ERPNext refuses prices on one
+		frappe.db.set_value("Item", template, "has_variants", 1)
+		frappe.db.set_value("Item", variant, "variant_of", template)
+		frappe.clear_document_cache("Item", variant)
+
+		self.assertEqual(_by_list(_options(variant))[pl]["rate"], 300)
+
 	def test_expired_price_is_left_out(self):
 		item = _item()
 		pl = _price_list()
@@ -196,6 +214,13 @@ class TestBelowFloor(RatePickerTestCase):
 		# A Box of 12 floors at 1320; the Nos prices x 12 are 1260 and 1440.
 		self.assertEqual(self._flags(uom="Box", conversion_factor=12), {self.low: True, self.high: False})
 
+	def test_no_marks_on_a_pricing_rule_row_when_those_are_exempt(self):
+		frappe.db.set_single_value("PowerPack Settings", "min_selling_price_skip_if_pricing_rule", 1)
+		frappe.clear_document_cache("PowerPack Settings", "PowerPack Settings")
+
+		self.assertEqual(self._flags(has_pricing_rule=1), {self.low: False, self.high: False})
+		self.assertEqual(self._flags(has_pricing_rule=0), {self.low: True, self.high: False})
+
 	def test_no_marks_when_minimum_selling_price_is_off(self):
 		frappe.db.set_single_value("PowerPack Settings", "enable_min_selling_price", 0)
 		frappe.clear_document_cache("PowerPack Settings", "PowerPack Settings")
@@ -204,11 +229,20 @@ class TestBelowFloor(RatePickerTestCase):
 
 
 class TestGuards(RatePickerTestCase):
-	def test_refuses_when_the_setting_is_off(self):
+	def test_returns_nothing_when_the_setting_is_off(self):
+		# Not an error: a browser still holding the old setting would show a dialog on
+		# every Rate focus.
+		item = _item()
+		_price(item, _price_list(), 500)
 		frappe.db.set_single_value("PowerPack Settings", "enable_rate_price_picker", 0)
 
-		with self.assertRaises(frappe.ValidationError):
-			_options(_item())
+		self.assertEqual(_options(item), [])
+
+	def test_refuses_an_item_the_user_cannot_read(self):
+		item = _item()
+		with patch("frappe.has_permission", side_effect=lambda doctype, *a, **kw: doctype != "Item" or _deny(kw)):
+			with self.assertRaises(frappe.PermissionError):
+				_options(item)
 
 	def test_refuses_other_doctypes(self):
 		with self.assertRaises(frappe.ValidationError):
@@ -224,3 +258,27 @@ class TestGuards(RatePickerTestCase):
 
 		with self.assertRaises(frappe.PermissionError):
 			_options(item)
+
+
+class TestListPriceWriteBack(RatePickerTestCase):
+	"""With Stock Settings writing the row's Price List Rate back to the document's price list,
+	a pick that changed the list price would rewrite that list's Item Price on save."""
+
+	def _set_list_price(self, auto_insert, based_on):
+		frappe.db.set_single_value(
+			"Stock Settings",
+			{"auto_insert_price_list_rate_if_missing": auto_insert, "update_price_list_based_on": based_on},
+		)
+		frappe.clear_document_cache("Stock Settings", "Stock Settings")
+		item = _item()
+		_price(item, _price_list(), 500)
+		args = dict(doctype="Quotation", item_code=item, uom="Nos", stock_uom="Nos", conversion_factor=1,
+			currency="INR", company=COMPANY, transaction_date=nowdate())
+		return get_rate_options(**args)["set_list_price"]
+
+	def test_sets_the_list_price_normally(self):
+		self.assertTrue(self._set_list_price(0, "Price List Rate"))
+		self.assertTrue(self._set_list_price(1, "Rate"))
+
+	def test_sets_only_the_rate_when_the_list_price_would_be_written_back(self):
+		self.assertFalse(self._set_list_price(1, "Price List Rate"))

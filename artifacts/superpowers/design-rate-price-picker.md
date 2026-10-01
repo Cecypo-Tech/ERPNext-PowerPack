@@ -17,10 +17,14 @@ Keys: Up/Down move, Enter picks, Esc closes, typing in the Rate field closes the
 keeps the typed rate. Alt+Down or a click on an already-focused Rate reopens it. Mouse works.
 
 ## What a pick does
-- Price list line: clear the row's `discount_percentage`, `discount_amount` and
-  `margin_rate_or_amount`, then set `price_list_rate` to the picked price. ERPNext's own
-  `price_list_rate` handler then sets `rate` = that price and recalculates. The row reads
-  "Retail 600, no discount" instead of "10,000 less 94%".
+- Price list line: set `price_list_rate` (and `rate_with_margin`) to the picked price and
+  clear margin and discount on the row, then set `rate` through ERPNext's `rate` handler,
+  which finds nothing to derive (as built - not via the `price_list_rate` handler, which
+  would re-apply pricing-rule logic). The row reads "Retail 600, no discount" instead of
+  "10,000 less 94%". Exception: when Stock Settings would write the row's list price back to
+  the document's own price list on save, only `rate` is set.
+- Read-only Rate (fixed price): lists can still be picked, no Custom Price. No write
+  permission at the rate's permlevel: lines are reference only.
 - Custom Price: set `rate` only, exactly as if typed in the field (ERPNext derives the
   discount against the list price, as today).
 - Known, unchanged ERPNext behaviour: changing the row's Qty afterwards re-applies the
