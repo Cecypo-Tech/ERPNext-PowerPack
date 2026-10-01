@@ -61,6 +61,8 @@
   "lens_section",
   "enable_lens",
   "lens_description",
+  "copy_as_image_section",
+  "enable_copy_as_image",
   "pricing_tab",
   "min_selling_price_section",
   "enable_min_selling_price",
@@ -452,6 +454,18 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Shows a per-item insights dialog on Quotation, Sales Order, Sales Invoice, Purchase Order, Purchase Receipt, and Purchase Invoice. Click the magnifying glass icon at the end of any item row to see sales/purchase history, rates billed to other parties, and price lists with live margin calculation.</p>"
+  },
+  {
+   "fieldname": "copy_as_image_section",
+   "fieldtype": "Section Break",
+   "label": "Copy as Image"
+  },
+  {
+   "default": "1",
+   "description": "Adds Copy as Image to the Powerup menu and the print preview of Quotation, Sales Order, Sales Invoice and Purchase Order: copies a picture of the print to the clipboard, ready to paste into WhatsApp or any chat.",
+   "fieldname": "enable_copy_as_image",
+   "fieldtype": "Check",
+   "label": "Enable Copy as Image"
   },
   {
    "fieldname": "pricing_tab",
