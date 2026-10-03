@@ -66,7 +66,7 @@ The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory an
 | `cecypo_powerpack/overrides.py` | `Payment Reconciliation` validate hook for zero-allocation support |
 | `cecypo_powerpack/custom_payment_reconciliation.py` | `CustomPaymentReconciliation` class extending ERPNext's `PaymentReconciliation` |
 | `cecypo_powerpack/sales_insights.py` | Sales Powerup data: one call for all rows, values normalised to company currency / ex tax / per stock UOM; cost fields withheld server-side without `sales_visible_to_role` |
-| `cecypo_powerpack/copy_as_image.py` | Copy as Image: renders the print PDF to one stacked PNG (pypdfium2) for `public/js/copy_as_image.js`, which writes it to the clipboard from the form Powerup menu and the print preview toolbar |
+| `cecypo_powerpack/copy_as_image.py` | Copy as Image: renders the print PDF to one stacked PNG (pypdfium2) for `public/js/copy_as_image.js`, which writes it to the clipboard from the Powerup menu on the form and on the print preview |
 | `cecypo_powerpack/rate_price_picker.py` | Rate Price Picker data: an item's price per selling list via ERPNext's `get_price_list_rate_for` (pass `qty`, or it drops an exact-UOM match), plus a below-floor flag from `min_selling_price.row_floor` - never the floor itself |
 | `cecypo_powerpack/permission_manager.py` | Server side of the Permission Manager page: read all rules, preview/commit a batched change set |
 | `cecypo_powerpack/cecypo_powerpack/page/powerpack_permissions/` | The Permission Manager desk page (`/app/powerpack-permissions`) |
