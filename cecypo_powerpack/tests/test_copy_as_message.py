@@ -127,3 +127,70 @@ class TestSeedCopyAsMessage(FrappeTestCase):
 		self.assertIn("cecypo_powerpack.copy_as_message.seed_client_scripts", hooks.after_install)
 		self.assertIn("cecypo_powerpack.copy_as_message.seed_client_scripts", hooks.after_migrate)
 		self.assertTrue(callable(copy_as_message.seed_client_scripts))
+
+
+MATCHING = "frm.add_custom_button(__('Copy as Message'), () => do_copy(frm), __('Powerup'));"
+
+
+class TestGetCopyMessageScript(FrappeTestCase):
+	"""get_copy_message_script hands the print preview the same script source the desk
+	form runs, found the way klik_pos finds it: an enabled Form Client Script whose
+	source adds a 'Copy as Message' button, the seeded name first."""
+
+	DOCTYPE = "Sales Invoice"
+
+	def setUp(self):
+		# Start from a site with no Client Scripts on the doctype at all.
+		frappe.db.delete("Client Script", {"dt": self.DOCTYPE})
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def _script(self, name, script=MATCHING, enabled=1, view="Form"):
+		frappe.get_doc(
+			{
+				"doctype": "Client Script",
+				"name": name,
+				"dt": self.DOCTYPE,
+				"view": view,
+				"enabled": enabled,
+				"script": script,
+			}
+		).insert(set_name=name)
+
+	def get(self):
+		return copy_as_message.get_copy_message_script(self.DOCTYPE)
+
+	def test_none_when_the_doctype_has_no_scripts(self):
+		self.assertIsNone(self.get())
+
+	def test_finds_an_enabled_form_script_that_adds_the_button(self):
+		self._script("Site copy message")
+		self.assertEqual(self.get(), MATCHING)
+
+	def test_matches_the_unwrapped_label_too(self):
+		# A site edit may drop __(): add_custom_button("Copy as Message", ...)
+		self._script("Site copy message", script='frm.add_custom_button("Copy as Message", fn);')
+		self.assertIsNotNone(self.get())
+
+	def test_prefers_the_seeded_name_over_an_alphabetically_earlier_match(self):
+		self._script("AAA copy message", script=MATCHING + " // site copy")
+		self._script(f"PowerPack - Copy as Message ({self.DOCTYPE})", script=MATCHING + " // seeded")
+		self.assertTrue(self.get().endswith("// seeded"))
+
+	def test_falls_back_to_another_matching_script_when_the_seeded_one_is_disabled(self):
+		self._script(f"PowerPack - Copy as Message ({self.DOCTYPE})", enabled=0)
+		self._script("Site copy message", script=MATCHING + " // site copy")
+		self.assertTrue(self.get().endswith("// site copy"))
+
+	def test_ignores_disabled_list_view_and_non_matching_scripts(self):
+		self._script("Disabled", enabled=0)
+		self._script("List view", view="List")
+		self._script("No button", script="frm.add_custom_button(__('Something Else'), fn);")
+		self.assertIsNone(self.get())
+
+	def test_none_without_read_permission_on_the_doctype(self):
+		self._script("Site copy message")
+		frappe.set_user("Guest")
+		self.assertIsNone(self.get())
