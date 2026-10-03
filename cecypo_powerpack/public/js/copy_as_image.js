@@ -6,7 +6,7 @@
 // (cecypo_powerpack/copy_as_image.py).
 //
 // Two entry points: Powerup > Copy as Image on the form (default print format and
-// letterhead), and a Copy as Image button on the print preview (whatever format,
+// letterhead), and the same Powerup menu on the print preview (whatever format,
 // letterhead and language are selected there).
 
 frappe.provide('cecypo_powerpack.copy_as_image');
@@ -131,14 +131,13 @@ cecypo_powerpack.copy_as_image = {
 					// The sidebar's Compact Item Print etc., as the PDF button sends them.
 					settings: JSON.stringify(view.additional_settings || {}),
 				});
-			const $button = view.page.add_button(label, click, { icon: 'image' });
-			// add_button also adds a menu item for narrow screens (the toolbar is hidden
-			// there). It returns only the button, so find that item by its label.
-			const $item = view.page.menu
-				.find('.menu-item-label')
-				.filter((i, el) => el.textContent.trim() === label)
-				.closest('li');
-			view._pp_copy_image = $button.add($item);
+			// The same Powerup ▾ dropdown as the form toolbar. Its container
+			// (.custom-actions) is hidden on narrow and medium screens, so keep a plain
+			// item in the page's ... menu for those.
+			const group = view.page.add_custom_button_group(__('Powerup'));
+			view.page.add_custom_menu_item(group, label, click, true);
+			const $menu_item = view.page.add_menu_item(label, click, true);
+			view._pp_copy_image = group.closest('.custom-btn-group').add($menu_item.closest('li'));
 		}
 
 		// One PrintView serves every document, so decide per document.
