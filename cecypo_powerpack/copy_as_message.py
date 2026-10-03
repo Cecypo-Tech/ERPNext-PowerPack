@@ -12,6 +12,7 @@ fixture filter in hooks.py (``module = Cecypo PowerPack``) from exporting them.
 """
 
 import os
+import re
 
 import frappe
 
@@ -55,3 +56,30 @@ def seed_client_scripts():
 		for legacy, legacy_doctype in LEGACY_SCRIPTS.items():
 			if legacy_doctype == doctype and frappe.db.get_value("Client Script", legacy, "enabled"):
 				frappe.db.set_value("Client Script", legacy, "enabled", 0)
+
+
+# The button the script adds, as written in its source: __('Copy as Message') or the bare
+# string. The same pattern klik_pos uses to find the script for held orders.
+COPY_MESSAGE_BUTTON = re.compile(r"add_custom_button\(\s*(?:__\(\s*)?['\"]Copy as Message['\"]")
+
+
+@frappe.whitelist()
+def get_copy_message_script(doctype: str):
+	"""Source of the site's enabled "Copy as Message" Client Script for ``doctype``, or None.
+
+	The print preview runs it against a stub frm so its Powerup menu offers the same
+	action as the form's. The site may have renamed or rewritten the script, so it is
+	found by what it does (the button it adds), with the seeded name preferred when
+	several match. Form Client Scripts are served to every desk user who opens the form,
+	so read permission on the doctype is the right gate.
+	"""
+	if not frappe.has_permission(doctype, "read"):
+		return None
+	rows = frappe.get_all(
+		"Client Script",
+		filters={"dt": doctype, "enabled": 1, "view": "Form"},
+		fields=["name", "script"],
+		order_by="name asc",
+	)
+	rows.sort(key=lambda row: row.name != f"PowerPack - Copy as Message ({doctype})")
+	return next((row.script for row in rows if COPY_MESSAGE_BUTTON.search(row.script or "")), None)

@@ -7,7 +7,9 @@
 //
 // Two entry points: Powerup > Copy as Image on the form (default print format and
 // letterhead), and the same Powerup menu on the print preview (whatever format,
-// letterhead and language are selected there).
+// letterhead and language are selected there). The print preview's Powerup also
+// carries the site's Copy as Message Client Script (see setup_copy_message below),
+// so both menus offer the same actions.
 
 frappe.provide('cecypo_powerpack.copy_as_image');
 
@@ -100,27 +102,31 @@ cecypo_powerpack.copy_as_image = {
 		PrintView.prototype.show = function (frm) {
 			const result = show.apply(this, arguments);
 			const me = cecypo_powerpack.copy_as_image;
-			me.setup_print_view_button(this);
+			me.setup_print_view_powerup(this);
 			// show() picks this document's print format in async tasks; look again once set.
-			Promise.resolve(result).then(() => me.update_print_view_button(this));
+			Promise.resolve(result).then(() => me.update_print_view_powerup(this));
 			return result;
 		};
 		// Runs whenever the print format changes. A raw-printing format has no PDF, and
-		// frappe hides its own PDF button for one, so hide this too.
+		// frappe hides its own PDF button for one, so hide Copy as Image too (Copy as
+		// Message does not depend on the format and stays).
 		const toggle_raw_printing = PrintView.prototype.toggle_raw_printing;
 		PrintView.prototype.toggle_raw_printing = function () {
 			const result = toggle_raw_printing.apply(this, arguments);
-			cecypo_powerpack.copy_as_image.update_print_view_button(this);
+			cecypo_powerpack.copy_as_image.update_print_view_powerup(this);
 			return result;
 		};
 		return PrintView;
 	},
 
-	setup_print_view_button(view) {
+	setup_print_view_powerup(view) {
 		const me = this;
-		if (!view._pp_copy_image) {
-			const label = __('Copy as Image');
-			const click = () =>
+		if (!view._pp_group) {
+			// The same Powerup ▾ dropdown as the form toolbar. Its container
+			// (.custom-actions) is hidden on narrow and medium screens, so every item
+			// keeps a plain twin in the page's ... menu for those.
+			view._pp_group = view.page.add_custom_button_group(__('Powerup'));
+			view._pp_copy_image = this.make_powerup_item(view, __('Copy as Image'), () =>
 				me.copy({
 					doctype: view.frm.doc.doctype,
 					name: view.frm.doc.name,
@@ -130,29 +136,112 @@ cecypo_powerpack.copy_as_image = {
 					lang: view.lang_code,
 					// The sidebar's Compact Item Print etc., as the PDF button sends them.
 					settings: JSON.stringify(view.additional_settings || {}),
-				});
-			// The same Powerup ▾ dropdown as the form toolbar. Its container
-			// (.custom-actions) is hidden on narrow and medium screens, so keep a plain
-			// item in the page's ... menu for those.
-			const group = view.page.add_custom_button_group(__('Powerup'));
-			view.page.add_custom_menu_item(group, label, click, true);
-			const $menu_item = view.page.add_menu_item(label, click, true);
-			view._pp_copy_image = group.closest('.custom-btn-group').add($menu_item.closest('li'));
+				})
+			);
+			view._pp_copy_message = this.make_powerup_item(view, __('Copy as Message'), () => {
+				if (view._pp_copy_message_click) view._pp_copy_message_click();
+			});
 		}
 
 		// One PrintView serves every document, so decide per document.
 		view._pp_copy_image_allowed = false;
-		this.update_print_view_button(view);
-		if (!this.DOCTYPES.includes(view.frm.doctype)) return;
-		CecypoPowerPack.Settings.isEnabled('enable_copy_as_image', (enabled) => {
-			view._pp_copy_image_allowed = !!enabled && this.DOCTYPES.includes(view.frm.doctype);
-			this.update_print_view_button(view);
+		view._pp_copy_message_click = null;
+		this.update_print_view_powerup(view);
+
+		if (this.DOCTYPES.includes(view.frm.doctype)) {
+			CecypoPowerPack.Settings.isEnabled('enable_copy_as_image', (enabled) => {
+				view._pp_copy_image_allowed = !!enabled && this.DOCTYPES.includes(view.frm.doctype);
+				this.update_print_view_powerup(view);
+			});
+		}
+		this.setup_copy_message(view);
+	},
+
+	// One dropdown item plus its narrow-screen twin, as one toggleable jQuery set.
+	make_powerup_item(view, label, click) {
+		const $item = view.page.add_custom_menu_item(view._pp_group, label, click, true);
+		const $menu_item = view.page.add_menu_item(label, click, true);
+		return $item.closest('li').add($menu_item.closest('li'));
+	},
+
+	update_print_view_powerup(view) {
+		if (!view._pp_group) return;
+		// docstatus 2: the form hides its button for a cancelled document, and the server
+		// refuses to print one ("Not allowed to print cancelled documents").
+		const image =
+			!!view._pp_copy_image_allowed && !view.is_raw_printing() && view.frm.doc.docstatus !== 2;
+		const message = !!view._pp_copy_message_click;
+		view._pp_copy_image.toggle(image);
+		view._pp_copy_message.toggle(message);
+		view._pp_group.closest('.custom-btn-group').toggle(image || message);
+	},
+
+	// Copy as Message is a Client Script the site owns (seeded by copy_as_message.py,
+	// then edited freely - its bank details live in the source). The print page has no
+	// real form for it to hook, so the same source the desk form runs is fetched and run
+	// here against a stub frm. Shown exactly when the script would show it on the form:
+	// the script's own refresh guards (cancelled document etc.) decide.
+	setup_copy_message(view) {
+		const me = this;
+		const doc = view.frm.doc;
+		this.message_script(doc.doctype).then((script) => {
+			// The view serves every document; a stale fetch must not touch a newer one.
+			if (view.frm.doc !== doc) return;
+			view._pp_copy_message_click = script ? me.collect_copy_message(script, doc) : null;
+			me.update_print_view_powerup(view);
 		});
 	},
 
-	update_print_view_button(view) {
-		if (!view._pp_copy_image) return;
-		view._pp_copy_image.toggle(!!view._pp_copy_image_allowed && !view.is_raw_printing());
+	message_script(doctype) {
+		this._message_scripts = this._message_scripts || {};
+		if (!(doctype in this._message_scripts)) {
+			this._message_scripts[doctype] = frappe
+				.xcall('cecypo_powerpack.copy_as_message.get_copy_message_script', { doctype })
+				.then(
+					(script) => script || null,
+					() => null
+				);
+		}
+		return this._message_scripts[doctype];
+	},
+
+	// Runs the script source - the same code the desk form runs - intercepting only
+	// frappe.ui.form.on (to catch its handlers) and handing its refresh a stub frm.
+	// Everything else it touches is the real desk API. Returns the action it registered
+	// for the Copy as Message button, or null.
+	collect_copy_message(script, doc) {
+		const handlers = [];
+		const frappe_shim = Object.assign(Object.create(frappe), {
+			ui: Object.assign(Object.create(frappe.ui), {
+				form: Object.assign(Object.create(frappe.ui.form), {
+					on: (doctype, events) => {
+						if (doctype === doc.doctype) handlers.push(events);
+					},
+				}),
+			}),
+		});
+		let click = null;
+		const frm = {
+			doc,
+			doctype: doc.doctype,
+			docname: doc.name,
+			is_new: () => false,
+			is_dirty: () => false,
+			add_custom_button(label, action) {
+				const text = (label || '').trim();
+				if (text === __('Copy as Message') || text === 'Copy as Message') click = action;
+				return $();
+			},
+			remove_custom_button() {},
+		};
+		try {
+			new Function('frappe', 'cur_frm', script)(frappe_shim, frm);
+			for (const events of handlers) events.refresh && events.refresh(frm);
+		} catch (e) {
+			console.warn('Copy as Message script failed in the print preview:', e);
+			return null;
+		}
+		return click;
 	},
 };
 
