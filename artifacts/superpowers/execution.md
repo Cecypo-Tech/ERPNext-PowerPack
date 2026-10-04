@@ -36,3 +36,38 @@
   cancelled docs — fixed inline (docstatus !== 2 in update_print_view_powerup),
   rebuilt, re-verified: cancelled hides the whole group, submitted shows both.
 - Result: PASS.
+
+---
+
+# Execution notes: bulk selection fetch_from backfill (2026-10-04)
+
+## Step 1 — implement
+- Files: `cecypo_powerpack/public/js/bulk_selection.js` (`add_items_to_doc`)
+- Fetch map built from the child doctype's client meta (`fetch_from` starting
+  `item_code.`, custom fields included); one batched `frappe.db.get_list('Item')`
+  for new items, placed at the head of the sequential chain.
+- `backfill_fetch_fields` runs after each row's trigger (and SR's qty) settles,
+  setting only empty targets — trigger output never overwritten.
+- Verify: `bench build --app cecypo_powerpack`
+- Result: PASS — build clean.
+
+## Step 2 — browser e2e (dev.localhost)
+- New Stock Reconciliation, warehouse Stores - DC, bulk-added F050/F051/F052 at
+  qty 7/8/9: every row has item_name, item_group (Mixer), stock_uom, qty as
+  entered, valuation_rate from ERPNext's trigger. Before save.
+- New Sales Invoice (Walk In), bulk-added F050 x2: item_name, uom CAN,
+  conversion_factor 1, item_tax_template, income_account, warehouse from the
+  trigger as before; image backfilled. rate 0 is correct (F050 has no price in
+  the doc's "Standard Selling" list).
+- First attempt was intercepted by the "Version Updated" modal the build
+  raised; reloaded and reran.
+- Result: PASS.
+
+## Step 3 — review fix + re-verify
+- Review found (Major): client `frappe.db.get_list` resolves only on success;
+  a server error (e.g. no Item read) left the promise pending, and since it
+  heads the add chain, no rows would be added. Switched to `frappe.xcall`
+  (rejects on error) + `.catch(() => {})`; limit bounded to the item count.
+- Re-verified: SR bulk add F053 → item_name/item_group filled, qty 5; with the
+  lookup forced to reject, F049 still added at qty 4 (backfill skipped).
+- Result: PASS.

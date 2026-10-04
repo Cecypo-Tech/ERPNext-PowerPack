@@ -2062,6 +2062,34 @@ function add_items_to_doc(frm, selected_items, warehouse) {
     // applied after that call settles rather than seeded before it.
     const qty_after_trigger = frm.doctype === 'Stock Reconciliation';
 
+    // fetch_from fields the Link control fills on manual entry and the server
+    // fills on save, but no programmatic insert ever does: Stock Reconciliation's
+    // item_name / stock_uom / item_group, the sales items' image, and any site
+    // custom field fetching from item_code.* (client meta includes custom fields).
+    const child_doctype = frm.get_field('items').grid.doctype;
+    const fetch_fields = (frappe.get_meta(child_doctype).fields || [])
+        .filter(df => (df.fetch_from || '').startsWith('item_code.'))
+        .map(df => ({ target: df.fieldname, source: df.fetch_from.split('.')[1] }));
+
+    // One batched lookup for every item about to be added. It heads the add chain,
+    // so a failure must settle (frappe.db.get_list never does) and only skip the
+    // backfill - save fills these fields anyway.
+    const item_fetch = {};
+    const codes = selected_items
+        .map(i => i.item_code)
+        .filter(code => !(existing_items[code] && existing_items[code].length));
+    const fetch_ready = (fetch_fields.length && codes.length)
+        ? frappe
+            .xcall('frappe.desk.reportview.get_list', {
+                doctype: 'Item',
+                filters: { name: ['in', codes] },
+                fields: [...new Set(['name', ...fetch_fields.map(f => f.source)])],
+                limit: codes.length,
+            })
+            .then(rows => (rows || []).forEach(row => (item_fetch[row.name] = row)))
+            .catch(() => {})
+        : Promise.resolve();
+
     // Values placed on a new row BEFORE the item_code trigger fires.
     function seed_values(item) {
         let values = { item_code: item.item_code };
@@ -2110,7 +2138,20 @@ function add_items_to_doc(frm, selected_items, warehouse) {
         ).then(() => frappe.after_ajax()).then(() => {
             if (!qty_after_trigger) return;
             return frappe.model.set_value(child.doctype, child.name, 'qty', item.qty);
-        });
+        }).then(() => backfill_fetch_fields(child, item.item_code));
+    }
+
+    // Fill the fetch_from targets the item_code trigger left empty - and only
+    // those, so get_item_details output is never overwritten. A field missing
+    // from the lookup (permlevel) is skipped.
+    function backfill_fetch_fields(child, item_code) {
+        const row = locals[child.doctype] && locals[child.doctype][child.name];
+        const fetched = item_fetch[item_code];
+        if (!row || !fetched) return;
+        const missing = fetch_fields.filter(f => !row[f.target] && fetched[f.source] != null);
+        return Promise.all(
+            missing.map(f => frappe.model.set_value(child.doctype, child.name, f.target, fetched[f.source]))
+        );
     }
 
     // Existing rows already carry a valid uom and conversion factor
@@ -2127,7 +2168,7 @@ function add_items_to_doc(frm, selected_items, warehouse) {
 
     // Step 3: Process items sequentially. Each row's server round-trip has to
     // land before the next row is added, or the responses overwrite each other.
-    let chain = Promise.resolve();
+    let chain = fetch_ready;
 
     selected_items.forEach(item => {
         chain = chain.then(() => {
