@@ -1,34 +1,22 @@
-# Plan: bulk selection — backfill fetch_from fields (Stock Recon item_name)
+# Plan: bulk selection — Purchase Order reads buying prices
 
-Approved in chat 2026-10-04. Root cause: bulk selection inserts rows via
-`add_child` + ERPNext's `item_code` trigger, but `fetch_from` fields
-(`item_name`/`stock_uom`/`item_group` on Stock Reconciliation Item, `image` etc.
-on the others, plus any site custom field fetching from `item_code.*`) are
-applied only by the Link control on manual entry, or by the server on save —
-never by a programmatic insert. Grid shows blanks until save.
+User said "implement it straight away" 2026-10-04 (execute-plan gate waived).
+
+Root cause: `get_bulk_item_details` (api.py) accepts `doctype` but never branches on
+it. For Purchase Order it filters Item Price by `selling: 1` (buying prices are
+`selling 0 / buying 1` → dialog shows "—"), filters Item by `is_sales_item: 1`
+(drops purchase-only items), and reads the tax template as a Sales Taxes and
+Charges Template. The PO's own `buying_price_list` is already passed correctly.
 
 ## Steps
 
-1. **Implement** (`cecypo_powerpack/public/js/bulk_selection.js`,
-   `add_items_to_doc` only):
-   - Build the fetch map from the child doctype's client meta: fields whose
-     `fetch_from` starts with `item_code.` (includes custom fields).
-   - One batched `frappe.db.get_list('Item', …)` for the items being added
-     (skip when the map or list is empty); chain starts after it resolves.
-   - In `add_row`, after the trigger (and qty) settle: fill only the fetch
-     targets the trigger left empty, from the batched values. Never overwrite
-     a value the trigger set.
-   Verify: `bench build --app cecypo_powerpack` clean.
-
-2. **E2E (browser, dev.localhost)**:
-   - New Stock Reconciliation: bulk-add 2+ items → grid rows carry item_name,
-     stock_uom, item_group before save; qty = entered qty.
-   - Sales Invoice: bulk-add an item → rate/uom/item_name as before, image
-     backfilled, nothing clobbered.
-
-3. **Review + land**: severity review; commit on
-   `fix/bulk-selection-fetch-fields`, merge --no-ff to main, push upstream/main.
-
-## Verification summary
-- `bench build --app cecypo_powerpack`
-- Browser e2e as step 2 (this file has no Node test harness; e2e is the check).
+1. **Tests first** (`tests/test_bulk_selection_purchase.py`): PO returns the
+   buying price; PO lists a purchase-only item; Sales Order still ignores buying
+   prices; PO tax rate reads Purchase Taxes and Charges Template; both optimized
+   and standard paths. Verify: run module → red.
+2. **Fix** (`api.py` only): `buying = doctype == 'Purchase Order'`, passed to
+   `_get_included_tax_rate`, `_get_bulk_items_optimized`, `_get_bulk_items_standard`,
+   `_get_item_price`; pick `buying`/`selling`, `is_purchase_item`/`is_sales_item`,
+   and the template doctype from it. Verify: module green, full app suite green.
+3. **E2E**: new PO (Supplier A, Standard Buying KES), bulk dialog shows F049 KES 400.
+4. **Review + land**: merge --no-ff to main, push upstream/main.

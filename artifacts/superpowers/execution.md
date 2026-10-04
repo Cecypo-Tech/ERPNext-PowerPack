@@ -71,3 +71,8 @@
 - Re-verified: SR bulk add F053 → item_name/item_group filled, qty 5; with the
   lookup forced to reject, F049 still added at qty 4 (backfill skipped).
 - Result: PASS.
+
+## PO buying prices (2026-10-04)
+- Step 1 tests: `tests/test_bulk_selection_purchase.py` (3 tests) -> red as expected (purchase-only item dropped; no buying arg).
+- Step 2 fix: `api.py` - `buying = doctype == 'Purchase Order'` threaded into tax-template, optimized, standard and `_get_item_price` lookups. Module green; full app suite 389 OK (skipped=1).
+- Step 3 e2e: new PO, Supplier A -> buying_price_list Standard Buying KES; dialog row "F049 ... KES 400.00" (was "—"). Endpoint tax_rate 0 matches the purchase template (VAT not included in rate).
