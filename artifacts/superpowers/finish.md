@@ -1,32 +1,25 @@
-# Finish: bulk selection fetch_from backfill
+# Finish: bulk selection - Purchase Order buying prices
 
 ## Summary of changes
-- `cecypo_powerpack/public/js/bulk_selection.js` (`add_items_to_doc`): after
-  ERPNext's own `item_code` trigger settles, fill the child row's
-  `fetch_from: item_code.*` fields the trigger left empty, from one batched
-  Item lookup. Fields come from client meta, so custom fetch_from fields are
-  covered with no hardcoded list. Trigger output is never overwritten.
-- Fixes the reported bug: Stock Reconciliation rows lacked item_name (also
-  item_group / stock_uom) until save. Also backfills image (sales/purchase),
-  grant_commission / is_stock_item (SO/SI), is_fixed_asset (PO),
-  retain_sample / item_group (Stock Entry).
+- `cecypo_powerpack/api.py`: `get_bulk_item_details` branches on `doctype == 'Purchase Order'`:
+  Item Price `buying: 1` (was always `selling: 1`), Item `is_purchase_item` (was
+  `is_sales_item`), tax template read as Purchase Taxes and Charges Template. Both the
+  optimized and the standard path. Sales doctypes unchanged.
+- `cecypo_powerpack/tests/test_bulk_selection_purchase.py`: PO buying price (both paths),
+  Sales Order still skips purchase-only items, PO reads the purchase tax template.
+- The client already passed the PO's `buying_price_list` (filled from the supplier's
+  default); no JS change.
 
 ## Review (Blocker/Major/Minor/Nit)
-- Major (fixed): non-settling lookup promise would have blocked all adds on a
-  server error -> xcall + catch.
-- Minor (accepted): updated existing rows are not re-backfilled (they already
-  carry their fetched values).
-- No Blocker / Nit.
+- No Blocker / Major.
+- Minor (pre-existing, accepted): the dialog price is a per-price-list lookup; it ignores
+  supplier/customer-specific Item Prices, UOM and validity dates. Rows still get
+  ERPNext's exact rate from the item_code trigger on insert.
 
 ## Verification
-- `bench build --app cecypo_powerpack` -> clean (twice).
-- Browser e2e, dev.localhost:
-  - Stock Reconciliation: 3 items + 1 item runs -> item_name, item_group,
-    stock_uom, qty as entered, valuation from trigger. PASS.
-  - Sales Invoice: uom/conversion/tax template/income account unchanged, image
-    backfilled; rate 0 correct (no price in doc's price list). PASS.
-  - Forced lookup failure: row still added. PASS.
-- No Python change; no unit-test harness for this file (e2e is the check).
+- `bench --site dev.localhost run-tests --module cecypo_powerpack.tests.test_bulk_selection_purchase` -> red before fix, 3 OK after.
+- `bench --site dev.localhost run-tests --app cecypo_powerpack` -> 63 + 10 + 233 + 83 = 389 OK (skipped=1).
+- Browser e2e (dev.localhost): new PO, Supplier A -> dialog shows F049 Buy Price KES 400.00.
 
-## Follow-ups
-- None needed. Deploy: asset build only (no migrate).
+## Deploy
+Python only: no build, no migrate.

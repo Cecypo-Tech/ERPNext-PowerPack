@@ -363,10 +363,13 @@ def get_bulk_item_details(items, price_list: str, warehouse: str = None, custome
     if not tax_category and customer:
         tax_category = frappe.db.get_value('Customer', customer, 'tax_category')
 
+    # Purchase Order reads buying prices, purchase items and a purchase tax template
+    buying = doctype == 'Purchase Order'
+
     # Calculate tax rate for included_in_print_rate taxes
     tax_rate = 0.0
     if taxes_and_charges:
-        tax_rate = _get_included_tax_rate(taxes_and_charges)
+        tax_rate = _get_included_tax_rate(taxes_and_charges, buying)
 
     # Convert string 'true'/'false' to boolean
     if isinstance(optimized, str):
@@ -375,10 +378,10 @@ def get_bulk_item_details(items, price_list: str, warehouse: str = None, custome
     try:
         if optimized:
             # Optimized batch fetch
-            result = _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_rate)
+            result = _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_rate, buying)
         else:
             # Standard iteration
-            result = _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rate)
+            result = _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rate, buying)
 
         result['tax_category'] = tax_category or ''
         result['tax_rate'] = tax_rate
@@ -395,12 +398,13 @@ def get_bulk_item_details(items, price_list: str, warehouse: str = None, custome
         frappe.throw(_("Error loading item details: {0}").format(str(e)))
 
 
-def _get_included_tax_rate(taxes_and_charges):
+def _get_included_tax_rate(taxes_and_charges, buying=False):
     """
     Calculate total tax rate for taxes with included_in_print_rate=1
 
     Args:
-        taxes_and_charges: Tax template name (Sales Taxes and Charges Template)
+        taxes_and_charges: Tax template name (Purchase Taxes and Charges Template if
+            buying, else Sales Taxes and Charges Template)
 
     Returns:
         float: Total tax percentage
@@ -410,7 +414,8 @@ def _get_included_tax_rate(taxes_and_charges):
 
     try:
         # Get the tax template
-        tax_template = frappe.get_cached_doc('Sales Taxes and Charges Template', taxes_and_charges)
+        template_doctype = 'Purchase Taxes and Charges Template' if buying else 'Sales Taxes and Charges Template'
+        tax_template = frappe.get_cached_doc(template_doctype, taxes_and_charges)
 
         total_tax_rate = 0.0
         for tax in tax_template.taxes:
@@ -428,7 +433,7 @@ def _get_included_tax_rate(taxes_and_charges):
         return 0.0
 
 
-def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_rate=0.0):
+def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_rate=0.0, buying=False):
     """Optimized batch fetch for bulk items"""
     # Batch fetch all items at once
     item_docs = frappe.db.get_all(
@@ -436,7 +441,7 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
         filters={
             'name': ['in', items],
             'disabled': 0,
-            'is_sales_item': 1
+            'is_purchase_item' if buying else 'is_sales_item': 1
         },
         fields=['name', 'item_name', 'description', 'stock_uom', 'image', 'valuation_rate', 'is_stock_item']
     )
@@ -453,7 +458,7 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
         filters={
             'item_code': ['in', item_codes],
             'price_list': price_list,
-            'selling': 1
+            'buying' if buying else 'selling': 1
         },
         fields=['item_code', 'price_list_rate']
     )
@@ -540,7 +545,7 @@ def _get_bulk_items_optimized(items, price_list, warehouse, tax_category, tax_ra
     }
 
 
-def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rate=0.0):
+def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rate=0.0, buying=False):
     """Standard iteration for bulk items"""
     result = []
 
@@ -554,12 +559,12 @@ def _get_bulk_items_standard(items, price_list, warehouse, tax_category, tax_rat
         try:
             item_doc = frappe.get_cached_doc('Item', item_code)
 
-            if item_doc.disabled or not item_doc.is_sales_item:
+            if item_doc.disabled or not (item_doc.is_purchase_item if buying else item_doc.is_sales_item):
                 continue
 
             # Get valuation - prefer bin valuation for the warehouse
             valuation_rate = _get_valuation_rate(item_code, warehouse)
-            price_list_rate = _get_item_price(item_code, price_list)
+            price_list_rate = _get_item_price(item_code, price_list, buying)
             actual_qty = _get_stock_qty(item_code, warehouse) if warehouse else 0
 
             # Calculate net_rate (tax-exclusive rate) if taxes are included in print rate
@@ -649,7 +654,7 @@ def _get_valuation_rate(item_code, warehouse=None):
         return 0
 
 
-def _get_item_price(item_code, price_list):
+def _get_item_price(item_code, price_list, buying=False):
     """Get item price with error handling"""
     try:
         price = frappe.db.get_value(
@@ -657,7 +662,7 @@ def _get_item_price(item_code, price_list):
             {
                 'item_code': item_code,
                 'price_list': price_list,
-                'selling': 1
+                'buying' if buying else 'selling': 1
             },
             'price_list_rate'
         )
