@@ -23,7 +23,6 @@ DOCTYPES = ("Quotation", "Sales Order", "Sales Invoice")
 def get_rate_options(
 	doctype,
 	item_code,
-	uom,
 	stock_uom,
 	conversion_factor,
 	currency,
@@ -35,6 +34,7 @@ def get_rate_options(
 	warehouse=None,
 	qty=1,
 	has_pricing_rule=0,
+	uom=None,
 ):
 	"""{options: [{price_list, rate, below_floor}], set_list_price} for every enabled
 	selling list in ``currency`` that prices the item, ``rate`` per ``uom``.
@@ -58,6 +58,8 @@ def get_rate_options(
 	from erpnext.stock.get_item_details import get_price_list_rate_for
 
 	conversion_factor = flt(conversion_factor) or 1.0
+	# A row whose uom is not set yet: xcall drops the undefined key.
+	uom = uom or stock_uom
 	price_lists = frappe.get_all(
 		"Price List",
 		filters={"enabled": 1, "selling": 1, "currency": currency},

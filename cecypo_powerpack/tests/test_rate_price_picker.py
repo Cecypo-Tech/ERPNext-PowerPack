@@ -124,6 +124,16 @@ class TestRateOptions(RatePickerTestCase):
 
 		self.assertEqual([o["price_list"] for o in _options(item)], [priced])
 
+	def test_a_row_without_a_uom_is_priced_in_the_stock_uom(self):
+		# A fresh row can have no uom yet; xcall drops the undefined key.
+		item = _item()
+		pl = _price_list()
+		_price(item, pl, 500)
+
+		args = {"doctype": "Quotation", "item_code": item, "stock_uom": "Nos"}
+		args |= {"conversion_factor": 1, "currency": "INR", "company": COMPANY}
+		self.assertEqual([o["rate"] for o in get_rate_options(**args)["options"]], [500])
+
 	def test_ordered_by_price_list_name(self):
 		item = _item()
 		lists = [_price_list() for _ in range(3)]
