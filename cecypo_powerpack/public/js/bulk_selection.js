@@ -212,7 +212,8 @@ function has_cost_permission() {
         "Stock Manager",
         "Accounts Manager",
         "Sales Master Manager",
-        "Administrator"
+        "Administrator",
+        "Cost Viewer"
     ];
 
     return cost_roles.some(role => frappe.user_roles.includes(role));
@@ -584,6 +585,11 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
 
     const config = BULK_SELECTION_CONFIG[frm.doctype];
     const is_stock = config.is_stock_doctype;
+    // The server withholds valuation (null) from users who may not see cost, which the
+    // role list above cannot know about (e.g. a site that restricts Item.valuation_rate).
+    const cost_withheld = item_data.every(item => item.valuation_rate == null);
+    if (cost_withheld) can_see_cost = false;
+    const show_stock_cost = is_stock && !cost_withheld;
     const is_purchase = config.is_purchase_doctype;
     const has_price = config.has_price;
 
@@ -780,9 +786,9 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
     function render_table() {
         let page_data = get_page_data();
 
-        // Valuation Rate column (always shown for stock docs, only with cost permission for sales)
+        // Valuation Rate column (shown for stock docs unless withheld, only with cost permission for sales)
         let cost_header = '';
-        if (is_stock) {
+        if (show_stock_cost) {
             cost_header = `<th class="sortable text-right" data-column="valuation_rate">Valuation Rate <span class="sort-icon"></span></th>`;
         } else if (can_see_cost) {
             cost_header = `<th class="sortable text-right" data-column="valuation_rate">Cost <span class="sort-icon"></span></th>`;
@@ -825,7 +831,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
         if (page_data.length === 0) {
             // Calculate colspan dynamically
             let colspan = 5; // checkbox + qty + img + item_code + description
-            if (is_stock || can_see_cost) colspan++;
+            if (show_stock_cost || can_see_cost) colspan++;
             if (has_price) colspan++; // sell price
             if (warehouse) colspan++;
             if (has_price) colspan++; // line total
@@ -864,7 +870,7 @@ function show_item_dialog(frm, item_data, can_see_cost, warehouse) {
                 if (qty > 0) row_class += ' has-qty';
 
                 let cost_cell = '';
-                if (is_stock) {
+                if (show_stock_cost) {
                     cost_cell = `<td class="text-right">${_bulk_fmt_currency(item.valuation_rate || 0)}</td>`;
                 } else if (can_see_cost) {
                     let display_valuation = item.valuation_rate || 0;

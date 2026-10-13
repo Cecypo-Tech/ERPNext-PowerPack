@@ -61,3 +61,47 @@ class TestBulkSelectionCost(FrappeTestCase):
 		frappe.set_user(self._user(["Sales User"]))
 		with self.assertRaises(frappe.PermissionError):
 			get_bulk_stock_item_details(items=ITEM, doctype="Stock Reconciliation")
+
+	# A site hides cost by moving Item.valuation_rate to a permlevel only some roles can
+	# read (Allparts: "Cost Viewer"). Both endpoints have to honour that, or the dialog
+	# shows the cost the form hides.
+
+	def _item_cost_permlevel(self, level):
+		from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+		make_property_setter("Item", "valuation_rate", "permlevel", str(level), "Int", validate_fields_for_doctype=False)
+		frappe.clear_cache(doctype="Item")
+		self.addCleanup(frappe.clear_cache, doctype="Item")
+
+	def _restrict_item_cost(self):
+		self._item_cost_permlevel(1)
+
+	def _stock(self):
+		from cecypo_powerpack.api import get_bulk_stock_item_details
+
+		frappe.db.set_single_value("PowerPack Settings", "enable_stock_entry_bulk_selection", 1)
+		frappe.cache().delete_value("powerpack_settings")
+		res = get_bulk_stock_item_details(items=ITEM, doctype="Stock Entry")
+		return {r["item_code"]: r for r in res["items"]}[ITEM]
+
+	def test_stock_user_gets_the_valuation_rate_when_cost_is_not_restricted(self):
+		self._item_cost_permlevel(0)
+		frappe.set_user(self._user(["Stock User"]))
+		self.assertIsNotNone(self._stock()["valuation_rate"])
+
+	def test_stock_user_gets_no_valuation_rate_when_cost_is_restricted(self):
+		self._restrict_item_cost()
+		frappe.set_user(self._user(["Stock User"]))
+		self.assertIsNone(self._stock()["valuation_rate"])
+
+	def test_cost_role_without_access_to_the_restricted_field_gets_no_valuation_rate(self):
+		self._restrict_item_cost()
+		frappe.set_user(self._user(["Sales User", "Accounts Manager"]))
+		self.assertIsNone(self._sales()["valuation_rate"])
+
+	def test_cost_viewer_role_counts_as_a_cost_role(self):
+		if not frappe.db.exists("Role", "Cost Viewer"):
+			frappe.get_doc({"doctype": "Role", "role_name": "Cost Viewer"}).insert(ignore_permissions=True)
+		self._item_cost_permlevel(0)
+		frappe.set_user(self._user(["Sales User", "Cost Viewer"]))
+		self.assertIsNotNone(self._sales()["valuation_rate"])
