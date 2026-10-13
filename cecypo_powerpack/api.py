@@ -295,7 +295,21 @@ def get_customer_snapshot(customer: str, company: str = None) -> dict:
 # Mirrors has_cost_permission() in bulk_selection.js, which decides whether the dialog
 # shows a cost column. Enforced here too so the value never reaches a user the dialog
 # would hide it from; the browser check alone let anyone read it off the endpoint.
-BULK_COST_ROLES = {"System Manager", "Stock Manager", "Accounts Manager", "Sales Master Manager", "Administrator"}
+BULK_COST_ROLES = {"System Manager", "Stock Manager", "Accounts Manager", "Sales Master Manager", "Administrator", "Cost Viewer"}
+
+
+def _can_read_item_cost() -> bool:
+    """False when the site hides Item.valuation_rate behind a permlevel this user cannot read.
+
+    A site restricts cost by moving valuation_rate to permlevel 1 and granting that level
+    only to the people who may see it; on a site that never did, the field sits at
+    permlevel 0 and this is always True, so the role checks alone decide, as before.
+    """
+    if frappe.session.user == "Administrator":
+        return True
+    meta = frappe.get_meta("Item")
+    level = meta.get_field("valuation_rate").permlevel or 0
+    return not level or level in meta.get_permlevel_access("read")
 
 
 @frappe.whitelist()
@@ -385,7 +399,7 @@ def get_bulk_item_details(items, price_list: str, warehouse: str = None, custome
 
         result['tax_category'] = tax_category or ''
         result['tax_rate'] = tax_rate
-        if not BULK_COST_ROLES & set(frappe.get_roles()):
+        if not (BULK_COST_ROLES & set(frappe.get_roles()) and _can_read_item_cost()):
             for row in result.get('items') or []:
                 row['valuation_rate'] = None
         return result
@@ -739,8 +753,10 @@ def get_bulk_stock_item_details(items, warehouse: str = None, doctype: str = 'St
     if not feature_name or not is_feature_enabled(feature_name):
         frappe.throw(_("Bulk Selection feature is not enabled for {0} in PowerPack Settings").format(doctype))
     # Valuation is the whole point of the stock dialog (Stock Reconciliation rows carry it),
-    # so it is not withheld by role; reading the stock doctype is what entitles a user to it.
+    # so it is not withheld by role; reading the stock doctype is what entitles a user to it,
+    # unless the site restricts Item.valuation_rate to a permlevel the user cannot read.
     frappe.has_permission(doctype, "read", throw=True)
+    can_read_cost = _can_read_item_cost()
 
     # Parse items input
     if isinstance(items, str):
@@ -817,7 +833,7 @@ def get_bulk_stock_item_details(items, warehouse: str = None, doctype: str = 'St
             'description': item.get('description') or item.get('item_name') or item_code,
             'stock_uom': item.get('stock_uom') or 'Nos',
             'image': _get_item_image_url(item.get('image')),
-            'valuation_rate': float(valuation),
+            'valuation_rate': float(valuation) if can_read_cost else None,
             'actual_qty': float(stock.get(item_code, 0))
         })
 
