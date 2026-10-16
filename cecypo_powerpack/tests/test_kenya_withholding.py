@@ -136,6 +136,14 @@ class TestCalculation(unittest.TestCase):
 		self.assertEqual(withheld(first["base_amount"], first["rate"]), 2001)
 		self.assertEqual(rows[0]["base_amount"], 50000.25)  # input untouched
 
+	def test_merge_vat_rows_refuses_mixed_rates(self):
+		rows = [
+			{"tax_id": "P1", "bill_no": "B9", "base_amount": 10, "rate": 2, "is_vat": 1},
+			{"tax_id": "P1", "bill_no": "B9", "base_amount": 10, "rate": 3, "is_vat": 1},
+		]
+		with self.assertRaisesRegex(frappe.ValidationError, "B9"):
+			merge_vat_rows(rows)
+
 
 COMPANY = "_Test Company"
 VAT_ACC = "_Test VAT WHT - _TC"
@@ -502,6 +510,25 @@ class TestPayKRA(_WithholdingCase):
 		for names in ([], ["no-such-row"], [draft.cecypo_withholding[0].name]):
 			with self.assertRaises(frappe.ValidationError):
 				pay_kra(names, BANK, today, "PRN-1", today)
+
+	def test_pay_kra_refuses_non_bank_account(self):
+		pe = _make_pe(_make_pi())
+		with self.assertRaisesRegex(frappe.ValidationError, "Bank or Cash"):
+			self._pay([pe], bank_account=VAT_ACC)
+		self.assertFalse(frappe.db.get_value(
+			"Payment Entry Withholding", pe.cecypo_withholding[0].name, "kra_journal_entry"))
+
+	def test_kra_je_form_flag(self):
+		from frappe.desk.form.load import run_onload
+
+		pe = _make_pe(_make_pi())
+		je = frappe.get_doc("Journal Entry", self._pay([pe]))
+		run_onload(je)
+		self.assertEqual(je.get_onload().get("is_kra_payment"), 1)
+		je.cancel()
+		je = frappe.get_doc("Journal Entry", je.name)
+		run_onload(je)
+		self.assertFalse(je.get_onload().get("is_kra_payment"))
 
 	def test_pay_kra_merges_part_payments(self):
 		pi = _make_pi(lines=((OTHER_ITEM, 100000.50),), disable_rounded_total=1)

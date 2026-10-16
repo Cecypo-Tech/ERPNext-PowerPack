@@ -57,6 +57,9 @@ doctype_js = {
     "Payment Entry": [
         "public/js/kenya_withholding_payment_entry.js",
     ],
+    "Journal Entry": [
+        "public/js/kenya_withholding_journal_entry.js",
+    ],
     "Sales Order": [
         "public/js/quick_pay.js",
         "public/js/quick_pay_mpesa.js",
@@ -251,6 +254,7 @@ doc_events = {
 		"before_cancel": "cecypo_powerpack.kenya_withholding.prevent_cancel_if_paid_to_kra",
 	},
 	"Journal Entry": {
+		"onload": "cecypo_powerpack.kenya_withholding.flag_kra_payment",
 		"before_cancel": "cecypo_powerpack.kenya_withholding.allow_cancel_of_kra_payment",
 		"on_cancel": "cecypo_powerpack.kenya_withholding.clear_kra_link",
 	},

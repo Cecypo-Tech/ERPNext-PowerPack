@@ -218,6 +218,11 @@ def merge_vat_rows(rows):
 		if not m:
 			merged[key] = dict(r)
 			continue
+		# iTax takes one row per (PIN, invoice), so two rates on one key cannot be filed.
+		if flt(m["rate"]) != flt(r["rate"]):
+			frappe.throw(_("Invoice {0} has VAT withholding at different rates ({1}% and {2}%). Pay or export those rows separately.").format(
+				key[1], flt(m["rate"]), flt(r["rate"])
+			))
 		m["base_amount"] = float(Decimal(str(m["base_amount"])) + Decimal(str(r["base_amount"])))
 		if r.get("posting_date") and (not m.get("posting_date") or getdate(r["posting_date"]) > getdate(m["posting_date"])):
 			m["posting_date"] = r["posting_date"]
@@ -305,6 +310,12 @@ def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference
 	for r in rows:
 		frappe.db.set_value("Payment Entry Withholding", r.name, "kra_journal_entry", je.name)
 	return je.name
+
+
+def flag_kra_payment(doc, method=None):
+	"""Journal Entry onload: tells the form (kenya_withholding_journal_entry.js) to skip Payment Entry in Cancel All."""
+	if doc.docstatus == 1 and frappe.db.exists("Payment Entry Withholding", {"kra_journal_entry": doc.name}):
+		doc.set_onload("is_kra_payment", 1)
 
 
 def allow_cancel_of_kra_payment(doc, method=None):
