@@ -67,6 +67,7 @@ The JS settings object (`CecypoPowerPack.Settings`) caches settings in memory an
 | `cecypo_powerpack/custom_payment_reconciliation.py` | `CustomPaymentReconciliation` class extending ERPNext's `PaymentReconciliation` |
 | `cecypo_powerpack/sales_insights.py` | Sales Powerup data: one call for all rows, values normalised to company currency / ex tax / per stock UOM; cost fields withheld server-side without `sales_visible_to_role` |
 | `cecypo_powerpack/copy_as_image.py` | Copy as Image: renders the print PDF to one stacked PNG (pypdfium2) for `public/js/copy_as_image.js`, which writes it to the clipboard from the Powerup menu on the form and on the print preview |
+| `cecypo_powerpack/kenya_withholding.py` | Kenya withholding at supplier payment: Payment Entry rows/deductions/paid amount, due dates, Pay KRA, iTax CSV, custom field setup. See **Kenya Withholding** |
 | `cecypo_powerpack/rate_price_picker.py` | Rate Price Picker data: an item's price per selling list via ERPNext's `get_price_list_rate_for` (pass `qty`, or it drops an exact-UOM match), plus a below-floor flag from `min_selling_price.row_floor` - never the floor itself |
 | `cecypo_powerpack/permission_manager.py` | Server side of the Permission Manager page: read all rules, preview/commit a batched change set |
 | `cecypo_powerpack/cecypo_powerpack/page/powerpack_permissions/` | The Permission Manager desk page (`/app/powerpack-permissions`) |
@@ -118,11 +119,61 @@ app. The JS hash is stable.
 - `copy_as_image.js` — Copy as Image on QT/SO/SI/PO forms and print preview. Patches `frappe.ui.form.PrintView` through a property setter, because the print page defines that class after the bundle loads. The print preview's Powerup also carries the site's Copy as Message Client Script: `copy_as_message.get_copy_message_script` hands over the source and `collect_copy_message` runs it against a stub frm, intercepting only `frappe.ui.form.on`, so the script's own guards decide visibility
 - `rate_price_picker.js` — Rate Price Picker dropdown on the items grid Rate. Keys and the read-only cell are handled in the capture phase: frappe's grid navigation (Up/Down/Enter) and a disabled input's swallowed clicks otherwise win. Custom Price availability comes from the document state, not the grid DOM, which may be mid-redraw
 - `payment_reconciliation_powerup.js` — "Zero Allocate" button for Payment Reconciliation
+- `kenya_withholding_payment_entry.js` / `kenya_withholding_journal_entry.js` — **not bundled**: loaded through `doctype_js` in `hooks.py` (Payment Entry, Journal Entry). The JE script skips Payment Entry in Cancel All for a KRA payment
 
 ### Server-Side Extension Points
 
 - **`override_doctype_class`** in `hooks.py`: `Payment Reconciliation` is overridden with `CustomPaymentReconciliation` to add a `zero_reconcile()` method without touching the standard reconcile path.
 - **`doc_events`**: `before_cancel` on Sales Invoice and POS Invoice; `validate` on Payment Reconciliation.
+- **`doc_events`** (Kenya withholding): Payment Entry `before_validate` (`apply_to_payment_entry`) and `before_cancel` (`prevent_cancel_if_paid_to_kra`); Journal Entry `onload` (`flag_kra_payment`), `before_insert` (`refuse_kra_amend`), `before_cancel` (`allow_cancel_of_kra_payment`) and `on_cancel` (`clear_kra_link`).
+
+### Kenya Withholding
+
+Withholding (2% VAT WHT, 7.5% rent, 5% professional) is computed on a supplier Payment Entry, gated by
+`enable_kenya_withholding`. Config is the Settings Withholding tab: rules, VAT accounts, VAT WHT exemptions.
+Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`.
+
+- **All matching rules stack** (blank item = any item, blank supplier = any supplier). Whether a rule is VAT or
+  income tax is decided only by its account being in the `withholding_vat_accounts` list. An exemption skips VAT
+  rules only, while `posting_date <= valid_until`.
+- **Deduction rows are negative** amounts. The paid amount is derived (allocations minus withheld, plus other
+  deductions) and read-only; no unallocated/advance amount alongside withholding.
+- **Amounts use `Decimal` and `ceil` per (invoice, rule)** to match iTax (266,200 x 7.5% = 19,965, never float 19,966).
+  Base = `round(sum(matching lines' base_net_amount) x allocated / total, 2)`, total = the invoice's rounded (else
+  grand) total, then `ceil(base x rate / 100)` in Decimal. `allocated` is summed over all reference rows of one
+  invoice first (an invoice with payment terms has one row per term; a ceil per row would over-withhold).
+- The PE hook is `before_validate`, so it **also runs at submit** and recomputes with the rules in force then.
+  When the entry stops qualifying (feature off, no rules for its company, not Pay to a Supplier) it clears the
+  rows it holds and their deductions instead of submitting them. Deductions on rule accounts are taken over only
+  when the entry has withholding now or held some before; otherwise they are the user's own and are left.
+- The form script previews via `compute_for_payment_entry` (write permission on Payment Entry and read on each
+  referenced Purchase Invoice) only for users who can write, and only with the feature on, unless the draft
+  already holds rows (so the server clears them). It writes only what differs from the form (`add_child`
+  dirties it, and a dirty draft never shows Submit), keeps the user's own deduction rows as the same objects,
+  and re-runs on deduction edits.
+- Rows live in the `cecypo_withholding` custom field (child `Payment Entry Withholding`, created by
+  `setup_custom_fields` on install and migrate). The custom field is on **every site's** Payment Entry, read-only,
+  shown as "Withholding Details", whether or not the feature is on. VAT due = 5 working days after posting (Sat/Sun and the company
+  holiday list skipped); income tax due = 20th of the next month.
+- **`merge_vat_rows`** is shared by Pay KRA and the iTax CSV: VAT rows merged by (PIN, invoice no), base summed,
+  and it **refuses mixed rates** on one key. Pay KRA credits the bank with the ceil of each merged invoice (the PRN
+  figure) and books the difference to the Company round-off account. The Pay KRA dialog shows that bank figure,
+  from `pay_kra_preview`, which also refuses a bad selection before a PRN is typed.
+- Pay KRA **refuses a selection mixing VAT and income-tax rows**: separate iTax returns, separate PRNs.
+- A KRA Journal Entry is marked by the hidden Check `cecypo_kra_payment` (custom field on Journal Entry, set by
+  `pay_kra`). `flag_kra_payment` and `allow_cancel_of_kra_payment` read it. **Amending a cancelled KRA JE is
+  refused** (`refuse_kra_amend`): cancel already put its rows back to Unpaid, so an amendment would pay them twice.
+  Run Pay KRA again from the report. Frappe copies `no_copy` fields on Amend (not on Duplicate), so the check is on
+  `amended_from`'s marker.
+- `pay_kra` and `export_itax_csv` are POST only; the report downloads the CSV with `open_url_post`. The CSV refuses
+  a selection with no VAT rows, and a blank or whitespace PIN counts as missing. The report runs those refusals
+  first through `check_itax_export` (frappe.call), since in the download tab they would be a bare 417 page.
+- `kra_journal_entry` on the withholding row is written with `db.set_value` after the Journal Entry submits, so
+  the submitted Payment Entry is never re-saved. Cancelling that JE clears it (`clear_kra_link`). Desk "Cancel All"
+  would try to cancel the linked Payment Entry, hence the JE form script and `ignore_linked_doctypes`.
+- Report `Withholding Due to KRA`, Pay KRA and the CSV work with the feature off.
+- Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
+  `bench build --app cecypo_powerpack`.
 
 ### Permission Manager
 

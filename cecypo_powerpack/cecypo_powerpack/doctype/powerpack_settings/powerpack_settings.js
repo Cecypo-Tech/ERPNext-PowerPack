@@ -2,12 +2,23 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on('PowerPack Settings', {
+	setup: function(frm) {
+		// Withholding posts to a ledger (tax liability) account, never a group or a party account.
+		const wht_account = function () {
+			return { filters: { is_group: 0, account_type: ['not in', ['Payable', 'Receivable']] } };
+		};
+		frm.set_query('account', 'withholding_rules', wht_account);
+		// A Table MultiSelect has no grid: its control is itself the Link, so it takes a parent-style query.
+		frm.set_query('withholding_vat_accounts', wht_account);
+	},
+
 	refresh: function(frm) {
 		frm.set_intro(__('Configure PowerPack features and settings'));
 		cecypo_check_min_price_conflict(frm);
 		cecypo_add_load_group_buttons(frm);
 		cecypo_refresh_min_price_grid(frm);
 		cecypo_add_permission_manager_button(frm);
+		cecypo_mark_dup_withholding_rules(frm);
 	},
 
 	min_selling_price_rules_add: function(frm) { cecypo_refresh_min_price_grid(frm); },
@@ -150,3 +161,27 @@ function cecypo_add_permission_manager_button(frm) {
 		frappe.set_route('powerpack-permissions');
 	});
 }
+
+// Highlight withholding rules that share a non-blank item or supplier with another row.
+function cecypo_mark_dup_withholding_rules(frm) {
+	const grid = frm.fields_dict.withholding_rules && frm.fields_dict.withholding_rules.grid;
+	if (!grid) return;
+	const rows = frm.doc.withholding_rules || [];
+	const count = function (f, v) { return rows.filter(function (r) { return r[f] === v; }).length; };
+	// Grid rows are rebuilt after an edit, so mark once the redraw has happened.
+	setTimeout(function () {
+		(grid.grid_rows || []).forEach(function (gr) {
+			const d = gr.doc || {};
+			const dup = (d.item && count('item', d.item) > 1) || (d.supplier && count('supplier', d.supplier) > 1);
+			gr.wrapper && $(gr.wrapper).toggleClass('pp-wht-dup', !!dup);
+		});
+	}, 0);
+}
+
+// Grid add/remove events fire on the child doctype (grid.js / grid_row.js), not on the parent.
+frappe.ui.form.on('Withholding Rule', {
+	withholding_rules_add: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+	withholding_rules_remove: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+	item: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+	supplier: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+});

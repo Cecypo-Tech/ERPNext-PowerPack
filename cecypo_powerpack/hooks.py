@@ -54,6 +54,12 @@ app_include_js = "cecypo_powerpack.bundle.js"
 
 # include js in doctype views
 doctype_js = {
+    "Payment Entry": [
+        "public/js/kenya_withholding_payment_entry.js",
+    ],
+    "Journal Entry": [
+        "public/js/kenya_withholding_journal_entry.js",
+    ],
     "Sales Order": [
         "public/js/quick_pay.js",
         "public/js/quick_pay_mpesa.js",
@@ -114,9 +120,11 @@ jinja = {
 after_install = [
     "cecypo_powerpack.price_approval.setup_custom_fields",
     "cecypo_powerpack.copy_as_message.seed_client_scripts",
+    "cecypo_powerpack.kenya_withholding.setup_custom_fields",
 ]
 after_migrate = [
     "cecypo_powerpack.price_approval.after_migrate",
+    "cecypo_powerpack.kenya_withholding.setup_custom_fields",
     "cecypo_powerpack.copy_as_message.seed_client_scripts",
 ]
 
@@ -240,6 +248,16 @@ doc_events = {
 	},
 	"Payment Reconciliation": {
 		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
+	},
+	"Payment Entry": {
+		"before_validate": "cecypo_powerpack.kenya_withholding.apply_to_payment_entry",
+		"before_cancel": "cecypo_powerpack.kenya_withholding.prevent_cancel_if_paid_to_kra",
+	},
+	"Journal Entry": {
+		"onload": "cecypo_powerpack.kenya_withholding.flag_kra_payment",
+		"before_insert": "cecypo_powerpack.kenya_withholding.refuse_kra_amend",
+		"before_cancel": "cecypo_powerpack.kenya_withholding.allow_cancel_of_kra_payment",
+		"on_cancel": "cecypo_powerpack.kenya_withholding.clear_kra_link",
 	},
 	"Workflow": {
 		"before_validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
