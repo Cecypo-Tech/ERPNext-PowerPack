@@ -15,6 +15,19 @@
 		frm.refresh_field(fieldname);
 	}
 
+	// Server rows against local ones, on the server's own fields. Blank, null, 0 and false are alike:
+	// a fresh server row holds null where the saved local row holds 0.
+	function norm(v) {
+		return v === null || v === undefined || v === '' || v === 0 || v === false ? '' : String(v);
+	}
+	function same_rows(server, local) {
+		return server.length === local.length && server.every(function (row, i) {
+			return Object.keys(row).every(function (k) {
+				return k.indexOf('__') === 0 || META.indexOf(k) >= 0 || norm(row[k]) === norm(local[i][k]);
+			});
+		});
+	}
+
 	function lock(frm, locked) {
 		['paid_amount', 'received_amount'].forEach(function (f) {
 			frm.set_df_property(f, 'read_only', locked ? 1 : 0);
@@ -56,21 +69,49 @@
 				if (!m || seq !== frm._wht_seq || frm.doc.docstatus !== 0) return;
 				const has = m.cecypo_withholding.length > 0;
 				if (has || (frm.doc.cecypo_withholding || []).length) {
-					fill(frm, 'cecypo_withholding', m.cecypo_withholding);
-					fill(frm, 'deductions', m.deductions);
-					// Assign, never set_value: that fires ERPNext's re-spread over the references.
-					frm.doc.paid_amount = m.paid_amount;
-					frm.doc.received_amount = m.received_amount;
-					// ERPNext's unallocated/difference maths reads the base amounts.
-					frm.doc.base_paid_amount = m.base_paid_amount;
-					frm.doc.base_received_amount = m.base_received_amount;
-					frm.refresh_field('base_paid_amount');
-					frm.refresh_field('base_received_amount');
-					frm.events.set_total_allocated_amount(frm);
-					frm.refresh_field('paid_amount');
-					frm.refresh_field('received_amount');
-					frm.events.set_unallocated_amount(frm);
-					frm.events.set_difference_amount(frm);
+					// The server sends the user's own deductions back under their local names and its
+					// withholding deductions with none; local rows it did not send back are ours to replace.
+					const local = frm.doc.deductions || [];
+					const local_names = local.map(function (d) { return d.name; });
+					const kept = m.deductions.map(function (d) { return d.name; }).filter(function (n) {
+						return n && local_names.indexOf(n) >= 0;
+					});
+					const ours = m.deductions.filter(function (d) { return kept.indexOf(d.name) < 0; });
+					const held = local.filter(function (d) { return kept.indexOf(d.name) < 0; });
+					// Write only what differs: add_child dirties the form (frappe.model.add_child), and a
+					// dirty draft never shows Submit, so a saved draft the server already computed stays clean.
+					const rows_same = same_rows(m.cecypo_withholding, frm.doc.cecypo_withholding || [])
+						&& same_rows(ours, held);
+					const amounts_same = ['paid_amount', 'received_amount'].every(function (f) {
+						return flt(m[f], precision(f, frm.doc)) === flt(frm.doc[f], precision(f, frm.doc));
+					});
+					if (!rows_same) {
+						fill(frm, 'cecypo_withholding', m.cecypo_withholding);
+						// The user's rows stay the same objects, so a row being edited is not swapped out.
+						held.forEach(function (d) { frappe.model.clear_doc(d.doctype, d.name); });
+						ours.forEach(function (row) {
+							const d = frm.add_child('deductions');
+							Object.keys(row).forEach(function (k) {
+								if (META.indexOf(k) < 0) d[k] = row[k];
+							});
+						});
+						frm.refresh_field('deductions');
+					}
+					if (!rows_same || !amounts_same) {
+						// Assign, never set_value: that fires ERPNext's re-spread over the references.
+						frm.doc.paid_amount = m.paid_amount;
+						frm.doc.received_amount = m.received_amount;
+						// ERPNext's unallocated/difference maths reads the base amounts.
+						frm.doc.base_paid_amount = m.base_paid_amount;
+						frm.doc.base_received_amount = m.base_received_amount;
+						frm.refresh_field('base_paid_amount');
+						frm.refresh_field('base_received_amount');
+						frm.events.set_total_allocated_amount(frm);
+						frm.refresh_field('paid_amount');
+						frm.refresh_field('received_amount');
+						frm.events.set_unallocated_amount(frm);
+						frm.events.set_difference_amount(frm);
+					}
 				}
 				if (has !== !!frm._wht_locked) lock(frm, has);
 			},
