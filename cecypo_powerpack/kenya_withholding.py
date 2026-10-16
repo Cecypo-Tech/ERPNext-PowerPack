@@ -163,7 +163,12 @@ def apply_to_payment_entry(doc, method=None):
 		for r in doc.get("references")
 	)
 	# Unrounded on purpose: rounding a foreign-currency paid/received amount to 2dp leaves a difference.
-	doc.paid_amount = (base_allocated - total_withheld) / flt(doc.source_exchange_rate)
+	# Other deductions (bank charges, write-offs) count in ERPNext's difference, so the bank pays them too.
+	other_deductions = sum(
+		flt(d.amount) for d in doc.get("deductions")
+		if d.account not in rule_accounts and not d.is_exchange_gain_loss
+	)
+	doc.paid_amount = (base_allocated - total_withheld + other_deductions) / flt(doc.source_exchange_rate)
 	doc.received_amount = doc.paid_amount * flt(doc.source_exchange_rate) / flt(doc.target_exchange_rate)
 
 

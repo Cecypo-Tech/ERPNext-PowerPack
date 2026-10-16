@@ -660,7 +660,7 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 class TestPowerPackSettingsTabs(FrappeTestCase):
 	# Kept in step with the shipped doctype JSON. pricing_tab was added after this
 	# test was written, so the assertion named a tab order the app no longer had.
-	EXPECTED_TABS = ["appearance_tab", "sales_pos_tab", "pricing_tab", "items_tab", "system_tab"]
+	EXPECTED_TABS = ["appearance_tab", "sales_pos_tab", "pricing_tab", "items_tab", "withholding_tab", "system_tab"]
 
 	def test_tabs_present_in_order(self):
 		meta = frappe.get_meta("PowerPack Settings")

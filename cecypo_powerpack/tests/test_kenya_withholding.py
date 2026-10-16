@@ -299,6 +299,18 @@ class TestPaymentEntry(IntegrationTestCase):
 		self.assertEqual((pe.cecypo_withholding, pe.deductions, pe.paid_amount), ([], [], 6000))
 		self.assertEqual(pe.difference_amount, 0)
 
+	def test_other_deduction_keeps_entry_balanced(self):
+		pe = _pe(_make_pi())
+		pe.append("deductions", {"account": "Bank Charges - _TC", "cost_center": "Main - _TC", "amount": 100})
+		pe.insert(ignore_permissions=True)
+		self.assertEqual(pe.difference_amount, 0)
+		self.assertEqual(pe.unallocated_amount, 0)
+		self.assertEqual(pe.paid_amount, 272200 - 5444 - 19965 + 100)
+		pe.save()  # recompute must not stack the 100 twice
+		self.assertEqual(pe.paid_amount, 272200 - 5444 - 19965 + 100)
+		pe.submit()
+		self.assertEqual(_deductions(pe)["Bank Charges - _TC"], 100)
+
 	def test_entry_inserted_without_exchange_rates(self):
 		pe = _pe(_make_pi())
 		pe.source_exchange_rate = pe.target_exchange_rate = None
