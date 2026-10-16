@@ -1,0 +1,96 @@
+// Copyright (c) 2026, Cecypo.Tech and contributors
+// For license information, please see license.txt
+
+frappe.query_reports["Withholding Due to KRA"] = {
+	filters: [
+		{
+			fieldname: "company",
+			label: __("Company"),
+			fieldtype: "Link",
+			options: "Company",
+			default: frappe.defaults.get_user_default("Company"),
+			reqd: 1,
+		},
+		{
+			fieldname: "account",
+			label: __("Account"),
+			fieldtype: "Link",
+			options: "Account",
+			get_query: () => ({ filters: { company: frappe.query_report.get_filter_value("company") } }),
+		},
+		{
+			fieldname: "status",
+			label: __("Status"),
+			fieldtype: "Select",
+			options: "Unpaid\nPaid\nAll",
+			default: "Unpaid",
+		},
+		{ fieldname: "from_date", label: __("From Date"), fieldtype: "Date" },
+		{ fieldname: "to_date", label: __("To Date"), fieldtype: "Date" },
+	],
+
+	get_datatable_options(options) {
+		return Object.assign(options, { checkboxColumn: true });
+	},
+
+	formatter(value, row, column, data, default_formatter) {
+		value = default_formatter(value, row, column, data);
+		if (data && data.overdue) {
+			value = `<span style="color: var(--red-500)">${value}</span>`;
+		}
+		return value;
+	},
+
+	onload(report) {
+		report.page.add_inner_button(__("Pay KRA"), () => pay_kra(report));
+	},
+};
+
+function pay_kra(report) {
+	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry);
+	if (!rows.length) {
+		frappe.msgprint(__("Tick the unpaid rows to pay."));
+		return;
+	}
+	const company = report.get_filter_value("company");
+	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
+	const today = frappe.datetime.get_today();
+	const dialog = new frappe.ui.Dialog({
+		title: __("Pay KRA: {0} rows, {1} withheld", [rows.length, format_currency(total)]),
+		fields: [
+			{
+				fieldname: "bank_account",
+				label: __("Bank / Cash Account"),
+				fieldtype: "Link",
+				options: "Account",
+				reqd: 1,
+				get_query: () => ({
+					filters: { account_type: ["in", ["Bank", "Cash"]], company, is_group: 0 },
+				}),
+			},
+			{ fieldname: "posting_date", label: __("Posting Date"), fieldtype: "Date", default: today, reqd: 1 },
+			{ fieldname: "prn", label: __("PRN"), fieldtype: "Data", reqd: 1 },
+			{ fieldname: "reference_date", label: __("Reference Date"), fieldtype: "Date", default: today, reqd: 1 },
+		],
+		primary_action_label: __("Create Journal Entry"),
+		primary_action(values) {
+			dialog.disable_primary_action();
+			frappe
+				.call({
+					method: "cecypo_powerpack.kenya_withholding.pay_kra",
+					args: { row_names: rows.map((r) => r.row_name), ...values },
+					freeze: true,
+				})
+				.then((r) => {
+					dialog.hide();
+					frappe.show_alert({
+						message: __("Journal Entry {0} created", [r.message]),
+						indicator: "green",
+					});
+					report.refresh();
+				})
+				.always(() => dialog.enable_primary_action());
+		},
+	});
+	dialog.show();
+}

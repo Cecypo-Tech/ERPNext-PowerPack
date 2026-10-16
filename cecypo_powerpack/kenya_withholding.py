@@ -203,3 +203,117 @@ def prevent_cancel_if_paid_to_kra(doc, method=None):
 				", ".join(dict.fromkeys(paid))
 			)
 		)
+
+
+def merge_vat_rows(rows):
+	"""VAT rows merged by (PIN, invoice no), as iTax takes them: base summed, posting date the latest,
+	other fields from the first. Income tax rows are dropped. Pure: input dicts are not changed."""
+	merged = {}
+	for r in rows:
+		if not r.get("is_vat"):
+			continue
+		# Blank PIN / bill no fall back to supplier / invoice so unrelated rows never merge.
+		key = (r.get("tax_id") or r.get("supplier"), r.get("bill_no") or r.get("purchase_invoice"))
+		m = merged.get(key)
+		if not m:
+			merged[key] = dict(r)
+			continue
+		m["base_amount"] = float(Decimal(str(m["base_amount"])) + Decimal(str(r["base_amount"])))
+		if r.get("posting_date") and (not m.get("posting_date") or getdate(r["posting_date"]) > getdate(m["posting_date"])):
+			m["posting_date"] = r["posting_date"]
+	return list(merged.values())
+
+
+@frappe.whitelist()
+def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference_date: str) -> str:
+	"""One submitted Bank Entry paying the selected withholding rows to KRA. Works with the feature off."""
+	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
+	row_names = frappe.parse_json(row_names) if isinstance(row_names, str) else row_names
+	row_names = list(dict.fromkeys(row_names or []))
+	if not row_names:
+		frappe.throw(_("Select the withholding rows to pay."))
+	if not prn:
+		frappe.throw(_("PRN is required."))
+
+	W = frappe.qb.DocType("Payment Entry Withholding")
+	PE = frappe.qb.DocType("Payment Entry")
+	S = frappe.qb.DocType("Supplier")
+	# Locked before the paid check, so two concurrent Pay KRA calls cannot both pass it.
+	rows = (
+		frappe.qb.from_(W)
+		.join(PE).on(W.parent == PE.name)
+		.left_join(S).on(S.name == PE.party)
+		.select(
+			W.name, W.account, W.amount, W.base_amount, W.rate, W.is_vat, W.bill_no, W.purchase_invoice,
+			W.kra_journal_entry, PE.name.as_("payment_entry"), PE.company, PE.docstatus,
+			PE.posting_date, PE.party.as_("supplier"), S.tax_id,
+		)
+		.where(W.name.isin(row_names) & (W.parenttype == "Payment Entry"))
+		.for_update()
+		.run(as_dict=True)
+	)
+	if len(rows) != len(row_names):
+		frappe.throw(_("Some selected withholding rows no longer exist. Refresh the report."))
+	if any(r.docstatus != 1 for r in rows):
+		frappe.throw(_("Only withholding on submitted Payment Entries can be paid to KRA."))
+	paid = list(dict.fromkeys(r.kra_journal_entry for r in rows if r.kra_journal_entry))
+	if paid:
+		frappe.throw(_("Some selected rows are already paid to KRA by Journal Entry {0}.").format(", ".join(paid)))
+	companies = {r.company for r in rows}
+	if len(companies) > 1:
+		frappe.throw(_("Selected rows belong to more than one company: {0}.").format(", ".join(sorted(companies))))
+	company = companies.pop()
+	bank = frappe.get_cached_value("Account", bank_account, ["company", "account_type"], as_dict=True)
+	if not bank or bank.company != company or bank.account_type not in ("Bank", "Cash"):
+		frappe.throw(_("{0} is not a Bank or Cash account of {1}.").format(bank_account, company))
+
+	debits = {}
+	for r in rows:
+		debits[r.account] = debits.get(r.account, 0) + flt(r.amount)
+	# iTax's figure (the PRN): ceil per merged VAT invoice, not the sum of per-payment ceils.
+	credit = sum(withheld(m["base_amount"], m["rate"]) for m in merge_vat_rows(rows)) + sum(
+		flt(r.amount) for r in rows if not r.is_vat
+	)
+	accounts = [{"account": a, "debit_in_account_currency": v} for a, v in debits.items()]
+	accounts.append({"account": bank_account, "credit_in_account_currency": credit})
+	difference = flt(sum(debits.values()) - credit, 2)
+	if difference:
+		co = frappe.get_cached_value(
+			"Company", company, ["round_off_account", "round_off_cost_center", "cost_center"], as_dict=True
+		)
+		if not co.round_off_account:
+			frappe.throw(_("Set a Round Off Account on Company {0}.").format(company))
+		accounts.append({
+			"account": co.round_off_account,
+			"cost_center": co.round_off_cost_center or co.cost_center,
+			"credit_in_account_currency" if difference > 0 else "debit_in_account_currency": abs(difference),
+		})
+
+	payment_entries = ", ".join(dict.fromkeys(r.payment_entry for r in rows))
+	je = frappe.get_doc({
+		"doctype": "Journal Entry",
+		"voucher_type": "Bank Entry",
+		"company": company,
+		"posting_date": posting_date,
+		"cheque_no": prn,
+		"cheque_date": reference_date,
+		"user_remark": _("Withholding paid to KRA, PRN {0}. Payment Entries: {1}").format(prn, payment_entries),
+		"accounts": accounts,
+	})
+	je.insert()
+	je.submit()
+	for r in rows:
+		frappe.db.set_value("Payment Entry Withholding", r.name, "kra_journal_entry", je.name)
+	return je.name
+
+
+def allow_cancel_of_kra_payment(doc, method=None):
+	"""Journal Entry before_cancel: submitted Payment Entries' withholding rows link here; clear_kra_link drops them."""
+	if frappe.db.exists("Payment Entry Withholding", {"kra_journal_entry": doc.name}):
+		doc.ignore_linked_doctypes = tuple(getattr(doc, "ignore_linked_doctypes", None) or ()) + ("Payment Entry",)
+
+
+def clear_kra_link(doc, method=None):
+	"""Journal Entry on_cancel: its withholding rows go back to Unpaid."""
+	for name in frappe.get_all("Payment Entry Withholding", {"kra_journal_entry": doc.name}, pluck="name"):
+		frappe.db.set_value("Payment Entry Withholding", name, "kra_journal_entry", None)

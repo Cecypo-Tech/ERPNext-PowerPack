@@ -7,6 +7,7 @@ from frappe.tests import IntegrationTestCase
 from cecypo_powerpack.kenya_withholding import (
 	income_tax_due_date,
 	invoice_withholding,
+	merge_vat_rows,
 	vat_due_date,
 	withheld,
 )
@@ -109,6 +110,32 @@ class TestCalculation(unittest.TestCase):
 		self.assertEqual(income_tax_due_date(date(2026, 10, 5)), date(2026, 11, 20))
 		self.assertEqual(income_tax_due_date(date(2026, 12, 31)), date(2027, 1, 20))
 
+	def test_merge_vat_rows(self):
+		rows = [
+			{"tax_id": "P1", "bill_no": "B1", "base_amount": 50000.25, "posting_date": date(2026, 1, 2),
+				"rate": 2, "is_vat": 1, "purchase_invoice": "PI-1"},
+			{"tax_id": "P1", "bill_no": "B1", "base_amount": 50000.25, "posting_date": date(2026, 1, 5),
+				"rate": 2, "is_vat": 1, "purchase_invoice": "PI-1"},
+			{"tax_id": "P1", "bill_no": "B2", "base_amount": 10, "posting_date": date(2026, 1, 1),
+				"rate": 2, "is_vat": 1, "purchase_invoice": "PI-2"},
+			{"tax_id": "P2", "bill_no": "B1", "base_amount": 20, "posting_date": date(2026, 1, 1),
+				"rate": 2, "is_vat": 1, "purchase_invoice": "PI-3"},
+			{"tax_id": "P1", "bill_no": "B1", "base_amount": 999, "posting_date": date(2026, 2, 1),
+				"rate": 7.5, "is_vat": 0, "purchase_invoice": "PI-1"},
+			{"tax_id": "P3", "bill_no": None, "base_amount": 1, "posting_date": date(2026, 1, 1),
+				"rate": 2, "is_vat": 1, "purchase_invoice": "PI-4"},
+			{"tax_id": "P3", "bill_no": None, "base_amount": 2, "posting_date": date(2026, 1, 1),
+				"rate": 2, "is_vat": 1, "purchase_invoice": "PI-5"},
+		]
+		merged = merge_vat_rows(rows)
+		self.assertEqual(len(merged), 5)  # income tax row dropped; blank bill_no keyed by invoice
+		first = merged[0]
+		self.assertEqual(first["base_amount"], 100000.5)
+		self.assertEqual(first["posting_date"], date(2026, 1, 5))
+		self.assertEqual(first["purchase_invoice"], "PI-1")
+		self.assertEqual(withheld(first["base_amount"], first["rate"]), 2001)
+		self.assertEqual(rows[0]["base_amount"], 50000.25)  # input untouched
+
 
 COMPANY = "_Test Company"
 VAT_ACC = "_Test VAT WHT - _TC"
@@ -182,7 +209,7 @@ def _deductions(pe):
 	return {d.account: d.amount for d in pe.deductions}
 
 
-class TestPaymentEntry(IntegrationTestCase):
+class _WithholdingCase(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -228,6 +255,8 @@ class TestPaymentEntry(IntegrationTestCase):
 		s.save(ignore_permissions=True)
 		return s
 
+
+class TestPaymentEntry(_WithholdingCase):
 	def test_full_payment_posts_withholding(self):
 		pi = _make_pi()
 		self.assertEqual(pi.grand_total, 272200)
@@ -388,3 +417,121 @@ class TestPaymentEntry(IntegrationTestCase):
 		self.assertEqual(out["paid_amount"], 272200 - 5444 - 19965)
 		self.assertEqual({d["account"]: d["amount"] for d in out["deductions"]}, {VAT_ACC: -5444, RENT_ACC: -19965})
 		self.assertEqual(len(out["cecypo_withholding"]), 2)
+
+
+class TestPayKRA(_WithholdingCase):
+	def _pay(self, pes, **kw):
+		from cecypo_powerpack.kenya_withholding import pay_kra
+
+		today = frappe.utils.nowdate()
+		names = [r.name for pe in pes for r in pe.cecypo_withholding]
+		args = {"bank_account": BANK, "posting_date": today, "prn": "PRN-1", "reference_date": today, **kw}
+		return pay_kra(names, **args)
+
+	def _report(self, pes, **filters):
+		from cecypo_powerpack.cecypo_powerpack.report.withholding_due_to_kra.withholding_due_to_kra import execute
+
+		columns, data = execute(frappe._dict(company=COMPANY, **filters))
+		self.assertIn("row_name", [c["fieldname"] for c in columns])
+		names = {pe.name for pe in pes}
+		return [r for r in data if r["payment_entry"] in names]
+
+	def _je_lines(self, je):
+		lines = {}
+		for a in frappe.get_doc("Journal Entry", je).accounts:
+			lines[a.account] = lines.get(a.account, 0) + a.debit - a.credit
+		return lines
+
+	def test_report_lists_unpaid_rows(self):
+		from cecypo_powerpack.kenya_withholding import _holidays
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "P051234567X")
+		pe1 = _make_pe(_make_pi())
+		pe2 = _make_pe(_make_pi(lines=((OTHER_ITEM, 6000),)))
+		rows = self._report([pe1, pe2])
+		self.assertEqual(len(rows), 3)
+		today = frappe.utils.getdate()
+		for r in rows:
+			self.assertEqual(r["tax_id"], "P051234567X")
+			self.assertEqual(r["supplier"], WHT_SUPPLIER)
+			self.assertFalse(r["kra_journal_entry"])
+			self.assertEqual(r["overdue"], 0)
+			want = vat_due_date(today, _holidays(COMPANY)) if r["is_vat"] else income_tax_due_date(today)
+			self.assertEqual(frappe.utils.getdate(r["due_date"]), want)
+		self.assertEqual(sorted(r["amount"] for r in rows), [120, 5444, 19965])
+		self.assertEqual(self._report([pe1, pe2], status="Paid"), [])
+
+	def test_report_flags_overdue(self):
+		pe = _make_pe(_make_pi())
+		frappe.db.set_value("Payment Entry Withholding", pe.cecypo_withholding[0].name, "due_date", "2020-01-01")
+		rows = {r["row_name"]: r for r in self._report([pe])}
+		self.assertEqual(rows[pe.cecypo_withholding[0].name]["overdue"], 1)
+		self.assertEqual(rows[pe.cecypo_withholding[1].name]["overdue"], 0)
+
+	def test_pay_kra_posts_and_links(self):
+		pe = _make_pe(_make_pi())
+		je_name = self._pay([pe])
+		je = frappe.get_doc("Journal Entry", je_name)
+		self.assertEqual(je.docstatus, 1)
+		self.assertEqual(je.voucher_type, "Bank Entry")
+		self.assertEqual(je.cheque_no, "PRN-1")
+		self.assertIn(pe.name, je.user_remark)
+		self.assertEqual(self._je_lines(je_name), {VAT_ACC: 5444, RENT_ACC: 19965, BANK: -25409})
+		for r in pe.cecypo_withholding:
+			self.assertEqual(frappe.db.get_value("Payment Entry Withholding", r.name, "kra_journal_entry"), je_name)
+		self.assertEqual(self._report([pe]), [])
+		self.assertEqual(len(self._report([pe], status="Paid")), 2)
+		self.assertEqual(len(self._report([pe], status="All")), 2)
+
+	def test_pay_kra_refuses_twice(self):
+		pe = _make_pe(_make_pi())
+		je_name = self._pay([pe])
+		with self.assertRaisesRegex(frappe.ValidationError, je_name):
+			self._pay([pe])
+		pe2 = _make_pe(_make_pi())
+		with self.assertRaises(frappe.ValidationError):
+			self._pay([pe, pe2])  # one paid row in the batch refuses the whole batch
+		self.assertFalse(frappe.db.get_value(
+			"Payment Entry Withholding", pe2.cecypo_withholding[0].name, "kra_journal_entry"))
+
+	def test_pay_kra_refuses_unknown_or_draft_rows(self):
+		from cecypo_powerpack.kenya_withholding import pay_kra
+
+		today = frappe.utils.nowdate()
+		draft = _make_pe(_make_pi(), submit=False)
+		for names in ([], ["no-such-row"], [draft.cecypo_withholding[0].name]):
+			with self.assertRaises(frappe.ValidationError):
+				pay_kra(names, BANK, today, "PRN-1", today)
+
+	def test_pay_kra_merges_part_payments(self):
+		pi = _make_pi(lines=((OTHER_ITEM, 100000.50),), disable_rounded_total=1)
+		pe1 = _make_pe(pi, allocated=50000.25)
+		pe2 = _make_pe(pi)
+		self.assertEqual([r.base_amount for r in pe1.cecypo_withholding + pe2.cecypo_withholding], [50000.25, 50000.25])
+		self.assertEqual([r.amount for r in pe1.cecypo_withholding + pe2.cecypo_withholding], [1001, 1001])
+		je_name = self._pay([pe1, pe2])
+		lines = self._je_lines(je_name)
+		self.assertEqual(lines, {VAT_ACC: 2002, BANK: -withheld(100000.50, 2), "Round Off - _TC": -1})
+		self.assertEqual(withheld(100000.50, 2), 2001)
+		je = frappe.get_doc("Journal Entry", je_name)
+		self.assertEqual(je.total_debit, je.total_credit)
+
+	def test_cancel_kra_je_unlinks(self):
+		pe = _make_pe(_make_pi())
+		je_name = self._pay([pe])
+		frappe.get_doc("Journal Entry", je_name).cancel()
+		for r in pe.cecypo_withholding:
+			self.assertFalse(frappe.db.get_value("Payment Entry Withholding", r.name, "kra_journal_entry"))
+		self.assertEqual(len(self._report([pe])), 2)
+		pe.reload()
+		pe.cancel()  # unpaid again, so the Payment Entry can be cancelled
+
+	def test_pay_kra_works_with_feature_disabled(self):
+		pe = _make_pe(_make_pi())
+		self._settings(enable_kenya_withholding=0)
+		self.assertEqual(len(self._report([pe])), 2)
+		je_name = self._pay([pe])
+		self.assertEqual(frappe.db.get_value("Journal Entry", je_name, "docstatus"), 1)
+		frappe.get_doc("Journal Entry", je_name).cancel()
+		self.assertFalse(frappe.db.get_value(
+			"Payment Entry Withholding", pe.cecypo_withholding[0].name, "kra_journal_entry"))
