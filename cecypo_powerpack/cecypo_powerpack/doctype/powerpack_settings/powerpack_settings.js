@@ -8,7 +8,8 @@ frappe.ui.form.on('PowerPack Settings', {
 			return { filters: { is_group: 0, account_type: ['not in', ['Payable', 'Receivable']] } };
 		};
 		frm.set_query('account', 'withholding_rules', wht_account);
-		frm.set_query('account', 'withholding_vat_accounts', wht_account);
+		// A Table MultiSelect has no grid: its control is itself the Link, so it takes a parent-style query.
+		frm.set_query('withholding_vat_accounts', wht_account);
 	},
 
 	refresh: function(frm) {
@@ -19,9 +20,6 @@ frappe.ui.form.on('PowerPack Settings', {
 		cecypo_add_permission_manager_button(frm);
 		cecypo_mark_dup_withholding_rules(frm);
 	},
-
-	withholding_rules_add: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
-	withholding_rules_remove: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 
 	min_selling_price_rules_add: function(frm) { cecypo_refresh_min_price_grid(frm); },
 	min_selling_price_rules_remove: function(frm) { cecypo_refresh_min_price_grid(frm); },
@@ -180,7 +178,10 @@ function cecypo_mark_dup_withholding_rules(frm) {
 	}, 0);
 }
 
+// Grid add/remove events fire on the child doctype (grid.js / grid_row.js), not on the parent.
 frappe.ui.form.on('Withholding Rule', {
+	withholding_rules_add: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+	withholding_rules_remove: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 	item: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 	supplier: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 });

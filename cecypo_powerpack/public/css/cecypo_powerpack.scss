@@ -278,4 +278,5 @@ body.compact-theme .grid-body .editable-row .checkbox {
 @media (max-width: 640px) { .pp-snap .pp-snap-cards { grid-template-columns: repeat(2, 1fr); } }
 
 /* Withholding rules sharing an item or supplier (PowerPack Settings) */
-.grid-row.pp-wht-dup, .grid-row.pp-wht-dup .data-row { background-color: var(--bg-yellow); }
+/* The cells too: frappe paints each one with `.grid-body .grid-static-col { background-color: var(--fg-color) }`. */
+.grid-row.pp-wht-dup .data-row, .grid-row.pp-wht-dup .data-row > .col { background-color: var(--bg-yellow); }
