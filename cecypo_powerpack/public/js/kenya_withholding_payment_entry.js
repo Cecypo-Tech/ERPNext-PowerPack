@@ -146,4 +146,12 @@
 		allocated_amount: function (frm) { debounced(frm); },
 		references_remove: function (frm) { debounced(frm); },
 	});
+	// The user's own deductions (bank charges, write-offs) change the paid amount. Our own writes
+	// (add_child, plain assignment, clear_doc) fire none of these, so this does not loop.
+	frappe.ui.form.on('Payment Entry Deduction', {
+		amount: function (frm) { debounced(frm); },
+		account: function (frm) { debounced(frm); },
+		deductions_add: function (frm) { debounced(frm); },
+		deductions_remove: function (frm) { debounced(frm); },
+	});
 })();
