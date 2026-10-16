@@ -30,7 +30,19 @@ def setup_custom_fields():
 					"read_only": 1,
 					"no_copy": 1,
 					"print_hide": 1,
-				}
+				},
+				# Shown beside the paid amount while picking invoices: allocated = paid + withheld (+ other deductions).
+				{
+					"fieldname": "cecypo_total_withheld",
+					"label": "Withheld",
+					"fieldtype": "Currency",
+					"options": "Company:company:default_currency",
+					"insert_after": "column_break_21",
+					"depends_on": "eval:doc.cecypo_total_withheld",
+					"read_only": 1,
+					"no_copy": 1,
+					"print_hide": 1,
+				},
 			],
 			# Set by pay_kra. Copied on Amend (frappe copies no_copy fields then), which refuse_kra_amend refuses.
 			"Journal Entry": [
@@ -49,6 +61,13 @@ def setup_custom_fields():
 		ignore_validate=True,
 		update=True,
 	)
+	# Entries withheld before cecypo_total_withheld existed. Idempotent; only touches entries with rows.
+	frappe.db.sql("""
+		update `tabPayment Entry` pe
+		join (select parent, sum(amount) total from `tabPayment Entry Withholding`
+			where parenttype = 'Payment Entry' group by parent) w on w.parent = pe.name
+		set pe.cecypo_total_withheld = w.total
+		where ifnull(pe.cecypo_total_withheld, 0) != w.total""")
 	# Every Payment Entry, not only withholding ones: ERPNext hides References (and Get Outstanding Invoices)
 	# until a paid amount is typed. Left empty, Get Outstanding fills it from the invoices (payment_entry.js).
 	make_property_setter(
@@ -170,6 +189,7 @@ def apply_to_payment_entry(doc, method=None, preview=False):
 	for r in rows:
 		r["due_date"] = vat_due_date(posting_date, holidays) if r["is_vat"] else income_tax_due_date(posting_date)
 	doc.set("cecypo_withholding", rows)
+	doc.cecypo_total_withheld = sum(r["amount"] for r in rows)
 
 	for d in own_deductions:
 		doc.remove(d)
@@ -238,6 +258,7 @@ def compute_for_payment_entry(doc):
 		"cecypo_withholding": [r.as_dict() for r in pe.get("cecypo_withholding")],
 		"deductions": [d.as_dict() for d in pe.get("deductions")],
 		"paid_amount": pe.paid_amount,
+		"cecypo_total_withheld": pe.cecypo_total_withheld,
 		"received_amount": pe.received_amount,
 		"base_paid_amount": flt(pe.paid_amount) * flt(pe.source_exchange_rate),
 		"base_received_amount": flt(pe.received_amount) * flt(pe.target_exchange_rate),

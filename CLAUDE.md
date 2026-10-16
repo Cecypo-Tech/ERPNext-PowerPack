@@ -176,6 +176,8 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   Get Outstanding Invoices) shows once party and accounts are set, not only after a paid amount is typed. ERPNext
   fills an empty paid amount from the fetched invoices. With withholding on (Pay/Supplier), the form script zeroes
   a typed paid amount before Get Outstanding Invoices, so each invoice gets its full outstanding.
+- `cecypo_total_withheld` ("Withheld", read-only, beside Paid Amount, hidden at 0) is the sum of the withholding
+  rows, so paid + withheld = allocated while picking invoices. `setup_custom_fields` backfills it from the rows.
 - Save/submit refuse a withholding entry whose paid amount comes out <= 0 (e.g. allocated 1: two ceils = 2). The
   preview (`preview=True`) skips that check, since it runs while an allocation is still being typed.
 - Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
