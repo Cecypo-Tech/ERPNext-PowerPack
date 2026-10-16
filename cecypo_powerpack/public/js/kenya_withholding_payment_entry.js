@@ -63,6 +63,7 @@
 		const seq = (frm._wht_seq = (frm._wht_seq || 0) + 1);
 		const held = (frm.doc.cecypo_withholding || []).length > 0;
 		CecypoPowerPack.Settings.isEnabled('enable_kenya_withholding', function (enabled) {
+			frm._wht_enabled = enabled;
 			// Feature off: still call when rows are held, so the server clears them.
 			if ((enabled || held) && seq === frm._wht_seq) call(frm, seq);
 		});
@@ -142,6 +143,23 @@
 						const r = await orig.apply(this, arguments);
 						debounced(arguments[0]);
 						return r;
+					},
+					{ _wht: true }
+				);
+			}
+			// With withholding the paid amount is derived: drop a typed one, so ERPNext allocates each
+			// invoice its full outstanding (payment_entry.js fills an empty paid amount from them).
+			const fetch = frm.events.get_outstanding_documents;
+			if (fetch && !fetch._wht) {
+				frm.events.get_outstanding_documents = Object.assign(
+					function (frm, filters, get_outstanding_invoices) {
+						if (get_outstanding_invoices && filters && filters.allocate_payment_amount && frm.doc.party
+							&& frm._wht_enabled && frm.doc.payment_type === 'Pay' && frm.doc.party_type === 'Supplier') {
+							frm.doc.paid_amount = frm.doc.received_amount = 0;
+							frm.doc.base_paid_amount = frm.doc.base_received_amount = 0;
+							frm.refresh_fields(['paid_amount', 'received_amount', 'base_paid_amount', 'base_received_amount']);
+						}
+						return fetch.apply(this, arguments);
 					},
 					{ _wht: true }
 				);

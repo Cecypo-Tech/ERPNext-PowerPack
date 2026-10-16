@@ -10,6 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.utils import flt, getdate
 
 from cecypo_powerpack.utils import is_feature_enabled
@@ -47,6 +48,12 @@ def setup_custom_fields():
 		},
 		ignore_validate=True,
 		update=True,
+	)
+	# Every Payment Entry, not only withholding ones: ERPNext hides References (and Get Outstanding Invoices)
+	# until a paid amount is typed. Left empty, Get Outstanding fills it from the invoices (payment_entry.js).
+	make_property_setter(
+		"Payment Entry", "section_break_14", "depends_on",
+		"eval:(doc.party && doc.paid_from && doc.paid_to)", "Code", validate_fields_for_doctype=False,
 	)
 
 
@@ -112,7 +119,7 @@ def _invoice_allocations(doc):
 	return allocated
 
 
-def apply_to_payment_entry(doc, method=None):
+def apply_to_payment_entry(doc, method=None, preview=False):
 	"""before_validate on Payment Entry, so it also runs at submit with the rules then in force. ERPNext's
 	validate then runs its amount setters on our values. When the entry no longer qualifies (feature off, no
 	rules for the company, not a supplier payment), rows it already holds are cleared, not submitted."""
@@ -204,6 +211,9 @@ def apply_to_payment_entry(doc, method=None):
 	)
 	doc.paid_amount = (base_allocated - total_withheld + other_deductions) / flt(doc.source_exchange_rate)
 	doc.received_amount = doc.paid_amount * flt(doc.source_exchange_rate) / flt(doc.target_exchange_rate)
+	# Not in the preview: it runs while an allocation is still being typed. Save and submit refuse it.
+	if rows and not preview and flt(doc.paid_amount, doc.precision("paid_amount")) <= 0:
+		frappe.throw(_("Withholding of {0} leaves nothing to pay. Check the allocated amounts.").format(total_withheld))
 
 
 def _holidays(company):
@@ -223,7 +233,7 @@ def compute_for_payment_entry(doc):
 	pe = frappe.get_doc(doc)
 	for name in _invoice_allocations(pe):
 		frappe.has_permission("Purchase Invoice", "read", name, throw=True)
-	apply_to_payment_entry(pe)
+	apply_to_payment_entry(pe, preview=True)
 	return {
 		"cecypo_withholding": [r.as_dict() for r in pe.get("cecypo_withholding")],
 		"deductions": [d.as_dict() for d in pe.get("deductions")],
