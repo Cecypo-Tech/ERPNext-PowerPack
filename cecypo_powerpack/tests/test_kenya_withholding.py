@@ -54,7 +54,7 @@ class TestScaffold(IntegrationTestCase):
 	def test_money_endpoints_post_only(self):
 		from cecypo_powerpack import kenya_withholding as kw
 
-		for fn in (kw.pay_kra, kw.export_itax_csv):
+		for fn in (kw.pay_kra, kw.export_itax_csv, kw.check_itax_export):
 			self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[fn], ["POST"], fn.__name__)
 
 	def test_settings_child_links_ignore_user_permissions(self):
@@ -737,6 +737,20 @@ class TestItaxCsv(_WithholdingCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "No VAT withholding rows"):
 			export_itax_csv([r.name for r in pe.cecypo_withholding if not r.is_vat])
 		self.assertNotIn("filecontent", frappe.response)
+
+	def test_check_refuses_what_export_refuses(self):
+		from cecypo_powerpack.kenya_withholding import check_itax_export
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "P051234567X")
+		pe = _make_pe(_make_pi())
+		frappe.response.pop("filecontent", None)
+		with self.assertRaisesRegex(frappe.ValidationError, "No VAT withholding rows"):
+			check_itax_export([r.name for r in pe.cecypo_withholding if not r.is_vat])
+		check_itax_export([r.name for r in pe.cecypo_withholding])  # has a VAT row: passes
+		self.assertNotIn("filecontent", frappe.response)  # a check, never the download
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "")
+		with self.assertRaisesRegex(frappe.ValidationError, WHT_SUPPLIER):
+			check_itax_export([r.name for r in pe.cecypo_withholding])
 
 	def test_export_bytes_crlf_no_header(self):
 		from cecypo_powerpack.kenya_withholding import export_itax_csv

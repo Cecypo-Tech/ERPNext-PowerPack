@@ -315,9 +315,8 @@ def itax_csv_rows(rows):
 	]
 
 
-@frappe.whitelist(methods=["POST"])
-def export_itax_csv(row_names):
-	"""Download the iTax Withholding VAT upload for the selected rows. Works with the feature off."""
+def _itax_rows(row_names):
+	"""The selection's VAT rows, refused when there are none or a supplier has no PIN."""
 	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
 	rows = [r for r in _load_rows(row_names) if r.is_vat]
 	if not rows:
@@ -325,6 +324,20 @@ def export_itax_csv(row_names):
 	missing = sorted({r.supplier for r in rows if not r.tax_id})
 	if missing:
 		frappe.throw(_("Set the Tax ID (PIN) on supplier {0} before exporting.").format(", ".join(missing)))
+	return rows
+
+
+@frappe.whitelist(methods=["POST"])
+def check_itax_export(row_names):
+	"""export_itax_csv's refusals, run by frappe.call first: the download is a form POST into a new tab
+	(open_url_post), where a refusal renders as a bare error page instead of a message on the report."""
+	_itax_rows(row_names)
+
+
+@frappe.whitelist(methods=["POST"])
+def export_itax_csv(row_names):
+	"""Download the iTax Withholding VAT upload for the selected rows. Works with the feature off."""
+	rows = _itax_rows(row_names)
 	out = io.StringIO()
 	csv.writer(out, lineterminator="\r\n").writerows(itax_csv_rows(rows))
 	frappe.response["filename"] = f"WHT-VAT-{getdate().strftime('%d-%m-%Y')}.csv"

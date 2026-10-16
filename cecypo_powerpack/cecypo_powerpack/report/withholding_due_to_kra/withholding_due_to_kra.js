@@ -55,10 +55,15 @@ function export_itax_csv(report) {
 		frappe.msgprint(__("No rows to export."));
 		return;
 	}
-	// POST: a GET URL carrying every row name outgrows URL length limits.
-	open_url_post("/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv", {
-		row_names: rows.map((r) => r.row_name),
-	}, true); // new tab, as before: an error lands there, not over the report
+	const row_names = rows.map((r) => r.row_name);
+	// The server's refusals (no VAT rows, missing PIN) show here: in the download tab below they would be
+	// a bare error page. export_itax_csv still refuses on its own.
+	frappe
+		.call({ method: "cecypo_powerpack.kenya_withholding.check_itax_export", args: { row_names } })
+		.then(() => {
+			// POST: a GET URL carrying every row name outgrows URL length limits.
+			open_url_post("/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv", { row_names }, true);
+		});
 }
 
 function pay_kra(report) {
