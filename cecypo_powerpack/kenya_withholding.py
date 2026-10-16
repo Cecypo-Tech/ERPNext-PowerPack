@@ -190,6 +190,8 @@ def compute_for_payment_entry(doc):
 		"deductions": [d.as_dict() for d in pe.get("deductions")],
 		"paid_amount": pe.paid_amount,
 		"received_amount": pe.received_amount,
+		"base_paid_amount": flt(pe.paid_amount) * flt(pe.source_exchange_rate),
+		"base_received_amount": flt(pe.received_amount) * flt(pe.target_exchange_rate),
 	}
 
 

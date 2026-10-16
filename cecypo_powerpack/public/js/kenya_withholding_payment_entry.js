@@ -23,7 +23,21 @@
 	}
 
 	function compute(frm) {
-		if (frm.doc.docstatus !== 0 || frm.doc.payment_type !== 'Pay' || frm.doc.party_type !== 'Supplier') return;
+		if (frm.doc.docstatus !== 0) return;
+		if (frm.doc.payment_type !== 'Pay' || frm.doc.party_type !== 'Supplier') {
+			// Switched away from a supplier payment: drop what we added and unlock.
+			const rows = frm.doc.cecypo_withholding || [];
+			if (rows.length) {
+				const accounts = rows.map(function (r) { return r.account; });
+				frm.doc.deductions = (frm.doc.deductions || []).filter(function (d) {
+					return !(flt(d.amount) < 0 && accounts.indexOf(d.account) >= 0);
+				});
+				frm.clear_table('cecypo_withholding');
+				frm.refresh_fields(['cecypo_withholding', 'deductions']);
+			}
+			if (frm._wht_locked) lock(frm, false);
+			return;
+		}
 		const seq = (frm._wht_seq = (frm._wht_seq || 0) + 1);
 		frappe.call({
 			method: 'cecypo_powerpack.kenya_withholding.compute_for_payment_entry',
@@ -38,6 +52,12 @@
 					// Assign, never set_value: that fires ERPNext's re-spread over the references.
 					frm.doc.paid_amount = m.paid_amount;
 					frm.doc.received_amount = m.received_amount;
+					// ERPNext's unallocated/difference maths reads the base amounts.
+					frm.doc.base_paid_amount = m.base_paid_amount;
+					frm.doc.base_received_amount = m.base_received_amount;
+					frm.refresh_field('base_paid_amount');
+					frm.refresh_field('base_received_amount');
+					frm.events.set_total_allocated_amount(frm);
 					frm.refresh_field('paid_amount');
 					frm.refresh_field('received_amount');
 					frm.events.set_unallocated_amount(frm);
@@ -52,9 +72,24 @@
 
 	frappe.ui.form.on('Payment Entry', {
 		refresh: function (frm) {
+			// "Get Outstanding Invoices" writes allocated_amount with no field event; it ends in
+			// allocate_party_amount_against_ref_docs (payment_entry.js ~1099), so recompute after it.
+			const orig = frm.events.allocate_party_amount_against_ref_docs;
+			if (orig && !orig._wht) {
+				frm.events.allocate_party_amount_against_ref_docs = Object.assign(
+					async function () {
+						const r = await orig.apply(this, arguments);
+						debounced(arguments[0]);
+						return r;
+					},
+					{ _wht: true }
+				);
+			}
 			if (frm.doc.docstatus === 0) debounced(frm);
 		},
 		party: debounced,
+		payment_type: debounced,
+		party_type: debounced,
 		posting_date: debounced,
 	});
 	frappe.ui.form.on('Payment Entry Reference', {
