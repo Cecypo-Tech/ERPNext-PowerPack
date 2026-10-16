@@ -243,6 +243,10 @@ doc_events = {
 	"Payment Reconciliation": {
 		"validate": "cecypo_powerpack.overrides.validate_allocation_with_zero_support"
 	},
+	"Payment Entry": {
+		"before_validate": "cecypo_powerpack.kenya_withholding.apply_to_payment_entry",
+		"before_cancel": "cecypo_powerpack.kenya_withholding.prevent_cancel_if_paid_to_kra",
+	},
 	"Workflow": {
 		"before_validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
 		"validate": "cecypo_powerpack.price_approval.guard_managed_workflow",
