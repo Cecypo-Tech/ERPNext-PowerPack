@@ -8,7 +8,11 @@ frappe.ui.form.on('PowerPack Settings', {
 		cecypo_add_load_group_buttons(frm);
 		cecypo_refresh_min_price_grid(frm);
 		cecypo_add_permission_manager_button(frm);
+		cecypo_mark_dup_withholding_rules(frm);
 	},
+
+	withholding_rules_add: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+	withholding_rules_remove: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 
 	min_selling_price_rules_add: function(frm) { cecypo_refresh_min_price_grid(frm); },
 	min_selling_price_rules_remove: function(frm) { cecypo_refresh_min_price_grid(frm); },
@@ -150,3 +154,24 @@ function cecypo_add_permission_manager_button(frm) {
 		frappe.set_route('powerpack-permissions');
 	});
 }
+
+// Highlight withholding rules that share a non-blank item or supplier with another row.
+function cecypo_mark_dup_withholding_rules(frm) {
+	const grid = frm.fields_dict.withholding_rules && frm.fields_dict.withholding_rules.grid;
+	if (!grid) return;
+	const rows = frm.doc.withholding_rules || [];
+	const count = function (f, v) { return rows.filter(function (r) { return r[f] === v; }).length; };
+	// Grid rows are rebuilt after an edit, so mark once the redraw has happened.
+	setTimeout(function () {
+		(grid.grid_rows || []).forEach(function (gr) {
+			const d = gr.doc || {};
+			const dup = (d.item && count('item', d.item) > 1) || (d.supplier && count('supplier', d.supplier) > 1);
+			gr.wrapper && $(gr.wrapper).toggleClass('pp-wht-dup', !!dup);
+		});
+	}, 0);
+}
+
+frappe.ui.form.on('Withholding Rule', {
+	item: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+	supplier: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
+});

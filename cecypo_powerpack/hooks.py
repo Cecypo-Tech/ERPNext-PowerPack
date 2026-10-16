@@ -54,6 +54,9 @@ app_include_js = "cecypo_powerpack.bundle.js"
 
 # include js in doctype views
 doctype_js = {
+    "Payment Entry": [
+        "public/js/kenya_withholding_payment_entry.js",
+    ],
     "Sales Order": [
         "public/js/quick_pay.js",
         "public/js/quick_pay_mpesa.js",

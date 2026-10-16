@@ -276,3 +276,6 @@ body.compact-theme .grid-body .editable-row .checkbox {
 .pp-snap .pp-snap-table .pp-overdue { color: var(--red); font-weight: 700; }
 .pp-snap .pp-snap-contact { font-size: 12px; }
 @media (max-width: 640px) { .pp-snap .pp-snap-cards { grid-template-columns: repeat(2, 1fr); } }
+
+/* Withholding rules sharing an item or supplier (PowerPack Settings) */
+.grid-row.pp-wht-dup, .grid-row.pp-wht-dup .data-row { background-color: var(--bg-yellow); }
