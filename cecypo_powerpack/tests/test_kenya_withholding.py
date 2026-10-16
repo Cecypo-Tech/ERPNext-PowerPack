@@ -44,6 +44,13 @@ class TestScaffold(IntegrationTestCase):
 		field = frappe.get_meta("Payment Entry").get_field("cecypo_withholding")
 		self.assertEqual(field.options, "Payment Entry Withholding")
 
+	def test_references_section_shown_before_paid_amount(self):
+		# Get Outstanding Invoices lives in this section; ERPNext hides it until a paid amount is typed.
+		self.assertEqual(
+			frappe.get_meta("Payment Entry").get_field("section_break_14").depends_on,
+			"eval:(doc.party && doc.paid_from && doc.paid_to)",
+		)
+
 	def test_kra_journal_entry_indexed(self):
 		self.assertEqual(frappe.get_meta("Payment Entry Withholding").get_field("kra_journal_entry").search_index, 1)
 
@@ -297,6 +304,12 @@ class TestPaymentEntry(_WithholdingCase):
 		))
 		self.assertEqual(gl, {VAT_ACC: 5444, RENT_ACC: 19965})
 		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "outstanding_amount"), 0)
+
+	def test_withholding_more_than_allocated_refused(self):
+		# Allocated 1 shilling: 2% and 7.5% each round up to 1, which would make the paid amount -1.
+		pi = _make_pi()
+		with self.assertRaisesRegex(frappe.ValidationError, "leaves nothing to pay"):
+			_make_pe(pi, allocated=1, submit=False)
 
 	def test_dispute_allocates_less(self):
 		pi = _make_pi()

@@ -172,6 +172,12 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   the submitted Payment Entry is never re-saved. Cancelling that JE clears it (`clear_kra_link`). Desk "Cancel All"
   would try to cancel the linked Payment Entry, hence the JE form script and `ignore_linked_doctypes`.
 - Report `Withholding Due to KRA`, Pay KRA and the CSV work with the feature off.
+- `setup_custom_fields` also sets a Property Setter on **every** Payment Entry: `section_break_14` (References,
+  Get Outstanding Invoices) shows once party and accounts are set, not only after a paid amount is typed. ERPNext
+  fills an empty paid amount from the fetched invoices. With withholding on (Pay/Supplier), the form script zeroes
+  a typed paid amount before Get Outstanding Invoices, so each invoice gets its full outstanding.
+- Save/submit refuse a withholding entry whose paid amount comes out <= 0 (e.g. allocated 1: two ceils = 2). The
+  preview (`preview=True`) skips that check, since it runs while an allocation is still being typed.
 - Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
   `bench build --app cecypo_powerpack`.
 
