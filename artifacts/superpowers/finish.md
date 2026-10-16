@@ -39,3 +39,9 @@ Per-task reviews + final whole-branch review: 0 Critical; all Important fixed; p
 - Fix: Property Setter on Payment Entry `section_break_14` depends_on (all Payment Entries); with withholding on, a typed paid amount is zeroed before Get Outstanding Invoices; save refuses paid <= 0 under withholding (not in preview).
 - Verified: withholding tests 58/58; browser on Dev Co: button shows with paid empty; typed 1 then fetch gave full allocations; allocated 1 shows the refusal; full allocation saved clean at 290,343 (-5,444 / -19,965), Submit shown. Test draft and temp user deleted.
 - Review: no Blocker/Major; minors 1-4 and the test nit fixed. Left: section also shows for manual-reference entries with paid 0 (save then asks for paid); a user's own positive deduction present at fetch time shortens the last allocation (ERPNext behaviour); migrate re-applies the depends_on.
+
+## Follow-up 2026-10-16: Withheld total beside Paid Amount (921b66b)
+
+- `cecypo_total_withheld` custom field (Currency, read-only, after column_break_21, hidden at 0), set by apply_to_payment_entry and the form preview; backfilled from withholding rows in setup_custom_fields.
+- Verified: withholding tests 58/58; browser: PAY-26-00801 shows Withheld 25,409 beside Paid 290,343 after backfill; on a new draft paid + withheld = allocated before and after removing an invoice row. Temp user deleted.
+- Review: no Blocker/Major. Minor: the backfill query runs on every migrate (touches only mismatched rows).
