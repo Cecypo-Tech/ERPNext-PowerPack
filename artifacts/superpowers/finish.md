@@ -32,3 +32,10 @@ Per-task reviews + final whole-branch review: 0 Critical; all Important fixed; p
 7. Pay KRA from report → JE lines; cancel KRA JE from desk → rows Unpaid; amend refused; PE cancel refused while paid.
 8. CSV export ticked/none ticked through Cloudflare; bytes + CRLF.
 9. USD supplier; USD bank.
+
+## Follow-up 2026-10-16: Get Outstanding Invoices before a paid amount (3302358)
+
+- Cause (PAY-26-00799): ERPNext showed References only after a paid amount; typing 1 then fetching allocated 1 shilling, giving -1/-1 withholding and paid -1.
+- Fix: Property Setter on Payment Entry `section_break_14` depends_on (all Payment Entries); with withholding on, a typed paid amount is zeroed before Get Outstanding Invoices; save refuses paid <= 0 under withholding (not in preview).
+- Verified: withholding tests 58/58; browser on Dev Co: button shows with paid empty; typed 1 then fetch gave full allocations; allocated 1 shows the refusal; full allocation saved clean at 290,343 (-5,444 / -19,965), Submit shown. Test draft and temp user deleted.
+- Review: no Blocker/Major; minors 1-4 and the test nit fixed. Left: section also shows for manual-reference entries with paid 0 (save then asks for paid); a user's own positive deduction present at fetch time shortens the last allocation (ERPNext behaviour); migrate re-applies the depends_on.
