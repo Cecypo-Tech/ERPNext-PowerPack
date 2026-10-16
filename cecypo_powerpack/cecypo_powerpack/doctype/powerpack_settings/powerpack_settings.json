@@ -89,6 +89,12 @@
   "item_list_powerup_section",
   "enable_item_list_powerup",
   "item_list_powerup_description",
+  "withholding_tab",
+  "kenya_withholding_section",
+  "enable_kenya_withholding",
+  "withholding_vat_accounts",
+  "withholding_rules",
+  "withholding_exemptions",
   "system_tab",
   "payment_reconciliation_section",
   "enable_payment_reconciliation_powerup",
@@ -618,6 +624,42 @@
    "fieldtype": "HTML",
    "label": "Description",
    "options": "<p class=\"text-muted\">Enable the Price List Bulk Editor client script for efficient bulk editing of item prices.</p>"
+  },
+  {
+   "fieldname": "withholding_tab",
+   "fieldtype": "Tab Break",
+   "label": "Withholding"
+  },
+  {
+   "fieldname": "kenya_withholding_section",
+   "fieldtype": "Section Break",
+   "label": "Kenya Withholding"
+  },
+  {
+   "fieldname": "enable_kenya_withholding",
+   "fieldtype": "Check",
+   "label": "Enable Kenya Withholding"
+  },
+  {
+   "fieldname": "withholding_vat_accounts",
+   "fieldtype": "Table MultiSelect",
+   "label": "VAT Withholding Accounts",
+   "options": "Withholding VAT Account",
+   "depends_on": "eval:doc.enable_kenya_withholding"
+  },
+  {
+   "fieldname": "withholding_rules",
+   "fieldtype": "Table",
+   "label": "Withholding Rules",
+   "options": "Withholding Rule",
+   "depends_on": "eval:doc.enable_kenya_withholding"
+  },
+  {
+   "fieldname": "withholding_exemptions",
+   "fieldtype": "Table",
+   "label": "VAT WHT Exemptions",
+   "options": "Withholding VAT Exemption",
+   "depends_on": "eval:doc.enable_kenya_withholding"
   },
   {
    "fieldname": "system_tab",
