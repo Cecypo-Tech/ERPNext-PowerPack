@@ -1,13 +1,14 @@
 # Finish — Kenya withholding at payment
 
-Branch `feat/kenya-withholding` (from 88e34f2), 14 commits, NOT merged or pushed — browser verification outstanding.
+Branch `feat/kenya-withholding` (from 88e34f2) merged to main as a67fc06+ and pushed to upstream/main after the browser pass.
 
 ## Verification run
 - `bench --site dev.localhost run-tests --app cecypo_powerpack --module cecypo_powerpack.tests.test_kenya_withholding` → 55/55 OK
 - `... --module cecypo_powerpack.tests.test_min_selling_price` → 46/46 OK
 - `bench --site dev.localhost run-tests --app cecypo_powerpack` → all pass except 6 pre-existing errors in test_zero_allocate_paste ("Please set default Stock Received But Not Billed in Company Test Quality Company" — fixture, not this branch)
 - `bench --site dev.localhost migrate`, `bench build --app cecypo_powerpack` → OK
-- Browser end-to-end → NOT RUN (no dev.cecypo.tech login available to playwright)
+- Browser end-to-end (temporary users, since deleted) → 8/9 first pass; defects D1 Settings form blank, D2 PE never clean (no Submit), D3 preview ignored user deductions, D4 CSV refusal opened error tab — all fixed (1b24c43..7f4b958), re-verified in browser, re-reviewed clean. INV60515 on Dev Co: paid 290,343, deductions −5,444/−19,965, submitted from the UI (PAY-26-00747); CSV row `P051140936Z,INV60515,16/10/2026,272200.00,16/10/2026`.
+- E2E data left on dev for inspection: Dev Co WHT accounts, RENT-E2E item, supplier WHT E2E Landlord, PI INV60515 + payments; Dev Co withholding settings enabled (list in the session's e2e report).
 
 ## What changed
 - PowerPack Settings → Withholding tab: enable flag, VAT Withholding Accounts, Withholding Rules (Item | Supplier | Rate | Account, stacking, duplicates highlighted), VAT WHT Exemptions (Supplier | Certificate | Valid Until)
@@ -19,7 +20,6 @@ Branch `feat/kenya-withholding` (from 88e34f2), 14 commits, NOT merged or pushed
 Per-task reviews + final whole-branch review: 0 Critical; all Important fixed; parked minors with rulings in the ledger.
 
 ## Follow-ups
-- Browser pass (checklist below), then land to upstream/main.
 - Deferred minors: scaffold tests don't assert field attributes; shared debounce across PE forms; preview doesn't mark draft dirty; Status=All drops ticked paid rows silently; FOR UPDATE join may deadlock (fails safe); report lists rows across companies without company user-permission check.
 
 ## Manual validation (browser checklist)
