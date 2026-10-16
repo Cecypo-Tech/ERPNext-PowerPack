@@ -1,6 +1,8 @@
 # Copyright (c) 2026, Cecypo.Tech and contributors
 # For license information, please see license.txt
 
+import csv
+import io
 import math
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -229,38 +231,73 @@ def merge_vat_rows(rows):
 	return list(merged.values())
 
 
-@frappe.whitelist()
-def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference_date: str) -> str:
-	"""One submitted Bank Entry paying the selected withholding rows to KRA. Works with the feature off."""
-	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
+def _load_rows(row_names, lock=False):
+	"""Withholding rows of submitted Payment Entries by name, with the supplier PIN and Purchase Invoice
+	dates. Throws on an empty, stale or non-submitted selection."""
 	row_names = frappe.parse_json(row_names) if isinstance(row_names, str) else row_names
 	row_names = list(dict.fromkeys(row_names or []))
 	if not row_names:
-		frappe.throw(_("Select the withholding rows to pay."))
-	if not prn:
-		frappe.throw(_("PRN is required."))
-
+		frappe.throw(_("Select the withholding rows."))
 	W = frappe.qb.DocType("Payment Entry Withholding")
 	PE = frappe.qb.DocType("Payment Entry")
 	S = frappe.qb.DocType("Supplier")
-	# Locked before the paid check, so two concurrent Pay KRA calls cannot both pass it.
-	rows = (
+	PI = frappe.qb.DocType("Purchase Invoice")
+	q = (
 		frappe.qb.from_(W)
 		.join(PE).on(W.parent == PE.name)
 		.left_join(S).on(S.name == PE.party)
+		.left_join(PI).on(PI.name == W.purchase_invoice)
 		.select(
-			W.name, W.account, W.amount, W.base_amount, W.rate, W.is_vat, W.bill_no, W.purchase_invoice,
-			W.kra_journal_entry, PE.name.as_("payment_entry"), PE.company, PE.docstatus,
-			PE.posting_date, PE.party.as_("supplier"), S.tax_id,
+			W.name, W.account, W.amount, W.base_amount, W.rate, W.is_vat, W.bill_no, W.bill_date,
+			W.purchase_invoice, W.kra_journal_entry, PE.name.as_("payment_entry"), PE.company, PE.docstatus,
+			PE.posting_date, PE.party.as_("supplier"), S.tax_id, PI.posting_date.as_("invoice_posting_date"),
 		)
 		.where(W.name.isin(row_names) & (W.parenttype == "Payment Entry"))
-		.for_update()
-		.run(as_dict=True)
 	)
+	# Locked before the paid check, so two concurrent Pay KRA calls cannot both pass it.
+	rows = (q.for_update() if lock else q).run(as_dict=True)
 	if len(rows) != len(row_names):
 		frappe.throw(_("Some selected withholding rows no longer exist. Refresh the report."))
 	if any(r.docstatus != 1 for r in rows):
 		frappe.throw(_("Only withholding on submitted Payment Entries can be paid to KRA."))
+	return rows
+
+
+def itax_csv_rows(rows):
+	"""iTax Withholding VAT import lines: PIN, invoice no, invoice date, amount, payment date. VAT rows
+	only, merged by merge_vat_rows. Invoice no / date fall back to the Purchase Invoice name / posting date."""
+	fmt = lambda d: getdate(d).strftime("%d/%m/%Y")
+	return [
+		[
+			m["tax_id"], m.get("bill_no") or m["purchase_invoice"],
+			fmt(m.get("bill_date") or m["invoice_posting_date"]), f"{m['base_amount']:.2f}", fmt(m["posting_date"]),
+		]
+		for m in merge_vat_rows(rows)
+	]
+
+
+@frappe.whitelist()
+def export_itax_csv(row_names):
+	"""Download the iTax Withholding VAT upload for the selected rows. Works with the feature off."""
+	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
+	rows = [r for r in _load_rows(row_names) if r.is_vat]
+	missing = sorted({r.supplier for r in rows if not r.tax_id})
+	if missing:
+		frappe.throw(_("Set the Tax ID (PIN) on supplier {0} before exporting.").format(", ".join(missing)))
+	out = io.StringIO()
+	csv.writer(out, lineterminator="\r\n").writerows(itax_csv_rows(rows))
+	frappe.response["filename"] = f"WHT-VAT-{getdate().strftime('%d-%m-%Y')}.csv"
+	frappe.response["filecontent"] = out.getvalue().encode()
+	frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference_date: str) -> str:
+	"""One submitted Bank Entry paying the selected withholding rows to KRA. Works with the feature off."""
+	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
+	if not prn:
+		frappe.throw(_("PRN is required."))
+	rows = _load_rows(row_names, lock=True)
 	paid = list(dict.fromkeys(r.kra_journal_entry for r in rows if r.kra_journal_entry))
 	if paid:
 		frappe.throw(_("Some selected rows are already paid to KRA by Journal Entry {0}.").format(", ".join(paid)))

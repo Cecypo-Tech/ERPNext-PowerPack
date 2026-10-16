@@ -43,8 +43,23 @@ frappe.query_reports["Withholding Due to KRA"] = {
 
 	onload(report) {
 		report.page.add_inner_button(__("Pay KRA"), () => pay_kra(report));
+		report.page.add_inner_button(__("Export iTax CSV"), () => export_itax_csv(report));
 	},
 };
+
+// Ticked rows, or every row shown when none is ticked. The server keeps VAT rows only.
+function export_itax_csv(report) {
+	let rows = report.get_checked_items();
+	if (!rows.length) rows = report.data;
+	if (!rows.length) {
+		frappe.msgprint(__("No rows to export."));
+		return;
+	}
+	const row_names = JSON.stringify(rows.map((r) => r.row_name));
+	window.open(
+		`/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv?row_names=${encodeURIComponent(row_names)}`
+	);
+}
 
 function pay_kra(report) {
 	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry);

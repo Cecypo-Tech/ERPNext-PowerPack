@@ -562,3 +562,55 @@ class TestPayKRA(_WithholdingCase):
 		frappe.get_doc("Journal Entry", je_name).cancel()
 		self.assertFalse(frappe.db.get_value(
 			"Payment Entry Withholding", pe.cecypo_withholding[0].name, "kra_journal_entry"))
+
+
+def _vat(tax_id, bill_no, base, paid, billed="2026-01-19", **kw):
+	return {"tax_id": tax_id, "bill_no": bill_no, "base_amount": base, "posting_date": date.fromisoformat(paid),
+		"bill_date": date.fromisoformat(billed), "rate": 2, "is_vat": 1, "supplier": tax_id,
+		"purchase_invoice": "PI-" + bill_no, **kw}
+
+
+class TestItaxCsv(_WithholdingCase):
+	def test_csv_rows_match_itax_upload(self):
+		from cecypo_powerpack.kenya_withholding import itax_csv_rows
+
+		rows = [
+			_vat("P051163409Z", "LPO/26/01/012", 126316.5776, "2026-01-22"),
+			_vat("P000593951A", "905186226", 251195.1435, "2026-01-22", billed="2026-01-20"),
+		]
+		self.assertEqual(itax_csv_rows(rows), [
+			["P051163409Z", "LPO/26/01/012", "19/01/2026", "126316.58", "22/01/2026"],
+			["P000593951A", "905186226", "20/01/2026", "251195.14", "22/01/2026"],
+		])
+
+	def test_csv_merges_same_invoice(self):
+		from cecypo_powerpack.kenya_withholding import itax_csv_rows
+
+		rows = [_vat("P1", "B1", 50000.25, "2026-01-22"), _vat("P1", "B1", 50000.25, "2026-01-25")]
+		self.assertEqual(itax_csv_rows(rows), [["P1", "B1", "19/01/2026", "100000.50", "25/01/2026"]])
+
+	def test_csv_skips_income_tax_rows(self):
+		from cecypo_powerpack.kenya_withholding import itax_csv_rows
+
+		self.assertEqual(itax_csv_rows([_vat("P1", "B1", 10, "2026-01-22", is_vat=0)]), [])
+
+	def test_export_blocks_missing_pin(self):
+		from cecypo_powerpack.kenya_withholding import export_itax_csv
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "")
+		pe = _make_pe(_make_pi())
+		with self.assertRaisesRegex(frappe.ValidationError, WHT_SUPPLIER):
+			export_itax_csv([r.name for r in pe.cecypo_withholding])
+
+	def test_export_bytes_crlf_no_header(self):
+		from cecypo_powerpack.kenya_withholding import export_itax_csv
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "P051234567X")
+		pi = _make_pi()
+		pe = _make_pe(pi)
+		export_itax_csv([r.name for r in pe.cecypo_withholding])  # the Rent row is income tax: skipped
+		today = frappe.utils.getdate()
+		self.assertEqual(frappe.response["type"], "download")
+		self.assertEqual(frappe.response["filename"], f"WHT-VAT-{today.strftime('%d-%m-%Y')}.csv")
+		d = today.strftime("%d/%m/%Y")
+		self.assertEqual(frappe.response["filecontent"], f"P051234567X,{pi.bill_no},{d},272200.00,{d}\r\n".encode())
