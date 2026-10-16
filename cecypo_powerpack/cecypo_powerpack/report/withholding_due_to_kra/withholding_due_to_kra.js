@@ -55,10 +55,10 @@ function export_itax_csv(report) {
 		frappe.msgprint(__("No rows to export."));
 		return;
 	}
-	const row_names = JSON.stringify(rows.map((r) => r.row_name));
-	window.open(
-		`/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv?row_names=${encodeURIComponent(row_names)}`
-	);
+	// POST: a GET URL carrying every row name outgrows URL length limits.
+	open_url_post("/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv", {
+		row_names: rows.map((r) => r.row_name),
+	}, true); // new tab, as before: an error lands there, not over the report
 }
 
 function pay_kra(report) {
@@ -67,12 +67,28 @@ function pay_kra(report) {
 		frappe.msgprint(__("Tick the unpaid rows to pay."));
 		return;
 	}
+	const row_names = rows.map((r) => r.row_name);
+	// The server refuses a bad selection here, before a PRN is typed, and gives the bank (iTax) figure.
+	frappe
+		.call({ method: "cecypo_powerpack.kenya_withholding.pay_kra_preview", args: { row_names } })
+		.then((r) => pay_kra_dialog(report, row_names, r.message));
+}
+
+function pay_kra_dialog(report, row_names, preview) {
 	const company = report.get_filter_value("company");
-	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
 	const today = frappe.datetime.get_today();
 	const dialog = new frappe.ui.Dialog({
-		title: __("Pay KRA: {0} rows, {1} withheld", [rows.length, format_currency(total)]),
+		title: __("Pay KRA: {0} rows, {1} to the bank", [row_names.length, format_currency(preview.bank)]),
 		fields: [
+			{
+				// Merged part payments of one invoice are ceiled once, so the bank can pay less than was withheld.
+				fieldname: "figures",
+				fieldtype: "HTML",
+				options: `<p class="text-muted">${__("Withheld {0}; the difference goes to the round-off account.", [
+					format_currency(preview.withheld),
+				])}</p>`,
+				hidden: flt(preview.withheld) === flt(preview.bank),
+			},
 			{
 				fieldname: "bank_account",
 				label: __("Bank / Cash Account"),
@@ -93,7 +109,7 @@ function pay_kra(report) {
 			frappe
 				.call({
 					method: "cecypo_powerpack.kenya_withholding.pay_kra",
-					args: { row_names: rows.map((r) => r.row_name), ...values },
+					args: { row_names, ...values },
 					freeze: true,
 				})
 				.then((r) => {

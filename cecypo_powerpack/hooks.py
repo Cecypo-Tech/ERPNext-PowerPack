@@ -255,6 +255,7 @@ doc_events = {
 	},
 	"Journal Entry": {
 		"onload": "cecypo_powerpack.kenya_withholding.flag_kra_payment",
+		"before_insert": "cecypo_powerpack.kenya_withholding.refuse_kra_amend",
 		"before_cancel": "cecypo_powerpack.kenya_withholding.allow_cancel_of_kra_payment",
 		"on_cancel": "cecypo_powerpack.kenya_withholding.clear_kra_link",
 	},

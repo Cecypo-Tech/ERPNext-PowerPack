@@ -30,7 +30,20 @@ def setup_custom_fields():
 					"no_copy": 1,
 					"print_hide": 1,
 				}
-			]
+			],
+			# Set by pay_kra. Copied on Amend (frappe copies no_copy fields then), which refuse_kra_amend refuses.
+			"Journal Entry": [
+				{
+					"fieldname": "cecypo_kra_payment",
+					"label": "KRA Withholding Payment",
+					"fieldtype": "Check",
+					"insert_after": "cheque_date",
+					"hidden": 1,
+					"read_only": 1,
+					"no_copy": 1,
+					"print_hide": 1,
+				}
+			],
 		},
 		ignore_validate=True,
 		update=True,
@@ -280,6 +293,8 @@ def _load_rows(row_names, lock=False):
 	)
 	# Locked before the paid check, so two concurrent Pay KRA calls cannot both pass it.
 	rows = (q.for_update() if lock else q).run(as_dict=True)
+	for r in rows:
+		r.tax_id = (r.tax_id or "").strip()
 	if len(rows) != len(row_names):
 		frappe.throw(_("Some selected withholding rows no longer exist. Refresh the report."))
 	if any(r.docstatus != 1 for r in rows):
@@ -300,11 +315,13 @@ def itax_csv_rows(rows):
 	]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def export_itax_csv(row_names):
 	"""Download the iTax Withholding VAT upload for the selected rows. Works with the feature off."""
 	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
 	rows = [r for r in _load_rows(row_names) if r.is_vat]
+	if not rows:
+		frappe.throw(_("No VAT withholding rows in the selection."))
 	missing = sorted({r.supplier for r in rows if not r.tax_id})
 	if missing:
 		frappe.throw(_("Set the Tax ID (PIN) on supplier {0} before exporting.").format(", ".join(missing)))
@@ -315,20 +332,44 @@ def export_itax_csv(row_names):
 	frappe.response["type"] = "download"
 
 
-@frappe.whitelist()
-def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference_date: str) -> str:
-	"""One submitted Bank Entry paying the selected withholding rows to KRA. Works with the feature off."""
-	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
-	if not prn:
-		frappe.throw(_("PRN is required."))
-	rows = _load_rows(row_names, lock=True)
+def _payable_rows(row_names, lock=False):
+	"""Selected rows, refused if any is paid, they span companies, or they mix VAT and income tax."""
+	rows = _load_rows(row_names, lock=lock)
 	paid = list(dict.fromkeys(r.kra_journal_entry for r in rows if r.kra_journal_entry))
 	if paid:
 		frappe.throw(_("Some selected rows are already paid to KRA by Journal Entry {0}.").format(", ".join(paid)))
 	companies = {r.company for r in rows}
 	if len(companies) > 1:
 		frappe.throw(_("Selected rows belong to more than one company: {0}.").format(", ".join(sorted(companies))))
-	company = companies.pop()
+	# VAT and income tax are separate iTax returns, so separate PRNs.
+	if len({bool(r.is_vat) for r in rows}) > 1:
+		frappe.throw(_("Pay VAT withholding and income tax withholding separately: they have separate PRNs."))
+	return rows
+
+
+def _bank_figure(rows):
+	"""iTax's figure (the PRN): ceil per merged VAT invoice, not the sum of per-payment ceils."""
+	return sum(withheld(m["base_amount"], m["rate"]) for m in merge_vat_rows(rows)) + sum(
+		flt(r.amount) for r in rows if not r.is_vat
+	)
+
+
+@frappe.whitelist()
+def pay_kra_preview(row_names) -> dict:
+	"""What Pay KRA would post for the selection: the bank figure and the sum withheld."""
+	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
+	rows = _payable_rows(row_names)
+	return {"bank": _bank_figure(rows), "withheld": sum(flt(r.amount) for r in rows)}
+
+
+@frappe.whitelist(methods=["POST"])
+def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference_date: str) -> str:
+	"""One submitted Bank Entry paying the selected withholding rows to KRA. Works with the feature off."""
+	frappe.only_for(["Accounts Manager", "Accounts User", "System Manager"])
+	if not prn:
+		frappe.throw(_("PRN is required."))
+	rows = _payable_rows(row_names, lock=True)
+	company = rows[0].company
 	bank = frappe.get_cached_value("Account", bank_account, ["company", "account_type"], as_dict=True)
 	if not bank or bank.company != company or bank.account_type not in ("Bank", "Cash"):
 		frappe.throw(_("{0} is not a Bank or Cash account of {1}.").format(bank_account, company))
@@ -336,10 +377,7 @@ def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference
 	debits = {}
 	for r in rows:
 		debits[r.account] = debits.get(r.account, 0) + flt(r.amount)
-	# iTax's figure (the PRN): ceil per merged VAT invoice, not the sum of per-payment ceils.
-	credit = sum(withheld(m["base_amount"], m["rate"]) for m in merge_vat_rows(rows)) + sum(
-		flt(r.amount) for r in rows if not r.is_vat
-	)
+	credit = _bank_figure(rows)
 	accounts = [{"account": a, "debit_in_account_currency": v} for a, v in debits.items()]
 	accounts.append({"account": bank_account, "credit_in_account_currency": credit})
 	difference = flt(sum(debits.values()) - credit, 2)
@@ -363,6 +401,7 @@ def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference
 		"posting_date": posting_date,
 		"cheque_no": prn,
 		"cheque_date": reference_date,
+		"cecypo_kra_payment": 1,
 		"user_remark": _("Withholding paid to KRA, PRN {0}. Payment Entries: {1}").format(prn, payment_entries),
 		"accounts": accounts,
 	})
@@ -375,13 +414,22 @@ def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference
 
 def flag_kra_payment(doc, method=None):
 	"""Journal Entry onload: tells the form (kenya_withholding_journal_entry.js) to skip Payment Entry in Cancel All."""
-	if doc.docstatus == 1 and frappe.db.exists("Payment Entry Withholding", {"kra_journal_entry": doc.name}):
+	if doc.docstatus == 1 and doc.get("cecypo_kra_payment"):
 		doc.set_onload("is_kra_payment", 1)
+
+
+def refuse_kra_amend(doc, method=None):
+	"""Journal Entry before_insert: an amended KRA payment would leave its rows Unpaid, so payable twice."""
+	if doc.amended_from and frappe.db.get_value("Journal Entry", doc.amended_from, "cecypo_kra_payment"):
+		frappe.throw(_(
+			"Journal Entry {0} paid withholding to KRA and cannot be amended. Its rows are Unpaid again: "
+			"run Pay KRA from the Withholding Due to KRA report."
+		).format(doc.amended_from))
 
 
 def allow_cancel_of_kra_payment(doc, method=None):
 	"""Journal Entry before_cancel: submitted Payment Entries' withholding rows link here; clear_kra_link drops them."""
-	if frappe.db.exists("Payment Entry Withholding", {"kra_journal_entry": doc.name}):
+	if doc.get("cecypo_kra_payment"):
 		doc.ignore_linked_doctypes = tuple(getattr(doc, "ignore_linked_doctypes", None) or ()) + ("Payment Entry",)
 
 

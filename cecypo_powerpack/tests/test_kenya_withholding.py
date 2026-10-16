@@ -44,6 +44,19 @@ class TestScaffold(IntegrationTestCase):
 		field = frappe.get_meta("Payment Entry").get_field("cecypo_withholding")
 		self.assertEqual(field.options, "Payment Entry Withholding")
 
+	def test_kra_journal_entry_indexed(self):
+		self.assertEqual(frappe.get_meta("Payment Entry Withholding").get_field("kra_journal_entry").search_index, 1)
+
+	def test_journal_entry_kra_marker(self):
+		f = frappe.get_meta("Journal Entry").get_field("cecypo_kra_payment")
+		self.assertEqual((f.fieldtype, f.hidden, f.no_copy, f.read_only), ("Check", 1, 1, 1))
+
+	def test_money_endpoints_post_only(self):
+		from cecypo_powerpack import kenya_withholding as kw
+
+		for fn in (kw.pay_kra, kw.export_itax_csv):
+			self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[fn], ["POST"], fn.__name__)
+
 	def test_settings_child_links_ignore_user_permissions(self):
 		for name in ("Withholding Rule", "Withholding VAT Account", "Withholding VAT Exemption"):
 			for f in frappe.get_meta(name).fields:
@@ -504,11 +517,12 @@ class TestPaymentEntry(_WithholdingCase):
 
 
 class TestPayKRA(_WithholdingCase):
-	def _pay(self, pes, **kw):
+	def _pay(self, pes, vat=1, **kw):
+		"""Pays the VAT rows (vat=1), the income tax rows (vat=0) or all (vat=None) of the entries."""
 		from cecypo_powerpack.kenya_withholding import pay_kra
 
 		today = frappe.utils.nowdate()
-		names = [r.name for pe in pes for r in pe.cecypo_withholding]
+		names = [r.name for pe in pes for r in pe.cecypo_withholding if vat is None or r.is_vat == vat]
 		args = {"bank_account": BANK, "posting_date": today, "prn": "PRN-1", "reference_date": today, **kw}
 		return pay_kra(names, **args)
 
@@ -560,12 +574,40 @@ class TestPayKRA(_WithholdingCase):
 		self.assertEqual(je.voucher_type, "Bank Entry")
 		self.assertEqual(je.cheque_no, "PRN-1")
 		self.assertIn(pe.name, je.user_remark)
-		self.assertEqual(self._je_lines(je_name), {VAT_ACC: 5444, RENT_ACC: 19965, BANK: -25409})
-		for r in pe.cecypo_withholding:
-			self.assertEqual(frappe.db.get_value("Payment Entry Withholding", r.name, "kra_journal_entry"), je_name)
+		self.assertEqual(je.cecypo_kra_payment, 1)
+		self.assertEqual(self._je_lines(je_name), {VAT_ACC: 5444, BANK: -5444})
+		vat, rent = pe.cecypo_withholding
+		self.assertEqual(frappe.db.get_value("Payment Entry Withholding", vat.name, "kra_journal_entry"), je_name)
+		self.assertFalse(frappe.db.get_value("Payment Entry Withholding", rent.name, "kra_journal_entry"))
+		self.assertEqual([r["row_name"] for r in self._report([pe])], [rent.name])
+		rent_je = self._pay([pe], vat=0)
+		self.assertEqual(self._je_lines(rent_je), {RENT_ACC: 19965, BANK: -19965})
 		self.assertEqual(self._report([pe]), [])
 		self.assertEqual(len(self._report([pe], status="Paid")), 2)
 		self.assertEqual(len(self._report([pe], status="All")), 2)
+
+	def test_pay_kra_refuses_vat_and_income_tax_together(self):
+		pe = _make_pe(_make_pi())
+		with self.assertRaisesRegex(frappe.ValidationError, "VAT"):
+			self._pay([pe], vat=None)
+
+	def test_amending_kra_je_refused(self):
+		pe = _make_pe(_make_pi())
+		je = frappe.get_doc("Journal Entry", self._pay([pe]))
+		je.cancel()
+		amended = frappe.copy_doc(je)
+		amended.amended_from, amended.docstatus = je.name, 0
+		with self.assertRaisesRegex(frappe.ValidationError, "Pay KRA"):
+			amended.insert()
+
+	def test_pay_kra_preview_shows_bank_figure(self):
+		from cecypo_powerpack.kenya_withholding import pay_kra_preview
+
+		pi = _make_pi(lines=((OTHER_ITEM, 100000.50),), disable_rounded_total=1)
+		pe1 = _make_pe(pi, allocated=50000.25)
+		pe2 = _make_pe(pi)
+		names = [r.name for pe in (pe1, pe2) for r in pe.cecypo_withholding]
+		self.assertEqual(pay_kra_preview(names), {"bank": 2001, "withheld": 2002})
 
 	def test_pay_kra_refuses_twice(self):
 		pe = _make_pe(_make_pi())
@@ -677,6 +719,24 @@ class TestItaxCsv(_WithholdingCase):
 		pe = _make_pe(_make_pi())
 		with self.assertRaisesRegex(frappe.ValidationError, WHT_SUPPLIER):
 			export_itax_csv([r.name for r in pe.cecypo_withholding])
+
+	def test_export_blocks_blank_pin(self):
+		from cecypo_powerpack.kenya_withholding import export_itax_csv
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "   ")
+		pe = _make_pe(_make_pi())
+		with self.assertRaisesRegex(frappe.ValidationError, WHT_SUPPLIER):
+			export_itax_csv([r.name for r in pe.cecypo_withholding])
+
+	def test_export_refuses_no_vat_rows(self):
+		from cecypo_powerpack.kenya_withholding import export_itax_csv
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "P051234567X")
+		pe = _make_pe(_make_pi())
+		frappe.response.pop("filecontent", None)
+		with self.assertRaisesRegex(frappe.ValidationError, "No VAT withholding rows"):
+			export_itax_csv([r.name for r in pe.cecypo_withholding if not r.is_vat])
+		self.assertNotIn("filecontent", frappe.response)
 
 	def test_export_bytes_crlf_no_header(self):
 		from cecypo_powerpack.kenya_withholding import export_itax_csv
