@@ -417,6 +417,82 @@ class TestPaymentEntry(_WithholdingCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "ACC-JV-KRA-1"):
 			pe.cancel()
 
+	def test_feature_off_clears_stale_rows(self):
+		pe = _make_pe(_make_pi(), submit=False)
+		self.assertTrue(pe.cecypo_withholding)
+		self._settings(enable_kenya_withholding=0)
+		pe.save()
+		self.assertEqual((pe.cecypo_withholding, pe.deductions, pe.paid_amount), ([], [], 272200))
+		self.assertEqual(pe.difference_amount, 0)
+
+	def test_no_rules_for_company_clears_stale_rows(self):
+		pe = _make_pe(_make_pi(), submit=False)
+		self._settings(withholding_rules=[])
+		pe.submit()
+		self.assertEqual((pe.cecypo_withholding, pe.deductions, pe.paid_amount), ([], [], 272200))
+
+	def test_switch_to_receive_clears_rows(self):
+		from cecypo_powerpack.kenya_withholding import apply_to_payment_entry
+
+		pe = _make_pe(_make_pi(), submit=False)
+		pe.payment_type = "Receive"
+		apply_to_payment_entry(pe)
+		self.assertEqual((pe.cecypo_withholding, pe.deductions), ([], []))
+
+	def test_invoice_split_over_reference_rows_withheld_once(self):
+		from cecypo_powerpack.kenya_withholding import apply_to_payment_entry
+
+		pe = _pe(_make_pi())
+		ref = pe.references[0]
+		ref.allocated_amount = 136100
+		pe.append("references", {k: v for k, v in ref.as_dict().items() if k not in ("name", "idx")})
+		apply_to_payment_entry(pe)
+		# Per row, rent would be ceil(133,100 x 7.5%) = 9,983 twice = 19,966.
+		self.assertEqual(_deductions(pe), {VAT_ACC: -5444, RENT_ACC: -19965})
+		self.assertEqual(len(pe.cecypo_withholding), 2)
+		self.assertEqual(pe.paid_amount, 272200 - 5444 - 19965)
+
+	def test_manual_deduction_on_rule_account_kept_without_invoices(self):
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+		from cecypo_powerpack.kenya_withholding import apply_to_payment_entry
+
+		po = frappe.get_doc({
+			"doctype": "Purchase Order", "company": COMPANY, "supplier": WHT_SUPPLIER,
+			"schedule_date": frappe.utils.nowdate(),
+			"items": [{"item_code": RENT_ITEM, "qty": 1, "rate": 10000}],
+		}).insert(ignore_permissions=True)
+		po.submit()
+		pe = get_payment_entry("Purchase Order", po.name, bank_account=BANK)
+		pe.append("deductions", {"account": RENT_ACC, "cost_center": "Main - _TC", "amount": 50})
+		paid = pe.paid_amount
+		apply_to_payment_entry(pe)
+		self.assertEqual(_deductions(pe), {RENT_ACC: 50})
+		self.assertEqual(pe.paid_amount, paid)
+
+	def test_compute_refuses_other_doctypes(self):
+		from cecypo_powerpack.kenya_withholding import compute_for_payment_entry
+
+		with self.assertRaises(frappe.ValidationError):
+			compute_for_payment_entry({"doctype": "Journal Entry", "company": COMPANY})
+
+	def test_compute_checks_invoice_read_permission(self):
+		from unittest.mock import patch
+
+		from cecypo_powerpack.kenya_withholding import compute_for_payment_entry
+
+		pe = _pe(_make_pi())
+		real = frappe.has_permission
+
+		def deny_pi(doctype, *args, **kwargs):
+			if doctype == "Purchase Invoice":
+				raise frappe.PermissionError
+			return real(doctype, *args, **kwargs)
+
+		with patch("frappe.has_permission", side_effect=deny_pi):
+			with self.assertRaises(frappe.PermissionError):
+				compute_for_payment_entry(pe.as_json())
+
 	def test_compute_for_unsaved_entry(self):
 		from cecypo_powerpack.kenya_withholding import compute_for_payment_entry
 

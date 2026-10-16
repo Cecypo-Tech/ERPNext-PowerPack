@@ -88,48 +88,63 @@ def income_tax_due_date(posting_date):
 	return date(y, m + 1, 20)
 
 
+def _invoice_allocations(doc):
+	"""Allocated amount per Purchase Invoice, summed over its reference rows (one per payment term)."""
+	allocated = {}
+	for ref in doc.get("references"):
+		if ref.reference_doctype == "Purchase Invoice" and flt(ref.allocated_amount) > 0:
+			allocated[ref.reference_name] = allocated.get(ref.reference_name, Decimal(0)) + Decimal(
+				str(flt(ref.allocated_amount))
+			)
+	return allocated
+
+
 def apply_to_payment_entry(doc, method=None):
-	"""before_validate on Payment Entry: ERPNext's validate then runs its amount setters on our values."""
-	if doc.docstatus == 2 or doc.payment_type != "Pay" or doc.party_type != "Supplier":
+	"""before_validate on Payment Entry, so it also runs at submit with the rules then in force. ERPNext's
+	validate then runs its amount setters on our values. When the entry no longer qualifies (feature off, no
+	rules for the company, not a supplier payment), rows it already holds are cleared, not submitted."""
+	if doc.docstatus == 2:
 		return
-	if not is_feature_enabled("enable_kenya_withholding"):
+	held = doc.get("cecypo_withholding") or []
+	rules = []
+	if doc.payment_type == "Pay" and doc.party_type == "Supplier" and is_feature_enabled("enable_kenya_withholding"):
+		settings = frappe.get_single("PowerPack Settings")
+		rules = [
+			r.as_dict()
+			for r in settings.withholding_rules
+			if r.account and frappe.get_cached_value("Account", r.account, "company") == doc.company
+		]
+	if not rules and not held:
 		return
-	settings = frappe.get_single("PowerPack Settings")
-	rules = [
-		r.as_dict()
-		for r in settings.withholding_rules
-		if r.account and frappe.get_cached_value("Account", r.account, "company") == doc.company
-	]
-	if not rules:
-		return
-	rule_accounts = {r.account for r in rules}
-	vat_accounts = {r.account for r in settings.withholding_vat_accounts}
+	# Accounts of the rows held before too, so a cleared or re-pointed rule leaves no stale deduction.
+	rule_accounts = {r["account"] for r in rules} | {r.account for r in held}
 	posting_date = getdate(doc.posting_date)
-	exempt = any(
-		e.supplier == doc.party and e.valid_until and posting_date <= getdate(e.valid_until)
-		for e in settings.withholding_exemptions
-	)
 
 	rows = []
-	for ref in doc.get("references"):
-		if ref.reference_doctype != "Purchase Invoice" or flt(ref.allocated_amount) <= 0:
-			continue
-		pi = frappe.db.get_value(
-			"Purchase Invoice", ref.reference_name,
-			["name", "bill_no", "bill_date", "rounded_total", "grand_total"], as_dict=True,
+	if rules:
+		vat_accounts = {r.account for r in settings.withholding_vat_accounts}
+		exempt = any(
+			e.supplier == doc.party and e.valid_until and posting_date <= getdate(e.valid_until)
+			for e in settings.withholding_exemptions
 		)
-		total = pi and (flt(pi.rounded_total) or flt(pi.grand_total))
-		if not total:
-			continue
-		pi["total"] = total
-		pi["items"] = frappe.get_all(
-			"Purchase Invoice Item", {"parent": pi.name}, ["item_code", "base_net_amount"], order_by="idx"
-		)
-		rows += invoice_withholding(pi, ref.allocated_amount, doc.party, rules, vat_accounts, exempt)
+		for name, allocated in _invoice_allocations(doc).items():
+			pi = frappe.db.get_value(
+				"Purchase Invoice", name,
+				["name", "bill_no", "bill_date", "rounded_total", "grand_total"], as_dict=True,
+			)
+			total = pi and (flt(pi.rounded_total) or flt(pi.grand_total))
+			if not total:
+				continue
+			pi["total"] = total
+			pi["items"] = frappe.get_all(
+				"Purchase Invoice Item", {"parent": pi.name}, ["item_code", "base_net_amount"], order_by="idx"
+			)
+			rows += invoice_withholding(pi, allocated, doc.party, rules, vat_accounts, exempt)
 
-	own_deductions = [d for d in doc.get("deductions") if d.account in rule_accounts]
-	if not rows and not own_deductions and not doc.get("cecypo_withholding"):
+	# Nothing withheld now or before: a deduction on a rule account is the user's own; leave it.
+	if not rows and not held:
 		return
+	own_deductions = [d for d in doc.get("deductions") if d.account in rule_accounts]
 
 	holidays = _holidays(doc.company)
 	for r in rows:
@@ -150,6 +165,10 @@ def apply_to_payment_entry(doc, method=None):
 			"amount": -sum(r["amount"] for r in acc_rows),
 			"description": f"Withholding {rates}% on {', '.join(dict.fromkeys(r['bill_no'] or r['purchase_invoice'] for r in acc_rows))}",
 		})
+
+	if doc.payment_type != "Pay" or doc.party_type != "Supplier":
+		# ponytail: switched away from a supplier payment; amounts are ERPNext's/the user's again.
+		return
 
 	if not (flt(doc.source_exchange_rate) and flt(doc.target_exchange_rate)):
 		# Same calls ERPNext's validate makes next; needed here for an entry inserted without rates.
@@ -185,7 +204,12 @@ def _holidays(company):
 def compute_for_payment_entry(doc):
 	"""Run the hook on an unsaved copy, for the form to show before saving."""
 	frappe.has_permission("Payment Entry", "write", throw=True)
-	pe = frappe.get_doc(frappe.parse_json(doc) if isinstance(doc, str) else doc)
+	doc = frappe.parse_json(doc) if isinstance(doc, str) else doc
+	if doc.get("doctype") != "Payment Entry":
+		frappe.throw(_("Expected a Payment Entry."))
+	pe = frappe.get_doc(doc)
+	for name in _invoice_allocations(pe):
+		frappe.has_permission("Purchase Invoice", "read", name, throw=True)
 	apply_to_payment_entry(pe)
 	return {
 		"cecypo_withholding": [r.as_dict() for r in pe.get("cecypo_withholding")],
