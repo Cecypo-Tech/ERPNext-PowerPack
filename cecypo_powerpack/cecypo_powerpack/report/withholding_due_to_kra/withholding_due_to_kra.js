@@ -61,8 +61,10 @@ function export_itax_csv(report) {
 	frappe
 		.call({ method: "cecypo_powerpack.kenya_withholding.check_itax_export", args: { row_names } })
 		.then(() => {
-			// POST: a GET URL carrying every row name outgrows URL length limits.
-			open_url_post("/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv", { row_names }, true);
+			// POST: a GET URL carrying every row name outgrows URL length limits. Same window: this runs after
+			// an async call, outside the click's user activation, so a new tab can be popup-blocked; the
+			// attachment response does not navigate away from the report.
+			open_url_post("/api/method/cecypo_powerpack.kenya_withholding.export_itax_csv", { row_names }, false);
 		});
 }
 

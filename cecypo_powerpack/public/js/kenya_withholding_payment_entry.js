@@ -20,10 +20,18 @@
 	function norm(v) {
 		return v === null || v === undefined || v === '' || v === 0 || v === false ? '' : String(v);
 	}
+	const NUMERIC = ['Currency', 'Float', 'Percent', 'Int'];
 	function same_rows(server, local) {
 		return server.length === local.length && server.every(function (row, i) {
 			return Object.keys(row).every(function (k) {
-				return k.indexOf('__') === 0 || META.indexOf(k) >= 0 || norm(row[k]) === norm(local[i][k]);
+				if (k.indexOf('__') === 0 || META.indexOf(k) >= 0) return true;
+				const df = frappe.meta.get_docfield(row.doctype, k);
+				if (df && NUMERIC.indexOf(df.fieldtype) >= 0) {
+					// At field precision, as amounts_same: float noise must not re-dirty a saved draft.
+					const p = precision(k, local[i]);
+					return flt(row[k], p) === flt(local[i][k], p);
+				}
+				return norm(row[k]) === norm(local[i][k]);
 			});
 		});
 	}
@@ -111,6 +119,9 @@
 						frm.refresh_field('received_amount');
 						frm.events.set_unallocated_amount(frm);
 						frm.events.set_difference_amount(frm);
+						// add_child dirties on its own, but clearing (clear_table/clear_doc) and plain
+						// assignment do not: a preview that changed the form must mark it unsaved.
+						frm.dirty();
 					}
 				}
 				if (has !== !!frm._wht_locked) lock(frm, has);
