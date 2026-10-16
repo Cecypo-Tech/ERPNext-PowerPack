@@ -55,7 +55,8 @@
 					return !(flt(d.amount) < 0 && accounts.indexOf(d.account) >= 0);
 				});
 				frm.clear_table('cecypo_withholding');
-				frm.refresh_fields(['cecypo_withholding', 'deductions']);
+				frm.doc.cecypo_total_withheld = 0;
+				frm.refresh_fields(['cecypo_withholding', 'deductions', 'cecypo_total_withheld']);
 			}
 			if (frm._wht_locked) lock(frm, false);
 			return;
@@ -91,7 +92,7 @@
 					// dirty draft never shows Submit, so a saved draft the server already computed stays clean.
 					const rows_same = same_rows(m.cecypo_withholding, frm.doc.cecypo_withholding || [])
 						&& same_rows(ours, held);
-					const amounts_same = ['paid_amount', 'received_amount'].every(function (f) {
+					const amounts_same = ['paid_amount', 'received_amount', 'cecypo_total_withheld'].every(function (f) {
 						return flt(m[f], precision(f, frm.doc)) === flt(frm.doc[f], precision(f, frm.doc));
 					});
 					if (!rows_same) {
@@ -110,6 +111,8 @@
 						// Assign, never set_value: that fires ERPNext's re-spread over the references.
 						frm.doc.paid_amount = m.paid_amount;
 						frm.doc.received_amount = m.received_amount;
+						frm.doc.cecypo_total_withheld = m.cecypo_total_withheld;
+						frm.refresh_field('cecypo_total_withheld');
 						// ERPNext's unallocated/difference maths reads the base amounts.
 						frm.doc.base_paid_amount = m.base_paid_amount;
 						frm.doc.base_received_amount = m.base_received_amount;

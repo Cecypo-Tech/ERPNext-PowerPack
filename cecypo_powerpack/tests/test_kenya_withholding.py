@@ -43,6 +43,8 @@ class TestScaffold(IntegrationTestCase):
 	def test_payment_entry_field(self):
 		field = frappe.get_meta("Payment Entry").get_field("cecypo_withholding")
 		self.assertEqual(field.options, "Payment Entry Withholding")
+		total = frappe.get_meta("Payment Entry").get_field("cecypo_total_withheld")
+		self.assertEqual((total.fieldtype, total.read_only, total.insert_after), ("Currency", 1, "column_break_21"))
 
 	def test_references_section_shown_before_paid_amount(self):
 		# Get Outstanding Invoices lives in this section; ERPNext hides it until a paid amount is typed.
@@ -291,6 +293,7 @@ class TestPaymentEntry(_WithholdingCase):
 		pe = _make_pe(pi)
 		self.assertEqual(pe.paid_amount, 272200 - 5444 - 19965)
 		self.assertEqual(_deductions(pe), {VAT_ACC: -5444, RENT_ACC: -19965})
+		self.assertEqual(pe.cecypo_total_withheld, 5444 + 19965)
 		self.assertEqual(pe.difference_amount, 0)
 		rows = {r.account: r for r in pe.cecypo_withholding}
 		self.assertEqual(rows[VAT_ACC].base_amount, 272200)
@@ -449,6 +452,7 @@ class TestPaymentEntry(_WithholdingCase):
 		self._settings(enable_kenya_withholding=0)
 		pe.save()
 		self.assertEqual((pe.cecypo_withholding, pe.deductions, pe.paid_amount), ([], [], 272200))
+		self.assertEqual(pe.cecypo_total_withheld, 0)
 		self.assertEqual(pe.difference_amount, 0)
 
 	def test_no_rules_for_company_clears_stale_rows(self):
