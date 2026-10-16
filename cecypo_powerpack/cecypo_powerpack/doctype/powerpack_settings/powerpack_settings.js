@@ -2,6 +2,15 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on('PowerPack Settings', {
+	setup: function(frm) {
+		// Withholding posts to a ledger (tax liability) account, never a group or a party account.
+		const wht_account = function () {
+			return { filters: { is_group: 0, account_type: ['not in', ['Payable', 'Receivable']] } };
+		};
+		frm.set_query('account', 'withholding_rules', wht_account);
+		frm.set_query('account', 'withholding_vat_accounts', wht_account);
+	},
+
 	refresh: function(frm) {
 		frm.set_intro(__('Configure PowerPack features and settings'));
 		cecypo_check_min_price_conflict(frm);

@@ -23,7 +23,8 @@
 	}
 
 	function compute(frm) {
-		if (frm.doc.docstatus !== 0) return;
+		// The server endpoint needs write permission; a read-only viewer has nothing to preview.
+		if (frm.doc.docstatus !== 0 || !(frm.perm[0] && frm.perm[0].write)) return;
 		if (frm.doc.payment_type !== 'Pay' || frm.doc.party_type !== 'Supplier') {
 			// Switched away from a supplier payment: drop what we added and unlock.
 			const rows = frm.doc.cecypo_withholding || [];
@@ -39,6 +40,14 @@
 			return;
 		}
 		const seq = (frm._wht_seq = (frm._wht_seq || 0) + 1);
+		const held = (frm.doc.cecypo_withholding || []).length > 0;
+		CecypoPowerPack.Settings.isEnabled('enable_kenya_withholding', function (enabled) {
+			// Feature off: still call when rows are held, so the server clears them.
+			if ((enabled || held) && seq === frm._wht_seq) call(frm, seq);
+		});
+	}
+
+	function call(frm, seq) {
 		frappe.call({
 			method: 'cecypo_powerpack.kenya_withholding.compute_for_payment_entry',
 			args: { doc: frm.doc },
