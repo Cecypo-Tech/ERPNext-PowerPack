@@ -52,3 +52,9 @@ Per-task reviews + final whole-branch review: 0 Critical; all Important fixed; p
 - Report: summary card per account (unpaid among shown rows, red if any overdue) via `account_cards`; last card Selected, rewritten in the browser on `onCheckRow`; "Pay KRA" button renamed "Issue Payment" (server method still `pay_kra`).
 - Verified: withholding tests 60/60; browser on Dev Co: cards VAT 10,888 / Rent 39,930; Selected 0 -> (2) 10,888 -> (1) 5,444 on ticking. Temp user deleted.
 - Review: no Blocker/Major. Minor: Selected sums withheld amounts; the bank figure in the dialog can be up to 1 shilling lower when part payments of one invoice merge.
+
+## Follow-up 2026-10-18: Powerup > Help links to walkthroughs
+
+- `CecypoPowerPack.addHelp(frm, slug)` + `WALKTHROUGH_SLUGS` in `cecypo_powerpack.js` (bundled): adds Powerup > Help, opens `https://cecypo.tech/walkthroughs/<slug>` in a new tab (noopener). Called from the Payment Entry withholding script (only when `enable_kenya_withholding`, guarded on the helper existing since doctype_js loads outside the bundle) and from the sales powerup toggle (Quotation/Sales Order/Sales Invoice/POS Invoice).
+- Verified: `bench build` ok; app tests 93/93; Playwright on dev: new Payment Entry and new Quotation show Help with the right URLs (window.open stub). Temp user deleted.
+- Review: no Blocker/Major. Minor: Help on sales forms shows only where the sales powerup is enabled for that doctype (it rides add_toggle).
