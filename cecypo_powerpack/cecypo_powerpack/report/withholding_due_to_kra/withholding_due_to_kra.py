@@ -10,7 +10,7 @@ def execute(filters=None):
 	"""Withholding rows of submitted Payment Entries. Works with the feature off."""
 	filters = frappe._dict(filters or {})
 	if not filters.company:
-		return get_columns(), []
+		return get_columns(), [], None, None, []
 
 	W = frappe.qb.DocType("Payment Entry Withholding")
 	PE = frappe.qb.DocType("Payment Entry")
@@ -44,7 +44,25 @@ def execute(filters=None):
 	data = q.run(as_dict=True)
 	for r in data:
 		r.overdue = 1 if not r.kra_journal_entry and r.due_date and getdate(r.due_date) < today else 0
-	return get_columns(), data
+	currency = frappe.get_cached_value("Company", filters.company, "default_currency")
+	return get_columns(), data, None, None, account_cards(data, currency)
+
+
+def account_cards(data, currency):
+	"""One card per account: what is still unpaid among the rows shown, red when any of it is overdue. The
+	last card, Selected, is updated in the browser as rows are ticked."""
+	due, overdue = {}, set()
+	for r in data:
+		if r["kra_journal_entry"]:
+			continue
+		due[r["account"]] = due.get(r["account"], 0) + r["amount"]
+		if r["overdue"]:
+			overdue.add(r["account"])
+	card = {"datatype": "Currency", "currency": currency}
+	return [
+		{**card, "label": account, "value": value, "indicator": "Red" if account in overdue else "Blue"}
+		for account, value in due.items()
+	] + [{**card, "label": _("Selected"), "value": 0, "indicator": "Green"}]
 
 
 def get_columns():

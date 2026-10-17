@@ -137,6 +137,21 @@ class TestCalculation(unittest.TestCase):
 		self.assertEqual(income_tax_due_date(date(2026, 10, 5)), date(2026, 11, 20))
 		self.assertEqual(income_tax_due_date(date(2026, 12, 31)), date(2027, 1, 20))
 
+	def test_report_cards_sum_unpaid_by_account(self):
+		from cecypo_powerpack.cecypo_powerpack.report.withholding_due_to_kra.withholding_due_to_kra import account_cards
+
+		rows = [
+			{"account": "VAT", "amount": 5444, "kra_journal_entry": None, "overdue": 0},
+			{"account": "VAT", "amount": 120, "kra_journal_entry": None, "overdue": 1},
+			{"account": "RENT", "amount": 19965, "kra_journal_entry": None, "overdue": 0},
+			{"account": "RENT", "amount": 999, "kra_journal_entry": "ACC-JV-1", "overdue": 0},
+		]
+		cards = account_cards(rows, "KES")
+		self.assertEqual([(c["label"], c["value"], c["indicator"]) for c in cards], [
+			("VAT", 5564, "Red"), ("RENT", 19965, "Blue"), ("Selected", 0, "Green"),
+		])
+		self.assertEqual({c["currency"] for c in cards}, {"KES"})
+
 	def test_merge_vat_rows(self):
 		rows = [
 			{"tax_id": "P1", "bill_no": "B1", "base_amount": 50000.25, "posting_date": date(2026, 1, 2),
@@ -551,7 +566,8 @@ class TestPayKRA(_WithholdingCase):
 	def _report(self, pes, **filters):
 		from cecypo_powerpack.cecypo_powerpack.report.withholding_due_to_kra.withholding_due_to_kra import execute
 
-		columns, data = execute(frappe._dict(company=COMPANY, **filters))
+		columns, data, _message, _chart, cards = execute(frappe._dict(company=COMPANY, **filters))
+		self.assertEqual(cards[-1]["label"], "Selected")
 		self.assertIn("row_name", [c["fieldname"] for c in columns])
 		names = {pe.name for pe in pes}
 		return [r for r in data if r["payment_entry"] in names]
