@@ -45,3 +45,10 @@ Per-task reviews + final whole-branch review: 0 Critical; all Important fixed; p
 - `cecypo_total_withheld` custom field (Currency, read-only, after column_break_21, hidden at 0), set by apply_to_payment_entry and the form preview; backfilled from withholding rows in setup_custom_fields.
 - Verified: withholding tests 58/58; browser: PAY-26-00801 shows Withheld 25,409 beside Paid 290,343 after backfill; on a new draft paid + withheld = allocated before and after removing an invoice row. Temp user deleted.
 - Review: no Blocker/Major. Minor: the backfill query runs on every migrate (touches only mismatched rows).
+
+## Follow-up 2026-10-17: Withholding report cards, Selected card, Issue Payment
+
+- Grid: Withholding Details shows Base Amount and Rate % (in_list_view).
+- Report: summary card per account (unpaid among shown rows, red if any overdue) via `account_cards`; last card Selected, rewritten in the browser on `onCheckRow`; "Pay KRA" button renamed "Issue Payment" (server method still `pay_kra`).
+- Verified: withholding tests 60/60; browser on Dev Co: cards VAT 10,888 / Rent 39,930; Selected 0 -> (2) 10,888 -> (1) 5,444 on ticking. Temp user deleted.
+- Review: no Blocker/Major. Minor: Selected sums withheld amounts; the bank figure in the dialog can be up to 1 shilling lower when part payments of one invoice merge.

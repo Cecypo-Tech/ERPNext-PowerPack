@@ -172,6 +172,9 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   the submitted Payment Entry is never re-saved. Cancelling that JE clears it (`clear_kra_link`). Desk "Cancel All"
   would try to cancel the linked Payment Entry, hence the JE form script and `ignore_linked_doctypes`.
 - Report `Withholding Due to KRA`, Pay KRA and the CSV work with the feature off.
+- The report's summary cards (`account_cards`) sum the unpaid rows shown per account (red if any is overdue). The
+  last card, Selected, is rewritten in the browser on every row tick (`onCheckRow`). The Pay KRA button is labelled
+  **Issue Payment**; the server method is still `pay_kra`.
 - `setup_custom_fields` also sets a Property Setter on **every** Payment Entry: `section_break_14` (References,
   Get Outstanding Invoices) shows once party and accounts are set, not only after a paid amount is typed. ERPNext
   fills an empty paid amount from the fetched invoices. With withholding on (Pay/Supplier), the form script zeroes

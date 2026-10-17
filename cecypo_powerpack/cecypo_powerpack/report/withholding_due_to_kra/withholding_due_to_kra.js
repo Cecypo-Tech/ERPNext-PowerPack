@@ -30,7 +30,10 @@ frappe.query_reports["Withholding Due to KRA"] = {
 	],
 
 	get_datatable_options(options) {
-		return Object.assign(options, { checkboxColumn: true });
+		return Object.assign(options, {
+			checkboxColumn: true,
+			events: { onCheckRow: () => update_selected_card(frappe.query_report) },
+		});
 	},
 
 	formatter(value, row, column, data, default_formatter) {
@@ -42,10 +45,28 @@ frappe.query_reports["Withholding Due to KRA"] = {
 	},
 
 	onload(report) {
-		report.page.add_inner_button(__("Pay KRA"), () => pay_kra(report));
+		report.page.add_inner_button(__("Issue Payment"), () => pay_kra(report));
 		report.page.add_inner_button(__("Export iTax CSV"), () => export_itax_csv(report));
 	},
 };
+
+// The server's last summary card is Selected: the unpaid amount of the ticked rows, which Issue Payment pays.
+function update_selected_card(report) {
+	const $card = report.$summary.find(".summary-item").last();
+	if (!$card.length) return;
+	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry);
+	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
+	const currency = (report.raw_data?.report_summary || []).at(-1)?.currency;
+	$card.replaceWith(
+		frappe.utils.build_summary_item({
+			label: __("Selected ({0})", [rows.length]),
+			value: total,
+			datatype: "Currency",
+			currency,
+			indicator: "Green",
+		})
+	);
+}
 
 // Ticked rows, or every row shown when none is ticked. The server keeps VAT rows only.
 function export_itax_csv(report) {
@@ -85,7 +106,7 @@ function pay_kra_dialog(report, row_names, preview) {
 	const company = report.get_filter_value("company");
 	const today = frappe.datetime.get_today();
 	const dialog = new frappe.ui.Dialog({
-		title: __("Pay KRA: {0} rows, {1} to the bank", [row_names.length, format_currency(preview.bank)]),
+		title: __("Issue Payment: {0} rows, {1} to the bank", [row_names.length, format_currency(preview.bank)]),
 		fields: [
 			{
 				// Merged part payments of one invoice are ceiled once, so the bank can pay less than was withheld.
