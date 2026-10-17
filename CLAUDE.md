@@ -111,7 +111,7 @@ sourcemap. Harmless (one extra ~32KB download per deploy) and not specific to th
 app. The JS hash is stable.
 
 **Public JS files** (all bundled via `cecypo_powerpack.bundle.js`):
-- `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning
+- `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning, `addHelp(frm, slug)` (Powerup ▾ > Help → `https://cecypo.tech/walkthroughs/<slug>`) with the slug map `WALKTHROUGH_SLUGS`
 - `point_of_sale_powerpack.js` — POS compact/thumbnail view toggle, enhanced search (wildcard `%` + multi-word), keyboard nav, barcode feedback
 - `sales_powerup.js` — Item Insights (stock, cost, purchase/sale history, margin badge, profit summary) on Quotation/SO/SI/POS Invoice; toggled from Powerup ▾. One batched call to `sales_insights.get_sales_item_insights` for all rows, cached 5 min per (company, customer, item, warehouse); renders are debounced
 - `bulk_selection.js` — Bulk item selection dialog for sales documents
@@ -172,6 +172,7 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   the submitted Payment Entry is never re-saved. Cancelling that JE clears it (`clear_kra_link`). Desk "Cancel All"
   would try to cancel the linked Payment Entry, hence the JE form script and `ignore_linked_doctypes`.
 - Report `Withholding Due to KRA`, Pay KRA and the CSV work with the feature off.
+- The Payment Entry script adds `Powerup ▾ > Help` (the kenya-withholding walkthrough) when the feature is on; it guards on `CecypoPowerPack.addHelp`, since doctype_js loads outside the bundle.
 - The report's summary cards (`account_cards`) sum the unpaid rows shown per account (red if any is overdue). The
   last card, Selected, is rewritten in the browser on every row tick (`onCheckRow`). The Pay KRA button is labelled
   **Issue Payment**; the server method is still `pay_kra`.
