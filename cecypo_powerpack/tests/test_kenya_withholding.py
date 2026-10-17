@@ -53,6 +53,11 @@ class TestScaffold(IntegrationTestCase):
 			"eval:(doc.party && doc.paid_from && doc.paid_to)",
 		)
 
+	def test_withholding_grid_columns(self):
+		meta = frappe.get_meta("Payment Entry Withholding")
+		self.assertEqual([f.fieldname for f in meta.fields if f.in_list_view],
+			["purchase_invoice", "base_amount", "rate", "amount"])
+
 	def test_kra_journal_entry_indexed(self):
 		self.assertEqual(frappe.get_meta("Payment Entry Withholding").get_field("kra_journal_entry").search_index, 1)
 
