@@ -137,6 +137,11 @@
 
 	frappe.ui.form.on('Payment Entry', {
 		refresh: function (frm) {
+			if (window.CecypoPowerPack && CecypoPowerPack.addHelp) {
+				CecypoPowerPack.Settings.isEnabled('enable_kenya_withholding', function (enabled) {
+					if (enabled) CecypoPowerPack.addHelp(frm, CecypoPowerPack.WALKTHROUGH_SLUGS.withholding);
+				});
+			}
 			// "Get Outstanding Invoices" writes allocated_amount with no field event; it ends in
 			// allocate_party_amount_against_ref_docs (payment_entry.js ~1099), so recompute after it.
 			const orig = frm.events.allocate_party_amount_against_ref_docs;

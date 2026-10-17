@@ -6,6 +6,19 @@
 
 window.CecypoPowerPack = window.CecypoPowerPack || {};
 
+// Walkthrough slugs on https://cecypo.tech/walkthroughs/<slug>
+CecypoPowerPack.WALKTHROUGH_SLUGS = {
+	withholding: 'kenya-withholding',
+	sales_insights: 'powerpack-sales-insights',
+};
+
+/** Powerup > Help: opens the walkthrough for `slug` in a new tab. */
+CecypoPowerPack.addHelp = function (frm, slug) {
+	frm.add_custom_button(__('Help'), function () {
+		window.open('https://cecypo.tech/walkthroughs/' + slug, '_blank', 'noopener');
+	}, __('Powerup'));
+};
+
 /**
  * PowerPack's own compact number formatter.
  *

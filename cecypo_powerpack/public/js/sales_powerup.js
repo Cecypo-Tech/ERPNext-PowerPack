@@ -91,6 +91,7 @@ frappe.provide('cecypo_powerpack.sales_powerup');
 			frm.remove_custom_button(show, group);
 			frm.remove_custom_button(hide, group);
 			frm.add_custom_button(frm._powerpack_visible ? hide : show, () => sp.toggle(frm), group);
+			CecypoPowerPack.addHelp(frm, CecypoPowerPack.WALKTHROUGH_SLUGS.sales_insights);
 		},
 
 		toggle(frm) {
