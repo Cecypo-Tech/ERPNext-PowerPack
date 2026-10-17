@@ -39,12 +39,14 @@
   },
   {
    "fieldname": "base_amount",
+   "in_list_view": 1,
    "fieldtype": "Currency",
    "label": "Base Amount",
    "read_only": 1
   },
   {
    "fieldname": "rate",
+   "in_list_view": 1,
    "fieldtype": "Percent",
    "label": "Rate %",
    "read_only": 1
@@ -87,7 +89,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-16 12:00:00.000000",
+ "modified": "2026-10-17 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "Payment Entry Withholding",
