@@ -2,6 +2,7 @@
 # See license.txt
 
 import json
+import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -17,8 +18,7 @@ class TestResolveBillNumbersForCredit(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		from erpnext.stock.doctype.item.test_item import make_item
-		cls.company = frappe.db.get_value("Company", {"is_group": 0}, "name") \
-			or frappe.get_all("Company", filters={"is_group": 0}, limit=1)[0].name
+		cls.company = _purchasing_company()
 		cls.supplier = _ensure_supplier(TEST_SUPPLIER)
 		cls.supplier_other = _ensure_supplier(TEST_SUPPLIER_OTHER)
 		cls.item_code = make_item(TEST_ITEM, {"is_stock_item": 0}).name
@@ -204,6 +204,29 @@ def _ensure_supplier(name: str) -> str:
 		"supplier_group": sg,
 	}).insert(ignore_permissions=True)
 	return doc.name
+
+
+def _purchasing_company():
+	"""A company that can submit a Purchase Invoice. Not just the first one: other apps' test
+	runs leave half-set-up companies behind (ERPNext's stock tests leave "Test Quality
+	Company" with no Stock Received But Not Billed account), and which one the database
+	returns first differs from site to site."""
+	ready = [
+		c.name
+		for c in frappe.get_all(
+			"Company",
+			filters={"is_group": 0},
+			fields=["name", "stock_received_but_not_billed", "default_payable_account"],
+			order_by="creation",
+		)
+		if c.stock_received_but_not_billed and c.default_payable_account
+		and frappe.db.exists("Warehouse", {"company": c.name, "is_group": 0})
+	]
+	if "_Test Company" in ready:  # ERPNext's own fully set-up test company, when present
+		return "_Test Company"
+	if not ready:
+		raise unittest.SkipTest("no company here is set up to post a Purchase Invoice")
+	return ready[0]
 
 
 def _make_pi(company, supplier, item_code, bill_no, amount, docstatus=1):
