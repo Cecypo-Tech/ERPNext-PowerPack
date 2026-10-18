@@ -180,7 +180,11 @@ Object.keys(BULK_SELECTION_CONFIG).forEach(doctype => {
 function ensure_bulk_button(frm, attempt) {
     const config = BULK_SELECTION_CONFIG[frm.doctype];
     if (!config) return;
-    if (frm.doc.docstatus !== 0) return;
+    if (frm.doc.docstatus !== 0) {
+        // the grid outlives a submit, so a button added while it was a draft is still there
+        if (frm.fields_dict && frm.fields_dict.items) frm.fields_dict.items.$wrapper.find('.btn-bulk-selection').remove();
+        return;
+    }
 
     CecypoPowerPack.Settings.isEnabled(config.setting_field, function(enabled) {
         if (!enabled) return;
@@ -403,12 +407,12 @@ function show_bulk_item_selector(frm) {
                     frappe.show_progress(__('Loading Items'), 50, 100, __('Fetching details for {0} items...', [r.message.length]));
                     fetch_bulk_stock_item_details(frm, r.message, warehouse, can_see_cost);
                 } else {
-                    frappe.hide_progress();
+                    hide_loading();
                     frappe.msgprint(__('No stock items found'));
                 }
             },
             error: function() {
-                frappe.hide_progress();
+                hide_loading();
                 frappe.msgprint(__('Error loading items'));
             }
         });
@@ -444,12 +448,12 @@ function show_bulk_item_selector(frm) {
                     frappe.show_progress(__('Loading Items'), 50, 100, __('Fetching details for {0} items...', [r.message.length]));
                     fetch_bulk_item_details(frm, r.message, warehouse, can_see_cost);
                 } else {
-                    frappe.hide_progress();
+                    hide_loading();
                     frappe.msgprint(__('No items found'));
                 }
             },
             error: function() {
-                frappe.hide_progress();
+                hide_loading();
                 frappe.msgprint(__('Error loading items'));
             }
         });
@@ -496,12 +500,12 @@ function show_bulk_item_selector(frm) {
                     frappe.show_progress(__('Loading Items'), 50, 100, __('Fetching details for {0} items...', [r.message.length]));
                     fetch_bulk_item_details(frm, r.message, warehouse, can_see_cost);
                 } else {
-                    frappe.hide_progress();
+                    hide_loading();
                     frappe.msgprint(__('No items found'));
                 }
             },
             error: function() {
-                frappe.hide_progress();
+                hide_loading();
                 frappe.msgprint(__('Error loading items'));
             }
         });
@@ -524,7 +528,7 @@ function fetch_bulk_item_details(frm, items, warehouse, can_see_cost) {
             optimized: true
         },
         callback: function(r) {
-            frappe.hide_progress();
+            hide_loading();
             if (r.message && r.message.items && Array.isArray(r.message.items)) {
                 set_cached_items(frm, {
                     items: r.message.items
@@ -535,7 +539,7 @@ function fetch_bulk_item_details(frm, items, warehouse, can_see_cost) {
             }
         },
         error: function() {
-            frappe.hide_progress();
+            hide_loading();
             frappe.msgprint(__('Error fetching item details'));
         }
     });
@@ -550,7 +554,7 @@ function fetch_bulk_stock_item_details(frm, items, warehouse, can_see_cost) {
             doctype: frm.doctype
         },
         callback: function(r) {
-            frappe.hide_progress();
+            hide_loading();
             if (r.message && r.message.items && Array.isArray(r.message.items)) {
                 set_cached_items(frm, {
                     items: r.message.items
@@ -561,10 +565,18 @@ function fetch_bulk_stock_item_details(frm, items, warehouse, can_see_cost) {
             }
         },
         error: function() {
-            frappe.hide_progress();
+            hide_loading();
             frappe.msgprint(__('Error fetching stock item details'));
         }
     });
+}
+
+// Bootstrap ignores hide() while a modal is still fading in, so a fast reply left
+// "Loading Items" on top of the item dialog. Hide it again once it has finished showing.
+function hide_loading() {
+    const d = frappe.cur_progress;
+    frappe.hide_progress();
+    if (d) d.$wrapper.one('shown.bs.modal', () => d.hide());
 }
 
 // Convert wildcard pattern (with %) to regex
