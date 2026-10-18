@@ -67,8 +67,7 @@ def debug_powerpack_settings() -> dict:
             "settings": settings,
             "enable_quotation_powerup_value": settings.get('enable_quotation_powerup'),
             "enable_quotation_powerup_type": str(type(settings.get('enable_quotation_powerup'))),
-            "is_quotation_powerup_enabled": is_feature_enabled('enable_quotation_powerup'),
-            "is_pos_powerup_enabled": is_feature_enabled('enable_pos_powerup')
+            "is_quotation_powerup_enabled": is_feature_enabled('enable_quotation_powerup')
         }
     except Exception as e:
         return {

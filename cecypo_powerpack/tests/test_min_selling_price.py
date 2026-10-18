@@ -683,7 +683,7 @@ class TestPowerPackSettingsTabs(FrappeTestCase):
 		self.assertEqual(len(fo), len(set(fo)))
 		self.assertEqual(set(fo), {f["fieldname"] for f in d["fields"]})
 		# A representative field from every original section still present.
-		for fn in ("enable_compact_theme", "enable_pos_powerup", "enable_quick_pay",
+		for fn in ("enable_compact_theme", "enable_quick_pay",
 				   "enable_min_selling_price", "enable_lens", "enable_item_list_powerup",
 				   "enable_payment_reconciliation_powerup", "prevent_etr_invoice_cancellation"):
 			self.assertIn(fn, fo)

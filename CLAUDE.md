@@ -112,7 +112,6 @@ app. The JS hash is stable.
 
 **Public JS files** (all bundled via `cecypo_powerpack.bundle.js`):
 - `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning, `addHelp(frm, slug)` (Powerup ▾ > Help → `https://cecypo.tech/walkthroughs/<slug>`) with the slug map `WALKTHROUGH_SLUGS`
-- `point_of_sale_powerpack.js` — POS compact/thumbnail view toggle, enhanced search (wildcard `%` + multi-word), keyboard nav, barcode feedback
 - `sales_powerup.js` — Item Insights (stock, cost, purchase/sale history, margin badge, profit summary) on Quotation/SO/SI/POS Invoice; toggled from Powerup ▾. One batched call to `sales_insights.get_sales_item_insights` for all rows, cached 5 min per (company, customer, item, warehouse); renders are debounced
 - `bulk_selection.js` — Bulk item selection dialog for sales documents
 - `profit_calculator.js` — Pure margin maths (Node tests in `tests/js/`, run by `test_profit_calculator_js.py`). One basis: company currency, ex tax, `base_net_rate` vs `valuation_rate × conversion_factor`; margin = profit ÷ net sale regardless of tax template
@@ -273,15 +272,8 @@ Permissions Manager with one virtualized grid and a single commit. Rules are key
 ### Fixtures
 
 `hooks.py` exports these as fixtures (synced with `bench export-fixtures`):
-- `Custom Field` — specifically `POS Profile-enable_powerpack_by_cecypo`, `POS Profile-powerpack_column_config`, `Quotation-set_warehouse`
-- `Print Format` — `Powerpack POS Template`
+- `Custom Field` — specifically `Quotation-set_warehouse`
 - `Server Script` and `Client Script` — all in the `Cecypo PowerPack` module
-
-### POS Powerpack Initialization
-
-`point_of_sale_powerpack.js` uses a polling approach (every 500ms) waiting for `cur_pos.item_selector` to exist before initializing. It always patches the item description field regardless of settings, then conditionally loads full PowerPack features based on `enable_pos_powerup`.
-
-POS search reads from `POS Settings.pos_search_fields` (child table) to extend the search fields beyond `item_code` and `item_name`.
 
 ### API Conventions
 
@@ -295,7 +287,6 @@ SCSS sources (plain CSS or nested), imported by `cecypo_powerpack.bundle.scss` �
 **Asset bundling** above for why the extension matters.
 
 - `cecypo_powerpack.scss` — global compact theme (`body.compact-theme`)
-- `point_of_sale_powerpack.scss` — POS compact/thumbnail view layouts
 - `sales_powerup.scss` — Sales powerup info panels
 - `quick_pay.scss` — Quick Pay dialog
 - `lens_powerup.scss` — Lens powerup panels

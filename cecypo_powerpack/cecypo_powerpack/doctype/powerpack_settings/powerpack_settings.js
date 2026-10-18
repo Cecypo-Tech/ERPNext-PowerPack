@@ -29,12 +29,6 @@ frappe.ui.form.on('PowerPack Settings', {
 		cecypo_check_min_price_conflict(frm);
 	},
 
-	enable_pos_powerup: function(frm) {
-		if (frm.doc.enable_pos_powerup) {
-			frappe.show_alert({ message: __('Point of Sale Powerup has been enabled'), indicator: 'green' });
-		}
-	},
-
 	enable_quotation_powerup: function(frm) {
 		if (frm.doc.enable_quotation_powerup) {
 			frappe.show_alert({ message: __('Quotation Powerup has been enabled'), indicator: 'green' });

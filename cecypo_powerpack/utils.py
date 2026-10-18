@@ -71,7 +71,6 @@ def get_powerpack_settings() -> dict:
     except Exception as e:
         frappe.log_error(f"Error getting PowerPack Settings: {str(e)}")
         return {
-            "enable_pos_powerup": 0,
             "enable_quotation_powerup": 0
         }
 
@@ -82,7 +81,7 @@ def is_feature_enabled(feature_name: str) -> bool:
     Check if a PowerPack feature is enabled.
 
     Args:
-        feature_name: Name of the feature field (e.g., 'enable_pos_powerup')
+        feature_name: Name of the feature field (e.g., 'enable_lens')
 
     Returns:
         bool: True if feature is enabled, False otherwise

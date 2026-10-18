@@ -115,9 +115,9 @@ class TestSettingsReadableUnderUserPermissions(FrappeTestCase):
 		)
 
 	def test_client_get_single_value_succeeds_for_scoped_user(self):
-		"""The POS reads the feature flag through this exact whitelisted path."""
+		"""The client reads a feature flag through this whitelisted path."""
 		from frappe.client import get_single_value
 
 		frappe.set_user(self.user)
 		# Raises frappe.PermissionError("No permission for PowerPack Settings") on regression.
-		get_single_value(SETTINGS, "enable_pos_powerup")
+		get_single_value(SETTINGS, "enable_lens")

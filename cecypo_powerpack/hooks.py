@@ -139,17 +139,9 @@ fixtures = [
                 "name",
                 "in",
                 [
-                    "POS Profile-enable_powerpack_by_cecypo",
-                    "POS Profile-powerpack_column_config",
                     "Quotation-set_warehouse"
                 ]
             ]
-        ]
-    },
-    {
-        "dt": "Print Format",
-        "filters": [
-            ["name", "in", ["Powerpack POS Template"]]
         ]
     },
     {

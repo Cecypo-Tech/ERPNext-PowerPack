@@ -9,27 +9,27 @@ class TestPowerPackSettings(FrappeTestCase):
 	def test_powerpack_settings_creation(self):
 		"""Test that PowerPack Settings can be created and saved"""
 		settings = frappe.get_single("PowerPack Settings")
-		settings.enable_pos_powerup = 1
+		settings.enable_lens = 1
 		settings.save()
 
 		# Reload and verify
 		settings.reload()
-		self.assertEqual(settings.enable_pos_powerup, 1)
+		self.assertEqual(settings.enable_lens, 1)
 
 	def test_feature_check_utility(self):
 		"""Test the is_feature_enabled utility function"""
 		from cecypo_powerpack.utils import is_feature_enabled
 
 		settings = frappe.get_single("PowerPack Settings")
-		settings.enable_pos_powerup = 1
+		settings.enable_lens = 1
 		settings.save()
 
-		self.assertTrue(is_feature_enabled("enable_pos_powerup"))
+		self.assertTrue(is_feature_enabled("enable_lens"))
 
-		settings.enable_pos_powerup = 0
+		settings.enable_lens = 0
 		settings.save()
 
-		self.assertFalse(is_feature_enabled("enable_pos_powerup"))
+		self.assertFalse(is_feature_enabled("enable_lens"))
 
 	def test_quotation_powerup_feature(self):
 		"""Test the quotation powerup feature toggle"""

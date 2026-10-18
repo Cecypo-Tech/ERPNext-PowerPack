@@ -22,7 +22,7 @@ CecypoPowerPack.addHelp = function (frm, slug) {
 /**
  * PowerPack's own compact number formatter.
  *
- * Lives here because bulk_selection.js and point_of_sale_powerpack.js both need it.
+ * Lives here because bulk_selection.js needs it.
  * It used to be a bare top-level `function format_number()` in bulk_selection.js,
  * which in a classic script overwrote frappe's core `window.format_number`
  * (number_format.js:90) for EVERY desk page -- frappe's and erpnext's own rendering

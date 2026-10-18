@@ -18,7 +18,6 @@
  */
 
 import "./cecypo_powerpack.js";
-import "./point_of_sale_powerpack.js";
 import "./profit_calculator.js";
 import "./sales_powerup.js";
 import "./bulk_selection.js";
