@@ -145,19 +145,20 @@ frappe.ui.form.on('Payment Reconciliation Payment', { payments_remove(frm)  { re
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function setup_zero_allocate_button(frm) {
-	try { frm.page.remove_inner_button(__('Zero Allocate')); } catch (_) {}
+	try { frm.page.remove_inner_button(__('Zero Allocate'), __('Powerup')); } catch (_) {}
 	if (!frm.doc.payments?.length || !frm.doc.invoices?.length) return;
 	frm.page.add_inner_button(__('Zero Allocate'), () => zero_allocate(frm), __('Powerup'));
 }
 
 function setup_zero_reconcile_button(frm) {
 	if (!frm.doc?.allocation?.length) return;
-	const non_zero   = frm.doc.allocation.filter(a => (a.allocated_amount || 0) > 0).length;
-	const zero_count = frm.doc.allocation.length - non_zero;
 
-	try { frm.page.remove_inner_button(__('Zero Reconcile')); } catch (_) {}
+	try { frm.page.remove_inner_button(__('Zero Reconcile'), __('Powerup')); } catch (_) {}
 
 	frm.page.add_inner_button(__('Zero Reconcile'), function () {
+		// counted on click: amounts are typed after the button is built
+		const non_zero   = frm.doc.allocation.filter(a => (a.allocated_amount || 0) > 0).length;
+		const zero_count = frm.doc.allocation.length - non_zero;
 		const msg = zero_count > 0
 			? __('Reconcile {0} non-zero allocation(s)? ({1} zero allocation(s) will be filtered out)', [non_zero, zero_count])
 			: __('Reconcile {0} allocation(s)?', [non_zero]);
@@ -175,7 +176,7 @@ function setup_zero_reconcile_button(frm) {
 						frm.clear_table('invoices');
 						frm.refresh_fields();
 						frappe.show_alert({ message: __('Successfully reconciled'), indicator: 'green' });
-						try { frm.page.remove_inner_button(__('Zero Reconcile')); } catch (_) {}
+						try { frm.page.remove_inner_button(__('Zero Reconcile'), __('Powerup')); } catch (_) {}
 					}
 				},
 			});
