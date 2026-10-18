@@ -1538,26 +1538,27 @@ def get_lens_data(item_code: str, customer: str = None, doctype: str = None) -> 
     elif doctype in purchase_doctypes:
         _fetch_purchase_history(result, item_code)
 
-    # Price lists: for PR/PI show all enabled lists (LEFT JOIN) so new items can have prices set;
-    # for all other doctypes show only existing selling-price-list entries.
-    if doctype in {"Purchase Receipt", "Purchase Invoice"}:
-        result["price_lists"] = frappe.db.sql("""
-            SELECT ip.name AS item_price_name, pl.name AS price_list,
-                   IFNULL(ip.price_list_rate, 0) AS rate,
-                   IFNULL(ip.currency, pl.currency) AS currency
-            FROM `tabPrice List` pl
-            LEFT JOIN `tabItem Price` ip ON ip.price_list = pl.name AND ip.item_code = %s
-            WHERE pl.enabled = 1 AND pl.selling = 1
-            ORDER BY pl.name
-        """, (item_code,), as_dict=True)
-    else:
-        result["price_lists"] = frappe.db.sql("""
-            SELECT ip.name AS item_price_name, ip.price_list, ip.price_list_rate AS rate, ip.currency
-            FROM `tabItem Price` ip
-            INNER JOIN `tabPrice List` pl ON ip.price_list = pl.name
-            WHERE ip.item_code = %s AND pl.selling = 1 AND pl.enabled = 1
-            ORDER BY ip.price_list
-        """, (item_code,), as_dict=True)
+    # Price lists: the selling lists that already price the item. On buying documents the lens can
+    # also set prices, so it offers the other enabled selling lists (the "+ Add price list" picker)
+    # and gives a new item one blank row for the default selling list.
+    result["price_lists"] = frappe.db.sql("""
+        SELECT ip.name AS item_price_name, ip.price_list, ip.price_list_rate AS rate, ip.currency
+        FROM `tabItem Price` ip
+        INNER JOIN `tabPrice List` pl ON ip.price_list = pl.name
+        WHERE ip.item_code = %s AND pl.selling = 1 AND pl.enabled = 1
+        ORDER BY ip.price_list
+    """, (item_code,), as_dict=True)
+    if doctype in purchase_doctypes:
+        lists = frappe.get_all("Price List", filters={"enabled": 1, "selling": 1},
+                               fields=["name AS price_list", "currency"], order_by="name")
+        if not result["price_lists"]:
+            default = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+            first = next((p for p in lists if p.price_list == default), lists[0] if lists else None)
+            if first:
+                result["price_lists"] = [{"item_price_name": None, "price_list": first.price_list,
+                                          "rate": 0, "currency": first.currency}]
+        shown = {r["price_list"] for r in result["price_lists"]}
+        result["addable_price_lists"] = [p for p in lists if p.price_list not in shown]
 
     return result
 

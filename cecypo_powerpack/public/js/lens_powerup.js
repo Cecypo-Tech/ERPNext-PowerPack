@@ -161,10 +161,16 @@ cecypo_powerpack.lens = {
 			html += self._render_purchase_history(data.purchase_history || []);
 		}
 
-		// New Rate editing only on PR and PI (not sales docs or PO)
-		var show_new_rate = frappe.model.can_write('Item Price') &&
-			(doctype === 'Purchase Receipt' || doctype === 'Purchase Invoice');
-		html += self._render_price_lists(data.price_lists || [], data.valuation_rate || 0, show_new_rate);
+		// New Rate editing on buying documents: you often decide the selling price as you buy.
+		var show_new_rate = frappe.model.can_write('Item Price') && is_purchase;
+		// Margin is against the valuation rate; a new item has none, so use this row's buying
+		// rate per stock unit (company currency, ex tax) instead.
+		var cost = data.valuation_rate || 0;
+		if (!cost && is_purchase && item_doc.base_net_rate) {
+			cost = item_doc.base_net_rate / (item_doc.conversion_factor || 1);
+		}
+		html += self._render_price_lists(data.price_lists || [], cost, show_new_rate,
+			show_new_rate ? (data.addable_price_lists || []) : []);
 
 		// Save Prices footer (only if show_new_rate)
 		if (show_new_rate) {
@@ -177,7 +183,8 @@ cecypo_powerpack.lens = {
 		d._lens_item_code = item_doc.item_code;
 
 		self._wire_stock_popover(d, data.stock_by_warehouse);
-		self._wire_price_editing(d, data.price_lists || [], data.valuation_rate || 0);
+		self._wire_price_editing(d, data.price_lists || [], cost);
+		self._wire_add_price_list(d, cost);
 
 		if (show_new_rate) {
 			d.$body.find('.lens-save-prices-btn').on('click', function() {
@@ -293,12 +300,12 @@ cecypo_powerpack.lens = {
 		return html;
 	},
 
-	_render_price_lists: function(rows, valuation_rate, show_new_rate) {
+	_render_price_lists: function(rows, valuation_rate, show_new_rate, addable) {
 		var self = cecypo_powerpack.lens;
 		var show_margin = valuation_rate > 0;
 		var col_count = 2 + (show_margin ? 1 : 0) + (show_new_rate ? 1 : 0) + (show_new_rate && show_margin ? 1 : 0);
 		var html = '<div class="lens-section-header">' + __('Price Lists') + '</div>';
-		html += '<table class="lens-table"><thead><tr>';
+		html += '<table class="lens-table lens-price-table"><thead><tr>';
 		html += '<th>' + __('List') + '</th><th class="right">' + __('Rate') + '</th>';
 		if (show_margin) html += '<th class="right">' + __('Margin') + '</th>';
 		if (show_new_rate) {
@@ -309,37 +316,66 @@ cecypo_powerpack.lens = {
 		if (!rows.length) {
 			html += '<tr class="lens-empty-row"><td colspan="' + col_count + '">' + __('No price list entries found') + '</td></tr>';
 		} else {
-			rows.forEach(function(r) {
-				var margin = (show_margin && r.rate) ? ((r.rate - valuation_rate) / r.rate * 100) : null;
-				var margin_str = (margin !== null) ? margin.toFixed(1) + '%' : '—';
-				html += '<tr>';
-				html += '<td>' + frappe.utils.escape_html(r.price_list) + '</td>';
-				html += '<td class="right">' + self._fmt_num(r.rate) + '</td>';
-				if (show_margin) html += '<td class="right">' + margin_str + '</td>';
-				if (show_new_rate) {
-					var has_entry = !!r.item_price_name;
-					html += '<td class="right"><input class="lens-new-rate" type="number" step="any"';
-					html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name || '') + '"';
-					html += ' data-price-list="' + frappe.utils.escape_html(r.price_list) + '"';
-					html += ' data-current-rate="' + (r.rate || 0) + '"';
-					html += ' value="' + (has_entry && r.rate ? r.rate : '') + '"></td>';
-					if (show_margin) {
-						html += '<td class="right"><span class="lens-new-margin" data-valuation="' + valuation_rate + '">' + margin_str + '</span></td>';
-					}
-				}
-				html += '</tr>';
-			});
+			rows.forEach(function(r) { html += self._price_row(r, valuation_rate, show_margin, show_new_rate); });
 		}
 		html += '</tbody></table>';
+		if (addable && addable.length) {
+			// "+ Add price list": a selling list that does not price this item yet, added as a blank row
+			html += '<div class="lens-add-price-list">';
+			html += '<select class="lens-add-select form-control input-xs"><option value="">' + __('+ Add price list') + '</option>';
+			addable.forEach(function(p) {
+				html += '<option value="' + frappe.utils.escape_html(p.price_list) + '">' + frappe.utils.escape_html(p.price_list) + '</option>';
+			});
+			html += '</select></div>';
+		}
 		return html;
+	},
+
+	_price_row: function(r, valuation_rate, show_margin, show_new_rate) {
+		var self = cecypo_powerpack.lens;
+		var margin = (show_margin && r.rate) ? ((r.rate - valuation_rate) / r.rate * 100) : null;
+		var margin_str = (margin !== null) ? margin.toFixed(1) + '%' : '—';
+		var html = '<tr>';
+		html += '<td>' + frappe.utils.escape_html(r.price_list) + '</td>';
+		html += '<td class="right">' + (r.item_price_name ? self._fmt_num(r.rate) : '—') + '</td>';
+		if (show_margin) html += '<td class="right">' + margin_str + '</td>';
+		if (show_new_rate) {
+			var has_entry = !!r.item_price_name;
+			html += '<td class="right"><input class="lens-new-rate" type="number" step="any"';
+			html += ' data-item-price-name="' + frappe.utils.escape_html(r.item_price_name || '') + '"';
+			html += ' data-price-list="' + frappe.utils.escape_html(r.price_list) + '"';
+			html += ' data-current-rate="' + (r.rate || 0) + '"';
+			html += ' value="' + (has_entry && r.rate ? r.rate : '') + '"></td>';
+			if (show_margin) {
+				html += '<td class="right"><span class="lens-new-margin" data-valuation="' + valuation_rate + '">' + margin_str + '</span></td>';
+			}
+		}
+		return html + '</tr>';
+	},
+
+	_wire_add_price_list: function(d, valuation_rate) {
+		var self = cecypo_powerpack.lens;
+		d.$body.find('.lens-add-select').on('change', function() {
+			var list = $(this).val();
+			if (!list) return;
+			var tbody = d.$body.find('.lens-price-table tbody');
+			tbody.find('.lens-empty-row').remove();
+			var row = $(self._price_row({price_list: list, rate: 0, item_price_name: null}, valuation_rate, valuation_rate > 0, true));
+			tbody.append(row);
+			$(this).find('option').filter(function() { return this.value === list; }).remove();
+			$(this).val('');
+			if ($(this).find('option').length < 2) $(this).closest('.lens-add-price-list').remove();
+			self._wire_price_editing(d, [], valuation_rate, row);
+			row.find('.lens-new-rate').trigger('focus');
+		});
 	},
 
 	_wire_stock_popover: function(d, warehouse_data) {
 		// CSS :hover handles the popover display — no JS wiring needed.
 	},
 
-	_wire_price_editing: function(d, price_lists, valuation_rate) {
-		d.$body.find('.lens-new-rate').on('input', function() {
+	_wire_price_editing: function(d, price_lists, valuation_rate, scope) {
+		(scope || d.$body).find('.lens-new-rate').on('input', function() {
 			var new_rate = parseFloat($(this).val()) || 0;
 			var margin_el = $(this).closest('tr').find('.lens-new-margin');
 			if (valuation_rate && new_rate) {
