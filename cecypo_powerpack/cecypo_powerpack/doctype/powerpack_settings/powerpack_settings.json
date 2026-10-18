@@ -466,11 +466,11 @@
   {
    "fieldname": "copy_as_image_section",
    "fieldtype": "Section Break",
-   "label": "Copy as Image"
+   "label": "Copy",
+   "description": "Copy a Quotation, Sales Order, Sales Invoice or Purchase Order from its Powerup menu, as an image or as a message. Copy as Image is the checkbox below. Copy as Message is a Client Script per document type (PowerPack - Copy as Message): turn it on or off, or edit its text, under Client Script."
   },
   {
    "default": "1",
-   "description": "Adds Copy as Image to the Powerup menu and the print preview of Quotation, Sales Order, Sales Invoice and Purchase Order: copies a picture of the print to the clipboard, ready to paste into WhatsApp or any chat.",
    "fieldname": "enable_copy_as_image",
    "fieldtype": "Check",
    "label": "Enable Copy as Image"
@@ -815,7 +815,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-29 11:30:00.000000",
+ "modified": "2026-10-18 18:20:53.276438",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "PowerPack Settings",
