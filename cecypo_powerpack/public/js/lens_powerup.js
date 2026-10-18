@@ -304,7 +304,19 @@ cecypo_powerpack.lens = {
 		var self = cecypo_powerpack.lens;
 		var show_margin = valuation_rate > 0;
 		var col_count = 2 + (show_margin ? 1 : 0) + (show_new_rate ? 1 : 0) + (show_new_rate && show_margin ? 1 : 0);
-		var html = '<div class="lens-section-header">' + __('Price Lists') + '</div>';
+		var html = '<div class="lens-section-header lens-pl-header"><span>' + __('Price Lists') + '</span>';
+		if (addable && addable.length) {
+			// "+": a selling list that does not price this item yet, added as a blank row
+			html += '<div class="dropdown lens-add-price-list">';
+			html += '<button type="button" class="btn btn-xs btn-default lens-add-btn" data-toggle="dropdown" title="' + __('Add price list') + '" aria-label="' + __('Add price list') + '">+</button>';
+			html += '<div class="dropdown-menu dropdown-menu-right">';
+			addable.forEach(function(p) {
+				var name = frappe.utils.escape_html(p.price_list);
+				html += '<a class="dropdown-item lens-add-item" href="#" data-price-list="' + name + '">' + name + '</a>';
+			});
+			html += '</div></div>';
+		}
+		html += '</div>';
 		html += '<table class="lens-table lens-price-table"><thead><tr>';
 		html += '<th>' + __('List') + '</th><th class="right">' + __('Rate') + '</th>';
 		if (show_margin) html += '<th class="right">' + __('Margin') + '</th>';
@@ -319,15 +331,6 @@ cecypo_powerpack.lens = {
 			rows.forEach(function(r) { html += self._price_row(r, valuation_rate, show_margin, show_new_rate); });
 		}
 		html += '</tbody></table>';
-		if (addable && addable.length) {
-			// "+ Add price list": a selling list that does not price this item yet, added as a blank row
-			html += '<div class="lens-add-price-list">';
-			html += '<select class="lens-add-select form-control input-xs"><option value="">' + __('+ Add price list') + '</option>';
-			addable.forEach(function(p) {
-				html += '<option value="' + frappe.utils.escape_html(p.price_list) + '">' + frappe.utils.escape_html(p.price_list) + '</option>';
-			});
-			html += '</select></div>';
-		}
 		return html;
 	},
 
@@ -355,16 +358,16 @@ cecypo_powerpack.lens = {
 
 	_wire_add_price_list: function(d, valuation_rate) {
 		var self = cecypo_powerpack.lens;
-		d.$body.find('.lens-add-select').on('change', function() {
-			var list = $(this).val();
-			if (!list) return;
+		d.$body.find('.lens-add-item').on('click', function(e) {
+			e.preventDefault();
+			var list = $(this).attr('data-price-list');
 			var tbody = d.$body.find('.lens-price-table tbody');
 			tbody.find('.lens-empty-row').remove();
 			var row = $(self._price_row({price_list: list, rate: 0, item_price_name: null}, valuation_rate, valuation_rate > 0, true));
 			tbody.append(row);
-			$(this).find('option').filter(function() { return this.value === list; }).remove();
-			$(this).val('');
-			if ($(this).find('option').length < 2) $(this).closest('.lens-add-price-list').remove();
+			var menu = $(this).closest('.lens-add-price-list');
+			$(this).remove();
+			if (!menu.find('.lens-add-item').length) menu.remove();
 			self._wire_price_editing(d, [], valuation_rate, row);
 			row.find('.lens-new-rate').trigger('focus');
 		});

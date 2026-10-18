@@ -289,15 +289,27 @@
 	border-top: 1px solid var(--border-color, #eee);
 }
 
-// "+ Add price list" under the Price Lists table (buying documents)
-.lens-add-price-list {
-	margin-top: 8px;
+// "+" on the Price Lists header (buying documents): a menu of selling lists to add
+.lens-pl-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
 
-	.lens-add-select {
-		width: auto;
-		min-width: 180px;
-		display: inline-block;
-		color: var(--primary);
-		cursor: pointer;
+.lens-add-price-list {
+	.lens-add-btn {
+		padding: 0 7px;
+		line-height: 18px;
+		font-size: 14px;
+		font-weight: 600;
+	}
+
+	.dropdown-menu {
+		max-height: 240px;
+		overflow-y: auto;
+		text-transform: none;
+		letter-spacing: normal;
+		font-weight: normal;
 	}
 }
+
