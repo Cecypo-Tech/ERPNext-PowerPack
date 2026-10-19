@@ -135,7 +135,8 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
 
 - **All matching rules stack** (blank item = any item, blank supplier = any supplier). Whether a rule is VAT or
   income tax is decided only by its account being in the `withholding_vat_accounts` list. An exemption skips VAT
-  rules only, while `posting_date <= valid_until`.
+  rules only, while `posting_date <= valid_until`. `cecypo_skip_withholding` ("Skip Withholding", a Check under Apply
+  TDS, shown on supplier payments) does the same for one Payment Entry.
 - **Deduction rows are negative** amounts. The paid amount is derived (allocations minus withheld, plus other
   deductions) and read-only; no unallocated/advance amount alongside withholding.
 - **Amounts use `Decimal` and `ceil` per (invoice, rule)** to match iTax (266,200 x 7.5% = 19,965, never float 19,966).
