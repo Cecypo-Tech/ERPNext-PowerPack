@@ -12,12 +12,57 @@ CecypoPowerPack.WALKTHROUGH_SLUGS = {
 	sales_insights: 'powerpack-sales-insights',
 };
 
-/** Powerup > Help: opens the walkthrough for `slug` in a new tab. */
+CecypoPowerPack.WALKTHROUGH_TITLES = {
+	'kenya-withholding': 'Pay a supplier with Kenya withholding',
+	'powerpack-sales-insights': 'See stock, cost and margin while you quote',
+	'powerpack-tour': 'PowerPack tour: faster selling, buying and pricing',
+	'powerpack-min-selling-price': 'Minimum Selling Price: a floor under every sale',
+	'powerpack-rate-picker': 'Pick the price from any price list',
+	'powerpack-copy-as-image': 'Copy a document as an image or a message',
+	'powerpack-zero-allocate': 'Reconcile a payment by hand with Zero Allocate',
+	'powerpack-duplicate-pin': 'KRA PIN checks: duplicates and the name from KRA',
+};
+
+/**
+ * Powerup > Help. One button per form: frappe keeps the first button with a label, so each feature
+ * registers its walkthrough and the click opens it, or lists them when the form has several.
+ */
 CecypoPowerPack.addHelp = function (frm, slug) {
+	const slugs = frm.__pp_help || (frm.__pp_help = []);
+	if (!slugs.includes(slug)) slugs.push(slug);
 	frm.add_custom_button(__('Help'), function () {
-		window.open('https://cecypo.tech/walkthroughs/' + slug, '_blank', 'noopener');
+		const url = (s) => 'https://cecypo.tech/walkthroughs/' + s;
+		if (frm.__pp_help.length === 1) {
+			window.open(url(frm.__pp_help[0]), '_blank', 'noopener');
+			return;
+		}
+		frappe.msgprint({
+			title: __('PowerPack walkthroughs'),
+			message: frm.__pp_help.map((s) =>
+				`<p><a href="${url(s)}" target="_blank" rel="noopener">${frappe.utils.escape_html(__(CecypoPowerPack.WALKTHROUGH_TITLES[s] || s))}</a></p>`
+			).join(''),
+		});
 	}, __('Powerup'));
 };
+
+// Help for features whose own scripts add no Powerup button on these forms: [slug, setting, doctypes]
+[
+	['powerpack-tour', 'enable_quick_pay', ['Sales Order']],
+	['powerpack-tour', 'enable_lens', ['Purchase Order']],
+	['powerpack-min-selling-price', 'enable_min_selling_price', ['Quotation', 'Sales Order', 'Sales Invoice', 'POS Invoice', 'Delivery Note']],
+	['powerpack-rate-picker', 'enable_rate_price_picker', ['Quotation', 'Sales Order', 'Sales Invoice']],
+	['powerpack-copy-as-image', 'enable_copy_as_image', ['Quotation', 'Sales Order', 'Sales Invoice', 'Purchase Order']],
+	['powerpack-zero-allocate', 'enable_payment_reconciliation_powerup', ['Payment Reconciliation']],
+	['powerpack-duplicate-pin', 'enable_duplicate_tax_id_check', ['Customer', 'Supplier']],
+].forEach(([slug, setting, doctypes]) => {
+	doctypes.forEach((dt) => frappe.ui.form.on(dt, {
+		refresh(frm) {
+			CecypoPowerPack.Settings.isEnabled(setting, (enabled) => {
+				if (enabled) CecypoPowerPack.addHelp(frm, slug);
+			});
+		},
+	}));
+});
 
 /**
  * PowerPack's own compact number formatter.

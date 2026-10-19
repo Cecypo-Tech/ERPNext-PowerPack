@@ -111,7 +111,7 @@ sourcemap. Harmless (one extra ~32KB download per deploy) and not specific to th
 app. The JS hash is stable.
 
 **Public JS files** (all bundled via `cecypo_powerpack.bundle.js`):
-- `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning, `addHelp(frm, slug)` (Powerup ▾ > Help → `https://cecypo.tech/walkthroughs/<slug>`) with the slug map `WALKTHROUGH_SLUGS`
+- `cecypo_powerpack.js` — `CecypoPowerPack` namespace, settings cache, Tax ID duplicate check, ETR cancel warning, `addHelp(frm, slug)` (Powerup ▾ > Help → `https://cecypo.tech/walkthroughs/<slug>`; one Help per form, which lists the walkthroughs when a form registers several; titles in `WALKTHROUGH_TITLES`), the slug map `WALKTHROUGH_SLUGS`, and a table adding Help for features with no hook of their own (tour, min selling price, rate picker, copy, zero allocate, duplicate PIN)
 - `sales_powerup.js` — Item Insights (stock, cost, purchase/sale history, margin badge, profit summary) on Quotation/SO/SI/POS Invoice; toggled from Powerup ▾. One batched call to `sales_insights.get_sales_item_insights` for all rows, cached 5 min per (company, customer, item, warehouse); renders are debounced
 - `bulk_selection.js` — Bulk item selection dialog for sales documents
 - `profit_calculator.js` — Pure margin maths (Node tests in `tests/js/`, run by `test_profit_calculator_js.py`). One basis: company currency, ex tax, `base_net_rate` vs `valuation_rate × conversion_factor`; margin = profit ÷ net sale regardless of tax template
