@@ -375,6 +375,15 @@ class TestPaymentEntry(_WithholdingCase):
 		self.assertEqual(_deductions(pe), {VAT_ACC: -5444, RENT_ACC: -19965})
 		self.assertEqual(pe.difference_amount, 0)
 
+	def test_skip_withholding_works_like_an_exemption(self):
+		pe = _make_pe(_make_pi(), submit=False)
+		self.assertEqual(_deductions(pe), {VAT_ACC: -5444, RENT_ACC: -19965})
+		pe.cecypo_skip_withholding = 1
+		pe.save()
+		self.assertEqual([r.account for r in pe.cecypo_withholding], [RENT_ACC])
+		self.assertEqual(_deductions(pe), {RENT_ACC: -19965})
+		self.assertEqual(pe.difference_amount, 0)
+
 	def test_nothing_left_to_withhold_restores_paid_amount(self):
 		pi = _make_pi(lines=((OTHER_ITEM, 6000),))
 		pe = _make_pe(pi, submit=False)

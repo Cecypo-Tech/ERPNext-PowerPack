@@ -178,6 +178,7 @@
 		payment_type: debounced,
 		party_type: debounced,
 		posting_date: debounced,
+		cecypo_skip_withholding: debounced,
 	});
 	frappe.ui.form.on('Payment Entry Reference', {
 		allocated_amount: function (frm) { debounced(frm); },

@@ -21,6 +21,17 @@ def setup_custom_fields():
 	create_custom_fields(
 		{
 			"Payment Entry": [
+				# Per payment, what a VAT WHT exemption does per supplier: VAT rules skipped, income tax rules kept.
+				{
+					"fieldname": "cecypo_skip_withholding",
+					"label": "Skip Withholding",
+					"fieldtype": "Check",
+					"insert_after": "apply_tds",
+					"depends_on": "eval:doc.payment_type=='Pay' && doc.party_type=='Supplier'",
+					"description": "VAT withholding is not deducted from this payment, as with a VAT WHT exemption. Rent and other income tax withholding still apply.",
+					"no_copy": 1,
+					"print_hide": 1,
+				},
 				{
 					"fieldname": "cecypo_withholding",
 					"label": "Withholding Details",
@@ -162,7 +173,7 @@ def apply_to_payment_entry(doc, method=None, preview=False):
 	rows = []
 	if rules:
 		vat_accounts = {r.account for r in settings.withholding_vat_accounts}
-		exempt = any(
+		exempt = doc.get("cecypo_skip_withholding") or any(
 			e.supplier == doc.party and e.valid_until and posting_date <= getdate(e.valid_until)
 			for e in settings.withholding_exemptions
 		)
