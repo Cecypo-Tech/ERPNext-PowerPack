@@ -38,3 +38,19 @@ def prevent_etr_invoice_cancellation(doc, method=None):
             ),
             title=_("ETR Invoice Cannot Be Cancelled")
         )
+
+
+def carry_return_tax_id(doc, method=None):
+    """validate on Sales Invoice: a return keeps the original sale's tax_id.
+
+    Sales Invoice.tax_id is fetched from Customer.tax_id on every draft save, before
+    validate hooks run. A walk-in sale is on a shared Cash Sale customer whose tax_id is
+    blank, so a return made from the desk Return button lost the buyer's PIN (Sayona
+    CS-X-26-00010, 2026-10-20). Only fills a blank tax_id, so a PIN that klik_pos or the
+    user put on the return is left alone.
+    """
+    if not doc.get("is_return") or not doc.get("return_against") or doc.get("tax_id"):
+        return
+    tax_id = frappe.db.get_value("Sales Invoice", doc.return_against, "tax_id")
+    if tax_id:
+        doc.tax_id = tax_id

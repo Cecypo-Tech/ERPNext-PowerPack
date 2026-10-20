@@ -226,7 +226,11 @@ doc_events = {
 	"Sales Invoice": {
 		"before_validate": "cecypo_powerpack.price_approval.guard_pending_edit",
 		"before_cancel": "cecypo_powerpack.validations.prevent_etr_invoice_cancellation",
-		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price",
+		"validate": [
+			"cecypo_powerpack.min_selling_price.validate_min_selling_price",
+			# A return keeps the original sale's tax_id (validations.py).
+			"cecypo_powerpack.validations.carry_return_tax_id",
+		],
 		"on_update": "cecypo_powerpack.price_approval.stamp_price_approval",
 	},
 	"POS Invoice": {
