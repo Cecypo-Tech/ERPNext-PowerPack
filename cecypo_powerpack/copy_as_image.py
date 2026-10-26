@@ -5,8 +5,10 @@
 
 The picture is rendered from the same PDF the PDF button downloads, so fonts, images
 and letterheads come out exactly as printed - a browser screenshot of the preview
-HTML gets those wrong. Every page is stacked into one tall image; blank pages at the end
-are dropped and the blank space below the last page's content is trimmed.
+HTML gets those wrong. The PDF is asked for as one page MAX_PAGES tall, so a long items
+table does not break (a margin gap and a repeated table header on A4); the blank space
+below the content is trimmed. A print longer than that spills onto more pages, which are
+stacked into one tall image, dropping blank pages at the end.
 """
 
 import io
@@ -70,6 +72,7 @@ def get_print_image(
 			letterhead=letterhead or None,
 			no_letterhead=frappe.utils.cint(no_letterhead),
 			pdf_generator=_pdf_generator(print_format),
+			pdf_options=_tall_page(print_format),
 		)
 
 	frappe.local.response.filename = "{}.png".format(name.replace(" ", "-").replace("/", "-"))
@@ -86,6 +89,17 @@ def _pdf_generator(print_format):
 		or frappe.db.get_single_value("Print Settings", "pdf_generator")
 		or "wkhtmltopdf"
 	)
+
+
+def _tall_page(print_format):
+	"""One page MAX_PAGES tall at the configured width, or None (paged as printed) when the
+	format sizes its own page with an @page rule, which chrome honours only if no size is passed."""
+	from frappe.www.printview import get_page_rule_size, get_page_size_mm
+
+	if get_page_rule_size(frappe.db.get_value("Print Format", print_format, "css") or ""):
+		return None
+	width, height = get_page_size_mm()
+	return {"page-width": f"{width}mm", "page-height": f"{height * MAX_PAGES}mm"}
 
 
 def pdf_to_png(pdf: bytes) -> bytes:

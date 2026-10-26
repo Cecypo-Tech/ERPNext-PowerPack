@@ -147,6 +147,38 @@ class TestGetPrintImage(FrappeTestCase):
 		self.assertEqual(kwargs["no_letterhead"], 1)
 		self.assertIn(kwargs["pdf_generator"], ("wkhtmltopdf", "chrome"))
 
+	def test_asks_for_one_tall_page_so_a_long_table_does_not_break(self):
+		# On A4 a long items table breaks across pages: the stacked image shows a margin gap
+		# and a repeated table header. One page MAX_PAGES tall has no break; the trim takes
+		# off the unused height.
+		from frappe.www.printview import get_page_size_mm
+
+		get_print = self._call(print_format="Standard")
+
+		width, height = get_page_size_mm()
+		self.assertEqual(
+			get_print.call_args.kwargs["pdf_options"],
+			{"page-width": f"{width}mm", "page-height": f"{height * MAX_PAGES}mm"},
+		)
+
+	def test_keeps_the_page_size_a_format_sets_with_a_page_rule(self):
+		# A thermal format's @page size would be replaced by an A4-wide tall page.
+		frappe.get_doc(
+			{
+				"doctype": "Print Format",
+				"name": "PP Copy as Image Page Rule Test",
+				"doc_type": "Sales Invoice",
+				"standard": "No",
+				"custom_format": 1,
+				"html": "<p>x</p>",
+				"css": "@page { size: 80mm 200mm; }",
+			}
+		).insert(ignore_permissions=True)
+
+		get_print = self._call(print_format="PP Copy as Image Page Rule Test")
+
+		self.assertIsNone(get_print.call_args.kwargs["pdf_options"])
+
 	def test_renders_with_the_print_settings_ticked_in_the_preview_sidebar(self):
 		# Compact Item Print etc. reach printview through form_dict.settings, as with the PDF button.
 		seen = {}
