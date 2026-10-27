@@ -6,6 +6,7 @@ from frappe.tests import IntegrationTestCase
 
 from cecypo_powerpack.kenya_withholding import (
 	income_tax_due_date,
+	release_withholding,
 	invoice_withholding,
 	merge_vat_rows,
 	split_row,
@@ -1175,8 +1176,6 @@ class TestReleaseWithholding(_WithholdingCase):
 	_sums = TestPaymentEntry._sums
 
 	def _release(self, pes, reason="PO closed, deposit refunded", **kw):
-		from cecypo_powerpack.kenya_withholding import release_withholding
-
 		names = [r.name for pe in pes for r in pe.cecypo_withholding]
 		return release_withholding(names, kw.pop("posting_date", frappe.utils.nowdate()), reason, **kw)
 
@@ -1310,3 +1309,27 @@ class TestReleaseWithholding(_WithholdingCase):
 		credits = {a.account: a.credit for a in je.accounts if a.credit}
 		self.assertEqual(credits, {pe1.paid_to: 9500, "_Test WHT Payable 2 - _TC": 3800})
 		self.assertEqual(je.total_debit, je.total_credit)
+
+	def test_unlink_does_not_merge_into_a_released_row(self):
+		po, pe = self._deposit(100000)
+		pi = self._plain_invoice(po, 4)
+		self._set_against(pe, po, pi, 40000)
+		pe.reload()
+		waiting = [r for r in pe.cecypo_withholding if not r.purchase_invoice]
+		je = release_withholding([r.name for r in waiting], frappe.utils.nowdate(), "closed")
+		before = {r.name: (r.amount, r.base_amount, r.allocated_amount) for r in waiting}
+		pi.reload()
+		pi.cancel()
+		pe.reload()
+		for r in pe.cecypo_withholding:
+			if r.name in before:
+				self.assertEqual((r.amount, r.base_amount, r.allocated_amount, r.released_by), (*before[r.name], je))
+			else:
+				self.assertEqual((r.released_by, r.purchase_invoice, r.allocated_amount), (None, None, 40000))
+		self.assertEqual(len(pe.cecypo_withholding), 4)
+
+	def test_foreign_currency_payable_refused(self):
+		po, pe = self._deposit(100000)
+		frappe.db.set_value("Account", pe.paid_to, "account_currency", "USD")
+		with self.assertRaisesRegex(frappe.ValidationError, "by hand"):
+			self._release([pe])

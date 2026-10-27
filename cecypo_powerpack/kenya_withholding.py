@@ -291,7 +291,8 @@ def _unlink_deposit_rows(invoice, payment_entry=None):
 		waiting = frappe.db.get_value(
 			"Payment Entry Withholding",
 			{"parent": r.parent, "purchase_order": r.purchase_order, "account": r.account,
-				"purchase_invoice": ["is", "not set"], "kra_journal_entry": ["is", "not set"]},
+				"purchase_invoice": ["is", "not set"], "kra_journal_entry": ["is", "not set"],
+				"released_by": ["is", "not set"]},
 			["name", "amount", "base_amount", "allocated_amount"], as_dict=True,
 		)
 		if waiting:
@@ -505,7 +506,7 @@ def _load_rows(row_names, lock=False, allow_waiting=False):
 	if len(rows) != len(row_names):
 		frappe.throw(_("Some selected withholding rows no longer exist. Refresh the report."))
 	if any(r.docstatus != 1 for r in rows):
-		frappe.throw(_("Only withholding on submitted Payment Entries can be paid to KRA."))
+		frappe.throw(_("Only withholding on submitted Payment Entries can be paid to KRA or released."))
 	# Every KRA path loads through here: a deposit row has no invoice number for iTax until it is linked.
 	waiting = list(dict.fromkeys(r.purchase_order for r in rows if r.purchase_order and not r.purchase_invoice))
 	if waiting and not allow_waiting:
@@ -660,6 +661,11 @@ def release_withholding(row_names, posting_date: str, reason: str) -> str:
 	companies = {r.company for r in rows}
 	if len(companies) > 1:
 		frappe.throw(_("Selected rows belong to more than one company: {0}.").format(", ".join(sorted(companies))))
+
+	company_currency = frappe.get_cached_value("Company", rows[0].company, "default_currency")
+	for account in dict.fromkeys(r.paid_to for r in rows):
+		if frappe.get_cached_value("Account", account, "account_currency") != company_currency:
+			frappe.throw(_("Release withholding on {0} by hand: it is not in the company currency.").format(account))
 
 	debits, credits = {}, {}
 	for r in rows:
