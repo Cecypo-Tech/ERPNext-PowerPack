@@ -200,10 +200,13 @@ def link_deposit_rows(doc, method=None):
 		if left <= 0:
 			continue
 		pi = frappe.db.get_value("Purchase Invoice", name, ["bill_no", "bill_date"], as_dict=True)
-		# The PO the new allocation came from; with none (unallocated amount) the PI's own POs, then any.
-		preferred = [from_po] if from_po else []
-		preferred += frappe.get_all("Purchase Invoice Item", {"parent": name}, pluck="purchase_order", order_by="idx")
-		for po in dict.fromkeys(preferred + [r.purchase_order for r in waiting]):
+		# The PO the new allocation came from, and only that one (it may have no rows: nothing to carve). With
+		# none (unallocated amount) the PI's own POs, then any.
+		orders = [from_po]
+		if not from_po:
+			orders = frappe.get_all("Purchase Invoice Item", {"parent": name}, pluck="purchase_order", order_by="idx")
+			orders = list(dict.fromkeys(orders + [r.purchase_order for r in waiting]))
+		for po in orders:
 			rows = [r for r in waiting if r.purchase_order == po and not r.purchase_invoice]
 			if left <= 0:
 				break
@@ -225,11 +228,14 @@ def link_deposit_rows(doc, method=None):
 
 def refuse_cancel_if_deposit_paid_to_kra(doc, method=None):
 	"""Purchase Invoice before_cancel: stop before ERPNext unlinks the deposit if its withholding went to KRA."""
-	for r in frappe.get_all(
-		"Payment Entry Withholding",
-		{"purchase_invoice": doc.name, "purchase_order": ["is", "set"], "kra_journal_entry": ["is", "set"]},
-		["parent", "kra_journal_entry"],
-	):
+	_refuse_if_paid_to_kra(doc.name)
+
+
+def _refuse_if_paid_to_kra(invoice, payment_entry=None):
+	filters = {"purchase_invoice": invoice, "purchase_order": ["is", "set"], "kra_journal_entry": ["is", "set"]}
+	if payment_entry:
+		filters["parent"] = payment_entry
+	for r in frappe.get_all("Payment Entry Withholding", filters, ["parent", "kra_journal_entry"]):
 		frappe.throw(
 			_("Withholding on deposit {0} for this invoice was paid to KRA by {1}. Cancel that first.").format(
 				r.parent, r.kra_journal_entry
@@ -237,12 +243,37 @@ def refuse_cancel_if_deposit_paid_to_kra(doc, method=None):
 		)
 
 
+def refuse_unreconcile_if_deposit_paid_to_kra(doc, method=None):
+	"""Unreconcile Payment before_submit: same refusal as cancelling the invoice."""
+	for invoice in _unreconciled_invoices(doc):
+		_refuse_if_paid_to_kra(invoice, doc.voucher_no)
+
+
+def unlink_deposit_rows_on_unreconcile(doc, method=None):
+	"""Unreconcile Payment on_submit: ERPNext zeroed the invoice's reference on the deposit; its rows wait again."""
+	for invoice in _unreconciled_invoices(doc):
+		_unlink_deposit_rows(invoice, doc.voucher_no)
+
+
+def _unreconciled_invoices(doc):
+	if doc.voucher_type != "Payment Entry":
+		return []
+	return [a.reference_name for a in doc.allocations if a.reference_doctype == "Purchase Invoice"]
+
+
 def unlink_deposit_rows(doc, method=None):
 	"""Purchase Invoice on_cancel: ERPNext released the deposit without saving the Payment Entry, so its linked
 	withholding rows go back to waiting by db writes, merged into the waiting row of the same order and account."""
+	_unlink_deposit_rows(doc.name)
+
+
+def _unlink_deposit_rows(invoice, payment_entry=None):
+	filters = {"purchase_invoice": invoice, "purchase_order": ["is", "set"], "kra_journal_entry": ["is", "not set"]}
+	if payment_entry:
+		filters["parent"] = payment_entry
 	rows = frappe.get_all(
 		"Payment Entry Withholding",
-		{"purchase_invoice": doc.name, "purchase_order": ["is", "set"], "kra_journal_entry": ["is", "not set"]},
+		filters,
 		["name", "parent", "purchase_order", "account", "amount", "base_amount", "allocated_amount"],
 	)
 	for r in rows:

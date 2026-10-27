@@ -254,6 +254,10 @@ doc_events = {
 		"before_cancel": "cecypo_powerpack.kenya_withholding.refuse_cancel_if_deposit_paid_to_kra",
 		"on_cancel": "cecypo_powerpack.kenya_withholding.unlink_deposit_rows",
 	},
+	"Unreconcile Payment": {
+		"before_submit": "cecypo_powerpack.kenya_withholding.refuse_unreconcile_if_deposit_paid_to_kra",
+		"on_submit": "cecypo_powerpack.kenya_withholding.unlink_deposit_rows_on_unreconcile",
+	},
 	"Journal Entry": {
 		"onload": "cecypo_powerpack.kenya_withholding.flag_kra_payment",
 		"before_insert": "cecypo_powerpack.kenya_withholding.refuse_kra_amend",

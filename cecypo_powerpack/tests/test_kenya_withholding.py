@@ -436,13 +436,13 @@ class TestPaymentEntry(_WithholdingCase):
 		self.assertEqual(self._sums(pe), before)
 		self.assertEqual({r.purchase_invoice for r in pe.cecypo_withholding}, {pi1.name, pi2.name})
 
-	def _plain_invoice(self, po, qty, advance=None):
+	def _plain_invoice(self, po, qty, advance=None, item=RENT_ITEM, link=True):
 		pi = frappe.get_doc({
 			"doctype": "Purchase Invoice", "company": COMPANY, "supplier": po.supplier,
 			"bill_no": frappe.generate_hash(length=8), "bill_date": frappe.utils.nowdate(),
 			"posting_date": frappe.utils.nowdate(), "due_date": frappe.utils.add_days(frappe.utils.nowdate(), 30),
-			"items": [{"item_code": RENT_ITEM, "qty": qty, "rate": 10000,
-				"purchase_order": po.name, "po_detail": po.items[0].name}],
+			"items": [{"item_code": item, "qty": qty, "rate": 10000,
+				**({"purchase_order": po.name, "po_detail": po.items[0].name} if link else {})}],
 		})
 		pi.insert(ignore_permissions=True)
 		if advance:
@@ -461,12 +461,14 @@ class TestPaymentEntry(_WithholdingCase):
 		from erpnext.accounts.utils import reconcile_against_document
 
 		pe.reload()
-		ref = next(r for r in pe.references if r.reference_name == po.name)
+		# po=None: set the entry's unallocated amount, which carries no order.
+		ref = next((r for r in pe.references if r.reference_name == po.name), None) if po else None
 		reconcile_against_document([frappe._dict({
-			"voucher_type": "Payment Entry", "voucher_no": pe.name, "voucher_detail_no": ref.name,
+			"voucher_type": "Payment Entry", "voucher_no": pe.name, "voucher_detail_no": ref and ref.name,
 			"against_voucher_type": "Purchase Invoice", "against_voucher": pi.name,
 			"account": pi.credit_to, "party_type": "Supplier", "party": pi.supplier, "is_advance": "Yes",
-			"dr_or_cr": "debit_in_account_currency", "unadjusted_amount": ref.allocated_amount,
+			"dr_or_cr": "debit_in_account_currency",
+			"unadjusted_amount": ref.allocated_amount if ref else pe.unallocated_amount,
 			"allocated_amount": amount, "exchange_rate": 1, "grand_total": pi.base_grand_total,
 			"outstanding_amount": pi.outstanding_amount,
 			"difference_account": frappe.get_cached_value("Company", pi.company, "exchange_gain_loss_account"),
@@ -557,6 +559,65 @@ class TestPaymentEntry(_WithholdingCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "paid to KRA by ACC-JV-FAKE"):
 			pi.cancel()
 		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 1)
+
+	def test_order_without_rows_does_not_take_another_orders_rows(self):
+		# Only rent is withheld: PO-B (other item) has no rows, so setting its deposit against its invoice
+		# must leave PO-A's rent rows waiting.
+		self._settings(withholding_rules=[{"item": RENT_ITEM, "supplier": None, "rate": 7.5, "account": RENT_ACC}])
+		po_a, pe = self._deposit(60000, submit=False)
+		po_b = _make_po(items=[{"item_code": OTHER_ITEM, "qty": 10, "rate": 10000}])
+		pe.append("references", {
+			"reference_doctype": "Purchase Order", "reference_name": po_b.name,
+			"total_amount": 100000, "outstanding_amount": 100000, "allocated_amount": 40000,
+		})
+		pe.save()
+		pe.submit()
+		held = [(r.name, r.purchase_order, r.allocated_amount, r.amount) for r in pe.cecypo_withholding]
+		self.assertEqual({h[1] for h in held}, {po_a.name})
+		pi_b = self._plain_invoice(po_b, 10, item=OTHER_ITEM)
+		self._set_against(pe, po_b, pi_b, 40000)
+		pe.reload()
+		self.assertEqual([(r.name, r.purchase_order, r.allocated_amount, r.amount) for r in pe.cecypo_withholding], held)
+		self.assertFalse(any(r.purchase_invoice for r in pe.cecypo_withholding))
+
+	def _unreconcile(self, pe, pi):
+		from erpnext.accounts.doctype.unreconcile_payment.unreconcile_payment import (
+			create_unreconcile_doc_for_selection,
+		)
+
+		create_unreconcile_doc_for_selection([{
+			"company": COMPANY, "voucher_type": "Payment Entry", "voucher_no": pe.name,
+			"against_voucher_type": "Purchase Invoice", "against_voucher_no": pi.name,
+		}])
+
+	def test_unreconcile_returns_deposit_rows_to_waiting_then_relinks(self):
+		po, pe = self._deposit(100000)
+		before = self._sums(pe)
+		pi = self._invoice_with_deposit(po, 10)
+		self._unreconcile(pe, pi)
+		pe.reload()
+		self.assertEqual(len(pe.cecypo_withholding), 2)
+		for r in pe.cecypo_withholding:
+			self.assertEqual(r.purchase_order, po.name)
+			self.assertFalse(r.purchase_invoice or r.bill_no or r.bill_date)
+			self.assertEqual(r.allocated_amount, 100000)
+		self.assertEqual(self._sums(pe), before)
+		self.assertEqual(pe.unallocated_amount, 100000)
+		pi2 = self._plain_invoice(po, 10, link=False)
+		self._set_against(pe, None, pi2, 100000)
+		pe.reload()
+		self.assertEqual({r.purchase_invoice for r in pe.cecypo_withholding}, {pi2.name})
+		self.assertEqual(self._sums(pe), before)
+
+	def test_unreconcile_refused_when_deposit_withholding_paid_to_kra(self):
+		po, pe = self._deposit(100000)
+		pi = self._invoice_with_deposit(po, 10)
+		pe.reload()
+		frappe.db.set_value("Payment Entry Withholding", pe.cecypo_withholding[0].name, "kra_journal_entry", "ACC-JV-FAKE")
+		with self.assertRaisesRegex(frappe.ValidationError, "paid to KRA by ACC-JV-FAKE"):
+			self._unreconcile(pe, pi)
+		pe.reload()
+		self.assertTrue(all(r.purchase_invoice == pi.name for r in pe.cecypo_withholding))
 
 	def test_withholding_more_than_allocated_refused(self):
 		# Allocated 1 shilling: 2% and 7.5% each round up to 1, which would make the paid amount -1.
