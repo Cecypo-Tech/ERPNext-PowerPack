@@ -198,6 +198,10 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
 - `_load_rows` refuses waiting rows, so Pay KRA, its preview and the iTax CSV only file invoice-linked rows. The report
   shows their PO and "Awaiting invoice" (display only). A linked deposit row and the balance payment's row for the same
   invoice merge into one iTax line.
+- Unreconcile Payment (`before_submit` refuses if paid to KRA; `on_submit`) puts the unreconciled invoice's deposit rows
+  of that entry back to waiting, like a cancel. With `advance_voucher_no` set, rows are carved only from that PO.
+- Known gap: a deposit that never gets an invoice (PO closed, or set against a debit note / Journal Entry refund) keeps
+  its rows waiting for good: owed and overdue in the report, refused by Pay KRA and the CSV. No release action yet.
 - Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
   `bench build --app cecypo_powerpack`.
 
