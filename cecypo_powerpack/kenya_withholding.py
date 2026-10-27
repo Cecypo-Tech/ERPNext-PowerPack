@@ -156,6 +156,61 @@ def _reference_allocations(doc):
 	return allocated
 
 
+def _whole(x, places=0):
+	return Decimal(x).quantize(Decimal(1).scaleb(-places), ROUND_HALF_UP)
+
+
+def split_row(row, allocated):
+	"""Carve `allocated` of the row's allocated_amount into a new row; the source keeps the remainder, so the
+	parts always sum to the original. Taking it all returns the source itself. Pure: dicts only."""
+	total, a = Decimal(str(row["allocated_amount"])), Decimal(str(allocated))
+	if a >= total:
+		return row
+	part = dict(row)
+	part["amount"] = int(_whole(Decimal(str(row["amount"])) * a / total))
+	part["base_amount"] = float(_whole(Decimal(str(row["base_amount"])) * a / total, 2))
+	part["allocated_amount"] = float(a)
+	row["amount"] -= part["amount"]
+	row["base_amount"] = float(Decimal(str(row["base_amount"])) - Decimal(str(part["base_amount"])))
+	row["allocated_amount"] = float(total - a)
+	return part
+
+
+def link_deposit_rows(doc, method=None):
+	"""before_update_after_submit: ERPNext set a deposit against a Purchase Invoice (it reduces the PO reference
+	and appends one for the invoice). Move the covered share of the waiting deposit rows onto that invoice."""
+	before = doc.get_doc_before_save()
+	waiting = [r for r in doc.get("cecypo_withholding") or [] if r.purchase_order and not r.purchase_invoice and not r.kra_journal_entry]
+	if not before or not waiting:
+		return
+	was = _reference_allocations(before)
+	for (dt, name), now in _reference_allocations(doc).items():
+		left = now - was.get((dt, name), Decimal(0))
+		if dt != "Purchase Invoice" or left <= 0:
+			continue
+		pi = frappe.db.get_value(dt, name, ["bill_no", "bill_date"], as_dict=True)
+		preferred = [r.advance_voucher_no for r in doc.references if r.reference_name == name and r.advance_voucher_type == "Purchase Order"]
+		preferred += frappe.get_all("Purchase Invoice Item", {"parent": name}, pluck="purchase_order", order_by="idx")
+		orders = list(dict.fromkeys(preferred + [r.purchase_order for r in waiting]))
+		for po in orders:
+			rows = [r for r in waiting if r.purchase_order == po and not r.purchase_invoice]
+			if left <= 0:
+				break
+			if not rows:
+				continue
+			take = min(left, max(Decimal(str(r.allocated_amount)) for r in rows))
+			for r in rows:
+				d = r.as_dict(no_default_fields=True)
+				part = split_row(d, take)
+				part.update(purchase_invoice=name, bill_no=pi.bill_no, bill_date=pi.bill_date)
+				if part is d:
+					r.update(part)
+				else:
+					r.update(d)
+					doc.append("cecypo_withholding", part)
+			left -= take
+
+
 def apply_to_payment_entry(doc, method=None, preview=False):
 	"""before_validate on Payment Entry, so it also runs at submit with the rules then in force. ERPNext's
 	validate then runs its amount setters on our values. When the entry no longer qualifies (feature off, no

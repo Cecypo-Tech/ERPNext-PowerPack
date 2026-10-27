@@ -8,6 +8,7 @@ from cecypo_powerpack.kenya_withholding import (
 	income_tax_due_date,
 	invoice_withholding,
 	merge_vat_rows,
+	split_row,
 	vat_due_date,
 	withheld,
 )
@@ -102,6 +103,20 @@ class TestCalculation(unittest.TestCase):
 			INV, allocated, supplier, rules or [VAT_RULE, RENT_RULE], {"VAT"}, exempt
 		)
 		return {r["account"]: r for r in rows}
+
+	def test_split_row_parts_sum_exactly(self):
+		src = {"amount": 2722, "base_amount": 136100.0, "allocated_amount": 136100.0, "account": "VAT"}
+		orig = dict(src)
+		a = split_row(src, 81660)
+		b = split_row(src, 54440)
+		self.assertIs(b, src)
+		self.assertEqual((a["amount"], a["base_amount"], a["allocated_amount"]), (1633, 81660, 81660))
+		self.assertEqual(a["amount"] + b["amount"], orig["amount"])
+		self.assertEqual(a["base_amount"] + b["base_amount"], orig["base_amount"])
+
+	def test_split_row_full_allocation_returns_the_row(self):
+		src = {"amount": 10, "base_amount": 500.0, "allocated_amount": 500.0}
+		self.assertIs(split_row(src, 500), src)
 
 	def test_inv60515_full_payment(self):
 		rows = self._rows()
@@ -361,6 +376,78 @@ class TestPaymentEntry(_WithholdingCase):
 		self.assertEqual((rows[RENT_ACC].base_amount, rows[RENT_ACC].amount), (133100, 9983))
 		self.assertEqual(_deductions(pe), {VAT_ACC: -2722, RENT_ACC: -9983})
 		self.assertEqual(pe.difference_amount, 0)
+
+	def _deposit(self, allocated=100000):
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+		po = _make_po(items=[{"item_code": RENT_ITEM, "qty": 10, "rate": 10000}])
+		pe = get_payment_entry("Purchase Order", po.name, bank_account=BANK)
+		pe.reference_no, pe.reference_date = "WHT-TEST", frappe.utils.nowdate()
+		pe.references[0].allocated_amount = allocated
+		pe.insert(ignore_permissions=True)
+		pe.submit()
+		return po, pe
+
+	def _invoice_with_deposit(self, po, qty):
+		# ERPNext pulls the deposit in at submit (allocate_advances_automatically), through
+		# update_reference_in_payment_entry, which saves the submitted Payment Entry.
+		pi = frappe.get_doc({
+			"doctype": "Purchase Invoice", "company": COMPANY, "supplier": po.supplier,
+			"bill_no": frappe.generate_hash(length=8), "bill_date": frappe.utils.nowdate(),
+			"posting_date": frappe.utils.nowdate(), "due_date": frappe.utils.add_days(frappe.utils.nowdate(), 30),
+			"allocate_advances_automatically": 1,
+			"items": [{"item_code": RENT_ITEM, "qty": qty, "rate": 10000,
+				"purchase_order": po.name, "po_detail": po.items[0].name}],
+		})
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+		return pi
+
+	def _sums(self, pe):
+		out = {}
+		for r in pe.cecypo_withholding:
+			out[r.account] = out.get(r.account, 0) + r.amount
+		return out
+
+	def test_deposit_links_to_invoice_on_reconcile(self):
+		po, pe = self._deposit(100000)
+		before = (self._sums(pe), _deductions(pe))
+		pi = self._invoice_with_deposit(po, 10)
+		pe.reload()
+		self.assertTrue(all(r.purchase_invoice == pi.name and r.bill_no == pi.bill_no for r in pe.cecypo_withholding))
+		self.assertEqual((self._sums(pe), _deductions(pe)), before)
+
+	def test_deposit_split_across_two_invoices(self):
+		po, pe = self._deposit(100000)
+		before = self._sums(pe)
+		pi1 = self._invoice_with_deposit(po, 6)
+		pi2 = self._invoice_with_deposit(po, 4)
+		pe.reload()
+		self.assertEqual(len(pe.cecypo_withholding), 4)
+		self.assertEqual(self._sums(pe), before)
+		self.assertEqual({r.purchase_invoice for r in pe.cecypo_withholding}, {pi1.name, pi2.name})
+
+	def test_deposit_reconciled_in_two_goes(self):
+		po, pe = self._deposit(100000)
+		before = self._sums(pe)
+		pi = self._invoice_with_deposit(po, 5)
+		pe.reload()
+		self.assertTrue(any(not r.purchase_invoice for r in pe.cecypo_withholding))
+		self.assertEqual(self._sums(pe), before)
+		pi2 = self._invoice_with_deposit(po, 5)
+		pe.reload()
+		self.assertFalse(any(not r.purchase_invoice for r in pe.cecypo_withholding))
+		self.assertEqual(self._sums(pe), before)
+
+	def test_partial_reconcile_leaves_the_rest_waiting(self):
+		po, pe = self._deposit(100000)
+		pi = self._invoice_with_deposit(po, 3)
+		pe.reload()
+		waiting = [r for r in pe.cecypo_withholding if not r.purchase_invoice]
+		linked = [r for r in pe.cecypo_withholding if r.purchase_invoice == pi.name]
+		self.assertEqual(len(waiting), 2)
+		self.assertEqual({r.allocated_amount for r in waiting}, {70000})
+		self.assertEqual({r.allocated_amount for r in linked}, {30000})
 
 	def test_withholding_more_than_allocated_refused(self):
 		# Allocated 1 shilling: 2% and 7.5% each round up to 1, which would make the paid amount -1.

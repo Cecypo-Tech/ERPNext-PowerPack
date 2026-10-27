@@ -247,6 +247,7 @@ doc_events = {
 	},
 	"Payment Entry": {
 		"before_validate": "cecypo_powerpack.kenya_withholding.apply_to_payment_entry",
+		"before_update_after_submit": "cecypo_powerpack.kenya_withholding.link_deposit_rows",
 		"before_cancel": "cecypo_powerpack.kenya_withholding.prevent_cancel_if_paid_to_kra",
 	},
 	"Journal Entry": {
