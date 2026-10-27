@@ -176,6 +176,17 @@ def split_row(row, allocated):
 	return part
 
 
+def _covered_by_deposit(doc):
+	"""Allocated amount per (Purchase Invoice, the Purchase Order it was set from or '') on a Payment Entry."""
+	out = {}
+	for ref in doc.get("references"):
+		if ref.reference_doctype == "Purchase Invoice" and flt(ref.allocated_amount) > 0:
+			po = ref.advance_voucher_no if ref.advance_voucher_type == "Purchase Order" else ""
+			key = (ref.reference_name, po or "")
+			out[key] = out.get(key, Decimal(0)) + Decimal(str(flt(ref.allocated_amount)))
+	return out
+
+
 def link_deposit_rows(doc, method=None):
 	"""before_update_after_submit: ERPNext set a deposit against a Purchase Invoice (it reduces the PO reference
 	and appends one for the invoice). Move the covered share of the waiting deposit rows onto that invoice."""
@@ -183,21 +194,22 @@ def link_deposit_rows(doc, method=None):
 	waiting = [r for r in doc.get("cecypo_withholding") or [] if r.purchase_order and not r.purchase_invoice and not r.kra_journal_entry]
 	if not before or not waiting:
 		return
-	was = _reference_allocations(before)
-	for (dt, name), now in _reference_allocations(doc).items():
-		left = now - was.get((dt, name), Decimal(0))
-		if dt != "Purchase Invoice" or left <= 0:
+	was, now = _covered_by_deposit(before), _covered_by_deposit(doc)
+	for (name, from_po), total in now.items():
+		left = total - was.get((name, from_po), Decimal(0))
+		if left <= 0:
 			continue
-		pi = frappe.db.get_value(dt, name, ["bill_no", "bill_date"], as_dict=True)
-		preferred = [r.advance_voucher_no for r in doc.references if r.reference_name == name and r.advance_voucher_type == "Purchase Order"]
+		pi = frappe.db.get_value("Purchase Invoice", name, ["bill_no", "bill_date"], as_dict=True)
+		# The PO the new allocation came from; with none (unallocated amount) the PI's own POs, then any.
+		preferred = [from_po] if from_po else []
 		preferred += frappe.get_all("Purchase Invoice Item", {"parent": name}, pluck="purchase_order", order_by="idx")
-		orders = list(dict.fromkeys(preferred + [r.purchase_order for r in waiting]))
-		for po in orders:
+		for po in dict.fromkeys(preferred + [r.purchase_order for r in waiting]):
 			rows = [r for r in waiting if r.purchase_order == po and not r.purchase_invoice]
 			if left <= 0:
 				break
 			if not rows:
 				continue
+			# All rule rows of a PO share allocated_amount: they are created and split together.
 			take = min(left, max(Decimal(str(r.allocated_amount)) for r in rows))
 			for r in rows:
 				d = r.as_dict(no_default_fields=True)
