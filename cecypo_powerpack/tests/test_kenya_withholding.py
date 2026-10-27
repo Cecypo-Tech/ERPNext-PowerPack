@@ -236,6 +236,21 @@ def _make_pi(supplier=WHT_SUPPLIER, lines=((RENT_ITEM, 266200), (OTHER_ITEM, 600
 	return pi
 
 
+def _make_po(supplier=WHT_SUPPLIER, lines=((RENT_ITEM, 266200), (OTHER_ITEM, 6000)), **extra):
+	po = frappe.get_doc({
+		"doctype": "Purchase Order",
+		"company": COMPANY,
+		"supplier": supplier,
+		"transaction_date": frappe.utils.nowdate(),
+		"schedule_date": frappe.utils.add_days(frappe.utils.nowdate(), 30),
+		"items": [{"item_code": i, "qty": 1, "rate": r} for i, r in lines],
+		**extra,
+	})
+	po.insert(ignore_permissions=True)
+	po.submit()
+	return po
+
+
 def _make_pe(pi, allocated=None, submit=True, **extra):
 	pe = _pe(pi)
 	pe.update(extra)
@@ -327,6 +342,25 @@ class TestPaymentEntry(_WithholdingCase):
 		))
 		self.assertEqual(gl, {VAT_ACC: 5444, RENT_ACC: 19965})
 		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "outstanding_amount"), 0)
+
+	def test_deposit_on_purchase_order_withholds(self):
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+		po = _make_po()
+		pe = get_payment_entry("Purchase Order", po.name, bank_account=BANK)
+		pe.reference_no, pe.reference_date = "WHT-TEST", frappe.utils.nowdate()
+		pe.references[0].allocated_amount = 136100
+		pe.insert(ignore_permissions=True)
+		rows = {r.account: r for r in pe.cecypo_withholding}
+		self.assertEqual(set(rows), {VAT_ACC, RENT_ACC})
+		for r in rows.values():
+			self.assertEqual(r.purchase_order, po.name)
+			self.assertFalse(r.purchase_invoice or r.bill_no or r.bill_date)
+			self.assertEqual(r.allocated_amount, 136100)
+		self.assertEqual((rows[VAT_ACC].base_amount, rows[VAT_ACC].amount), (136100, 2722))
+		self.assertEqual((rows[RENT_ACC].base_amount, rows[RENT_ACC].amount), (133100, 9983))
+		self.assertEqual(_deductions(pe), {VAT_ACC: -2722, RENT_ACC: -9983})
+		self.assertEqual(pe.difference_amount, 0)
 
 	def test_withholding_more_than_allocated_refused(self):
 		# Allocated 1 shilling: 2% and 7.5% each round up to 1, which would make the paid amount -1.
@@ -434,7 +468,7 @@ class TestPaymentEntry(_WithholdingCase):
 		self.assertEqual(vat.amount, 8166)
 		self.assertEqual(pe.paid_amount, 272200 - 8166 - 19965)
 
-	def test_non_pi_reference_ignored(self):
+	def test_invoice_and_purchase_order_together(self):
 		pi = _make_pi()
 		po = frappe.get_doc({
 			"doctype": "Purchase Order", "company": COMPANY, "supplier": WHT_SUPPLIER,
@@ -447,9 +481,11 @@ class TestPaymentEntry(_WithholdingCase):
 			"reference_doctype": "Purchase Order", "reference_name": po.name, "allocated_amount": 10000})
 		pe.insert(ignore_permissions=True)
 		pe.submit()
-		self.assertEqual({r.purchase_invoice for r in pe.cecypo_withholding}, {pi.name})
-		self.assertEqual(_deductions(pe), {VAT_ACC: -5444, RENT_ACC: -19965})
-		self.assertEqual(pe.paid_amount, 282200 - 5444 - 19965)
+		self.assertEqual({r.purchase_invoice for r in pe.cecypo_withholding}, {pi.name, None})
+		self.assertEqual({r.purchase_order for r in pe.cecypo_withholding}, {po.name, None})
+		# The PO's 10000 (all rent): VAT 200 and rent 750 on top of the invoice's.
+		self.assertEqual(_deductions(pe), {VAT_ACC: -5644, RENT_ACC: -20715})
+		self.assertEqual(pe.paid_amount, 282200 - 5644 - 20715)
 		self.assertEqual(pe.unallocated_amount, 0)
 
 	def test_usd_invoice_kes_bank(self):
@@ -511,7 +547,7 @@ class TestPaymentEntry(_WithholdingCase):
 		self.assertEqual(len(pe.cecypo_withholding), 2)
 		self.assertEqual(pe.paid_amount, 272200 - 5444 - 19965)
 
-	def test_manual_deduction_on_rule_account_kept_without_invoices(self):
+	def test_manual_deduction_on_rule_account_kept_when_nothing_withheld(self):
 		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
 		from cecypo_powerpack.kenya_withholding import apply_to_payment_entry
@@ -519,10 +555,11 @@ class TestPaymentEntry(_WithholdingCase):
 		po = frappe.get_doc({
 			"doctype": "Purchase Order", "company": COMPANY, "supplier": WHT_SUPPLIER,
 			"schedule_date": frappe.utils.nowdate(),
-			"items": [{"item_code": RENT_ITEM, "qty": 1, "rate": 10000}],
+			"items": [{"item_code": OTHER_ITEM, "qty": 1, "rate": 10000}],
 		}).insert(ignore_permissions=True)
 		po.submit()
 		pe = get_payment_entry("Purchase Order", po.name, bank_account=BANK)
+		pe.cecypo_skip_withholding = 1
 		pe.append("deductions", {"account": RENT_ACC, "cost_center": "Main - _TC", "amount": 50})
 		paid = pe.paid_amount
 		apply_to_payment_entry(pe)

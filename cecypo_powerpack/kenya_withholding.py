@@ -92,8 +92,9 @@ def withheld(base, rate):
 	return math.ceil(Decimal(str(base)) * Decimal(str(rate)) / 100)
 
 
-def invoice_withholding(invoice, allocated, supplier, rules, vat_accounts, exempt):
-	"""One row per matching rule, in rule order. Pure: no DB."""
+def invoice_withholding(invoice, allocated, supplier, rules, vat_accounts, exempt, field="purchase_invoice"):
+	"""One row per matching rule, in rule order. Pure: no DB. `field` names the link the row carries; a
+	Purchase Order (a deposit) has no bill, and its row records the allocation it covers."""
 	share = Decimal(str(allocated)) / Decimal(str(invoice["total"]))
 	rows = []
 	for rule in rules:
@@ -107,11 +108,14 @@ def invoice_withholding(invoice, allocated, supplier, rules, vat_accounts, exemp
 		)
 		amount = withheld(base, rule["rate"])
 		if amount:
+			row = {field: invoice["name"]}
+			if field == "purchase_invoice":
+				row.update(bill_no=invoice.get("bill_no"), bill_date=invoice.get("bill_date"))
+			else:
+				row["allocated_amount"] = float(allocated)
 			rows.append(
 				{
-					"purchase_invoice": invoice["name"],
-					"bill_no": invoice.get("bill_no"),
-					"bill_date": invoice.get("bill_date"),
+					**row,
 					"base_amount": float(base),
 					"rate": rule["rate"],
 					"account": rule["account"],
@@ -138,14 +142,17 @@ def income_tax_due_date(posting_date):
 	return date(y, m + 1, 20)
 
 
-def _invoice_allocations(doc):
-	"""Allocated amount per Purchase Invoice, summed over its reference rows (one per payment term)."""
+REFERENCE_FIELDS = {"Purchase Invoice": "purchase_invoice", "Purchase Order": "purchase_order"}
+
+
+def _reference_allocations(doc):
+	"""Allocated amount per (doctype, name) of Purchase Invoice / Purchase Order, summed over its reference rows
+	(one per payment term)."""
 	allocated = {}
 	for ref in doc.get("references"):
-		if ref.reference_doctype == "Purchase Invoice" and flt(ref.allocated_amount) > 0:
-			allocated[ref.reference_name] = allocated.get(ref.reference_name, Decimal(0)) + Decimal(
-				str(flt(ref.allocated_amount))
-			)
+		if ref.reference_doctype in REFERENCE_FIELDS and flt(ref.allocated_amount) > 0:
+			key = (ref.reference_doctype, ref.reference_name)
+			allocated[key] = allocated.get(key, Decimal(0)) + Decimal(str(flt(ref.allocated_amount)))
 	return allocated
 
 
@@ -177,19 +184,19 @@ def apply_to_payment_entry(doc, method=None, preview=False):
 			e.supplier == doc.party and e.valid_until and posting_date <= getdate(e.valid_until)
 			for e in settings.withholding_exemptions
 		)
-		for name, allocated in _invoice_allocations(doc).items():
-			pi = frappe.db.get_value(
-				"Purchase Invoice", name,
-				["name", "bill_no", "bill_date", "rounded_total", "grand_total"], as_dict=True,
-			)
+		for (dt, name), allocated in _reference_allocations(doc).items():
+			fields = ["name", "rounded_total", "grand_total"]
+			if dt == "Purchase Invoice":
+				fields += ["bill_no", "bill_date"]
+			pi = frappe.db.get_value(dt, name, fields, as_dict=True)
 			total = pi and (flt(pi.rounded_total) or flt(pi.grand_total))
 			if not total:
 				continue
 			pi["total"] = total
 			pi["items"] = frappe.get_all(
-				"Purchase Invoice Item", {"parent": pi.name}, ["item_code", "base_net_amount"], order_by="idx"
+				f"{dt} Item", {"parent": pi.name}, ["item_code", "base_net_amount"], order_by="idx"
 			)
-			rows += invoice_withholding(pi, allocated, doc.party, rules, vat_accounts, exempt)
+			rows += invoice_withholding(pi, allocated, doc.party, rules, vat_accounts, exempt, REFERENCE_FIELDS[dt])
 
 	# Nothing withheld now or before: a deduction on a rule account is the user's own; leave it.
 	if not rows and not held:
@@ -214,7 +221,7 @@ def apply_to_payment_entry(doc, method=None, preview=False):
 			"account": account,
 			"cost_center": cost_center,
 			"amount": -sum(r["amount"] for r in acc_rows),
-			"description": f"Withholding {rates}% on {', '.join(dict.fromkeys(r['bill_no'] or r['purchase_invoice'] for r in acc_rows))}",
+			"description": f"Withholding {rates}% on {', '.join(dict.fromkeys(r.get('bill_no') or r.get('purchase_invoice') or r['purchase_order'] for r in acc_rows))}",
 		})
 
 	if doc.payment_type != "Pay" or doc.party_type != "Supplier":
@@ -262,8 +269,8 @@ def compute_for_payment_entry(doc):
 	if doc.get("doctype") != "Payment Entry":
 		frappe.throw(_("Expected a Payment Entry."))
 	pe = frappe.get_doc(doc)
-	for name in _invoice_allocations(pe):
-		frappe.has_permission("Purchase Invoice", "read", name, throw=True)
+	for dt, name in _reference_allocations(pe):
+		frappe.has_permission(dt, "read", name, throw=True)
 	apply_to_payment_entry(pe, preview=True)
 	return {
 		"cecypo_withholding": [r.as_dict() for r in pe.get("cecypo_withholding")],
