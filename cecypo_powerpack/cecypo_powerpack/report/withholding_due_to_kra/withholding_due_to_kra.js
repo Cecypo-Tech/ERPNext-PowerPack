@@ -45,8 +45,9 @@ frappe.query_reports["Withholding Due to KRA"] = {
 	},
 
 	onload(report) {
-		report.page.add_inner_button(__("Issue Payment"), () => pay_kra(report));
+		// File the iTax return first, then pay the PRN it gives: the buttons follow that order.
 		report.page.add_inner_button(__("Export iTax CSV"), () => export_itax_csv(report));
+		report.page.add_inner_button(__("Issue Payment"), () => pay_kra(report));
 		if (frappe.user.has_role("Accounts Manager") || frappe.user.has_role("System Manager")) {
 			report.page.add_inner_button(__("Release Withholding"), () => release_withholding(report));
 		}
