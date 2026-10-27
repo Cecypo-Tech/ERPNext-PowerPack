@@ -6,6 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "purchase_invoice",
+  "purchase_order",
+  "allocated_amount",
   "bill_no",
   "bill_date",
   "base_amount",
@@ -23,7 +25,23 @@
    "label": "Purchase Invoice",
    "options": "Purchase Invoice",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "purchase_order",
+   "fieldtype": "Link",
+   "label": "Purchase Order",
+   "options": "Purchase Order",
+   "read_only": 1,
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Allocated Amount",
+   "read_only": 1,
+   "hidden": 1
   },
   {
    "fieldname": "bill_no",

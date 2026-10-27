@@ -17,7 +17,7 @@ CHILDREN = {
 	"Withholding VAT Account": ["account"],
 	"Withholding VAT Exemption": ["supplier", "certificate_no", "valid_until"],
 	"Payment Entry Withholding": [
-		"purchase_invoice", "bill_no", "bill_date", "base_amount", "rate",
+		"purchase_invoice", "purchase_order", "allocated_amount", "bill_no", "bill_date", "base_amount", "rate",
 		"account", "amount", "is_vat", "due_date", "kra_journal_entry",
 	],
 }
