@@ -200,8 +200,14 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   invoice merge into one iTax line.
 - Unreconcile Payment (`before_submit` refuses if paid to KRA; `on_submit`) puts the unreconciled invoice's deposit rows
   of that entry back to waiting, like a cancel. With `advance_voucher_no` set, rows are carved only from that PO.
-- Known gap: a deposit that never gets an invoice (PO closed, or set against a debit note / Journal Entry refund) keeps
-  its rows waiting for good: owed and overdue in the report, refused by Pay KRA and the CSV. No release action yet.
+- **Release Withholding** (report button, Accounts Manager / System Manager; `release_withholding`) is for a deposit
+  that will never get an invoice (PO closed, deposit refunded). Waiting rows only, one supplier and one company, a
+  reason required. It submits a Journal Entry (hidden Check `cecypo_wht_release`): debit each withholding account,
+  credit the supplier on the deposit's `paid_to` (refused if that is not in company currency), and sets the rows'
+  `released_by`. Released rows are never linked, paid or exported, are not merge targets on unlink, sit under the
+  report's Released status and out of the cards. Cancelling the JE clears `released_by` (back to waiting); amending it
+  is refused; the deposit Payment Entry cannot be cancelled while it stands. The KRA payment JE hooks
+  (`flag_kra_payment`, `refuse_kra_amend`, `allow_cancel_of_kra_payment`, `clear_kra_link`) handle both kinds.
 - Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
   `bench build --app cecypo_powerpack`.
 
