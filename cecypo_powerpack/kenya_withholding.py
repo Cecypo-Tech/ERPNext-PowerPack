@@ -28,7 +28,7 @@ def setup_custom_fields():
 					"fieldtype": "Check",
 					"insert_after": "apply_tds",
 					"depends_on": "eval:doc.payment_type=='Pay' && doc.party_type=='Supplier'",
-					"description": "VAT withholding is not deducted from this payment, as with a VAT WHT exemption. Rent and other income tax withholding still apply.",
+					"description": "",  # blank, not omitted: update=True leaves an omitted key as it was on migrated sites
 					"no_copy": 1,
 					"print_hide": 1,
 				},
