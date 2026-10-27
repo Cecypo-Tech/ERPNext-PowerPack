@@ -667,6 +667,10 @@ def release_withholding(row_names, posting_date: str, reason: str) -> str:
 		if frappe.get_cached_value("Account", account, "account_currency") != company_currency:
 			frappe.throw(_("Release withholding on {0} by hand: it is not in the company currency.").format(account))
 
+	latest = max(rows, key=lambda r: getdate(r.posting_date))
+	if getdate(posting_date) < getdate(latest.posting_date):
+		frappe.throw(_("Posting Date cannot be before the deposit Payment Entry {0}.").format(latest.payment_entry))
+
 	debits, credits = {}, {}
 	for r in rows:
 		debits[r.account] = debits.get(r.account, 0) + flt(r.amount)
@@ -717,8 +721,27 @@ def refuse_kra_amend(doc, method=None):
 		).format(doc.amended_from))
 
 
+def _refuse_cancel_if_deposit_invoiced(doc):
+	"""Deposit set against an invoice while released: link_deposit_rows skipped the rows, and they would not link
+	once this cancel returns them to waiting."""
+	for r in frappe.get_all("Payment Entry Withholding", {"released_by": doc.name}, ["parent", "purchase_order"]):
+		ref = frappe.db.get_value(
+			"Payment Entry Reference",
+			{"parent": r.parent, "reference_doctype": "Purchase Invoice", "allocated_amount": [">", 0],
+				"advance_voucher_type": "Purchase Order", "advance_voucher_no": r.purchase_order},
+			"reference_name",
+		)
+		if ref:
+			frappe.throw(_(
+				"Payment Entry {0} has already been set against Purchase Invoice {1}. Unreconcile it first, "
+				"then cancel this release, then set the deposit against the invoice again."
+			).format(r.parent, ref))
+
+
 def allow_cancel_of_kra_payment(doc, method=None):
 	"""Journal Entry before_cancel: submitted Payment Entries' withholding rows link here; clear_kra_link drops them."""
+	if doc.get("cecypo_wht_release"):
+		_refuse_cancel_if_deposit_invoiced(doc)
 	if doc.get("cecypo_kra_payment") or doc.get("cecypo_wht_release"):
 		doc.ignore_linked_doctypes = tuple(getattr(doc, "ignore_linked_doctypes", None) or ()) + ("Payment Entry",)
 

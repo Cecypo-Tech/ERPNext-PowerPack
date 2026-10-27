@@ -170,7 +170,7 @@ function release_withholding(report) {
 	const row_names = rows.map((r) => r.row_name);
 	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
 	const dialog = new frappe.ui.Dialog({
-		title: __("Release Withholding: {0} rows, {1}", [
+		title: __("Release Withholding: {0} row(s), {1}", [
 			row_names.length,
 			format_currency(total, (report.raw_data?.report_summary || []).at(-1)?.currency),
 		]),

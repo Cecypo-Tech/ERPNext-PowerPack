@@ -1354,3 +1354,22 @@ class TestReleaseWithholding(_WithholdingCase):
 		frappe.db.set_value("Account", pe.paid_to, "account_currency", "USD")
 		with self.assertRaisesRegex(frappe.ValidationError, "by hand"):
 			self._release([pe])
+
+	def test_posting_date_before_deposit_refused(self):
+		po, pe = self._deposit(100000)
+		with self.assertRaisesRegex(frappe.ValidationError, f"before the deposit Payment Entry {pe.name}"):
+			self._release([pe], posting_date=frappe.utils.add_days(pe.posting_date, -1))
+
+	def test_cancel_release_refused_while_deposit_invoiced_until_unreconciled(self):
+		po, pe = self._deposit(100000)
+		je = frappe.get_doc("Journal Entry", self._release([pe]))
+		pi = self._plain_invoice(po, 10)
+		self._set_against(pe, po, pi, 100000)
+		with self.assertRaisesRegex(frappe.ValidationError, f"{pe.name} has already been set against Purchase Invoice {pi.name}"):
+			je.cancel()
+		TestPaymentEntry._unreconcile(self, pe, pi)
+		je.reload()
+		je.cancel()
+		self._set_against(pe, None, pi, 100000)
+		pe.reload()
+		self.assertEqual({r.purchase_invoice for r in pe.cecypo_withholding}, {pi.name})
