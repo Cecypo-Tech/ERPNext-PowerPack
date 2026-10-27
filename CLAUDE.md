@@ -185,6 +185,19 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   rows, so paid + withheld = allocated while picking invoices. `setup_custom_fields` backfills it from the rows.
 - Save/submit refuse a withholding entry whose paid amount comes out <= 0 (e.g. allocated 1: two ceils = 2). The
   preview (`preview=True`) skips that check, since it runs while an allocation is still being typed.
+- **Deposits.** A Purchase Order reference withholds like an invoice (PO lines, PO total). Its rows carry
+  `purchase_order` and `allocated_amount` (the PO allocation they cover) and no invoice: "waiting". When ERPNext sets
+  the deposit against an invoice it re-saves the submitted entry, which runs only `before_update_after_submit`;
+  `link_deposit_rows` there takes the newly covered amount per (invoice, `advance_voucher_no`) as now minus
+  `get_doc_before_save()` (the entry may also have paid that invoice directly), carves it from that PO's waiting rows
+  with `split_row` (parts always sum to the row) and fills invoice, bill no and date. Amount from unallocated (no
+  `advance_voucher_no`) falls back to POs on the invoice's items. Deductions and GL are never touched.
+- A Purchase Invoice cancel (`before_cancel`) is refused if a deposit row linked to it was paid to KRA; otherwise
+  `on_cancel` merges its deposit rows back into the waiting row of the same entry, PO and account. ERPNext unlinks
+  with raw updates and never saves the entry, so these are `frappe.db` writes.
+- `_load_rows` refuses waiting rows, so Pay KRA, its preview and the iTax CSV only file invoice-linked rows. The report
+  shows their PO and "Awaiting invoice" (display only). A linked deposit row and the balance payment's row for the same
+  invoice merge into one iTax line.
 - Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
   `bench build --app cecypo_powerpack`.
 
