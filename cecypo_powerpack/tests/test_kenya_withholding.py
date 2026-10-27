@@ -1328,6 +1328,27 @@ class TestReleaseWithholding(_WithholdingCase):
 				self.assertEqual((r.released_by, r.purchase_invoice, r.allocated_amount), (None, None, 40000))
 		self.assertEqual(len(pe.cecypo_withholding), 4)
 
+	def test_report_status_filter_and_cards_with_released_rows(self):
+		from cecypo_powerpack.cecypo_powerpack.report.withholding_due_to_kra.withholding_due_to_kra import execute
+
+		po, pe = self._deposit(100000)
+		je = self._release([pe])
+		run = lambda status: execute(frappe._dict(company=COMPANY, status=status))
+
+		def mine(status):
+			return [r for r in run(status)[1] if r["payment_entry"] == pe.name]
+
+		self.assertEqual(mine("Unpaid"), [])
+		self.assertEqual(mine("Paid"), [])
+		rows = mine("Released")
+		self.assertEqual({r["released_by"] for r in rows}, {je})
+		self.assertEqual(sum(r["overdue"] for r in rows), 0)
+		self.assertEqual(len(mine("All")), 2)
+		fields = [c["fieldname"] for c in run("All")[0]]
+		self.assertEqual(fields.index("released_by"), fields.index("kra_journal_entry") + 1)
+		# Cards skip released rows: Released-only view has just the Selected card
+		self.assertEqual([c["label"] for c in run("Released")[4]], ["Selected"])
+
 	def test_foreign_currency_payable_refused(self):
 		po, pe = self._deposit(100000)
 		frappe.db.set_value("Account", pe.paid_to, "account_currency", "USD")

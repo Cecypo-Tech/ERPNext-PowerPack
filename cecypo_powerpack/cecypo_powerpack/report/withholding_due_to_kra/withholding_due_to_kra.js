@@ -22,7 +22,7 @@ frappe.query_reports["Withholding Due to KRA"] = {
 			fieldname: "status",
 			label: __("Status"),
 			fieldtype: "Select",
-			options: "Unpaid\nPaid\nAll",
+			options: "Unpaid\nPaid\nReleased\nAll",
 			default: "Unpaid",
 		},
 		{ fieldname: "from_date", label: __("From Date"), fieldtype: "Date" },
@@ -47,6 +47,9 @@ frappe.query_reports["Withholding Due to KRA"] = {
 	onload(report) {
 		report.page.add_inner_button(__("Issue Payment"), () => pay_kra(report));
 		report.page.add_inner_button(__("Export iTax CSV"), () => export_itax_csv(report));
+		if (frappe.user.has_role("Accounts Manager") || frappe.user.has_role("System Manager")) {
+			report.page.add_inner_button(__("Release Withholding"), () => release_withholding(report));
+		}
 	},
 };
 
@@ -54,7 +57,7 @@ frappe.query_reports["Withholding Due to KRA"] = {
 function update_selected_card(report) {
 	const $card = report.$summary.find(".summary-item").last();
 	if (!$card.length) return;
-	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry);
+	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry && !r.released_by);
 	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
 	const currency = (report.raw_data?.report_summary || []).at(-1)?.currency;
 	$card.replaceWith(
@@ -144,6 +147,53 @@ function pay_kra_dialog(report, row_names, preview) {
 					dialog.hide();
 					frappe.show_alert({
 						message: __("Journal Entry {0} created", [r.message]),
+						indicator: "green",
+					});
+					report.refresh();
+				})
+				.always(() => dialog.enable_primary_action());
+		},
+	});
+	dialog.show();
+}
+
+// Deposit rows that will never get an invoice: the server refuses anything else (paid, released, mixed
+// suppliers or companies), so the ticked rows go as they are.
+function release_withholding(report) {
+	const rows = report.get_checked_items();
+	if (!rows.length) {
+		frappe.msgprint(__("Tick the deposit rows waiting for their invoice."));
+		return;
+	}
+	const row_names = rows.map((r) => r.row_name);
+	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
+	const dialog = new frappe.ui.Dialog({
+		title: __("Release Withholding: {0} rows, {1}", [row_names.length, format_currency(total)]),
+		fields: [
+			{
+				fieldname: "posting_date",
+				label: __("Posting Date"),
+				fieldtype: "Date",
+				default: frappe.datetime.get_today(),
+				reqd: 1,
+			},
+			{ fieldname: "reason", label: __("Reason"), fieldtype: "Small Text", reqd: 1 },
+		],
+		primary_action_label: __("Release"),
+		primary_action(values) {
+			dialog.disable_primary_action();
+			frappe
+				.call({
+					method: "cecypo_powerpack.kenya_withholding.release_withholding",
+					args: { row_names, ...values },
+					freeze: true,
+				})
+				.then((r) => {
+					dialog.hide();
+					frappe.show_alert({
+						message: __("Journal Entry {0} created", [
+							`<a href="${frappe.utils.get_form_link("Journal Entry", r.message)}">${r.message}</a>`,
+						]),
 						indicator: "green",
 					});
 					report.refresh();

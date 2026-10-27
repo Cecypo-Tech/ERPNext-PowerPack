@@ -22,7 +22,7 @@ def execute(filters=None):
 		.select(
 			W.name.as_("row_name"), PE.party.as_("supplier"), S.tax_id, W.purchase_invoice, W.purchase_order, W.bill_no,
 			W.bill_date, PE.name.as_("payment_entry"), PE.posting_date, W.base_amount, W.rate, W.amount,
-			W.account, W.is_vat, W.due_date, W.kra_journal_entry,
+			W.account, W.is_vat, W.due_date, W.kra_journal_entry, W.released_by,
 		)
 		.where((W.parenttype == "Payment Entry") & (PE.docstatus == 1) & (PE.company == filters.company))
 		.orderby(W.due_date).orderby(PE.posting_date).orderby(PE.name).orderby(W.idx)
@@ -30,11 +30,14 @@ def execute(filters=None):
 	if filters.account:
 		q = q.where(W.account == filters.account)
 	unpaid = W.kra_journal_entry.isnull() | (W.kra_journal_entry == "")
+	released = W.released_by.isnotnull() & (W.released_by != "")
 	status = filters.status or "Unpaid"
 	if status == "Unpaid":
-		q = q.where(unpaid)
+		q = q.where(unpaid & ~released)
 	elif status == "Paid":
 		q = q.where(~unpaid)
+	elif status == "Released":
+		q = q.where(released)
 	if filters.from_date:
 		q = q.where(PE.posting_date >= filters.from_date)
 	if filters.to_date:
@@ -45,7 +48,7 @@ def execute(filters=None):
 	for r in data:
 		if r.purchase_order and not r.purchase_invoice:
 			r.bill_no = _("Awaiting invoice")
-		r.overdue = 1 if not r.kra_journal_entry and r.due_date and getdate(r.due_date) < today else 0
+		r.overdue = 1 if not r.kra_journal_entry and not r.released_by and r.due_date and getdate(r.due_date) < today else 0
 	currency = frappe.get_cached_value("Company", filters.company, "default_currency")
 	return get_columns(), data, None, None, account_cards(data, currency)
 
@@ -55,7 +58,7 @@ def account_cards(data, currency):
 	last card, Selected, is updated in the browser as rows are ticked."""
 	due, overdue = {}, set()
 	for r in data:
-		if r["kra_journal_entry"]:
+		if r["kra_journal_entry"] or r.get("released_by"):
 			continue
 		due[r["account"]] = due.get(r["account"], 0) + r["amount"]
 		if r["overdue"]:
@@ -88,6 +91,8 @@ def get_columns():
 		{"fieldname": "is_vat", "label": _("VAT"), "fieldtype": "Check", "width": 50},
 		{"fieldname": "due_date", "label": _("Due Date"), "fieldtype": "Date", "width": 100},
 		{"fieldname": "kra_journal_entry", "label": _("KRA Journal Entry"), "fieldtype": "Link",
+			"options": "Journal Entry", "width": 150},
+		{"fieldname": "released_by", "label": _("Released By"), "fieldtype": "Link",
 			"options": "Journal Entry", "width": 150},
 		{"fieldname": "overdue", "label": _("Overdue"), "fieldtype": "Check", "width": 70},
 	]
