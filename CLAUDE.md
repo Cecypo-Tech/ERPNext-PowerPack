@@ -206,7 +206,9 @@ Spec: `docs/superpowers/specs/2026-10-16-kenya-withholding-at-payment-design.md`
   credit the supplier on the deposit's `paid_to` (refused if that is not in company currency), and sets the rows'
   `released_by`. Released rows are never linked, paid or exported, are not merge targets on unlink, sit under the
   report's Released status and out of the cards. Cancelling the JE clears `released_by` (back to waiting); amending it
-  is refused; the deposit Payment Entry cannot be cancelled while it stands. The KRA payment JE hooks
+  is refused; the deposit Payment Entry cannot be cancelled while it stands. Its posting date cannot be before the
+  deposit's. If the invoice comes after all, cancel the release before setting the deposit against it: cancelling it
+  once the entry holds that PO's invoice reference is refused (`link_deposit_rows` has already run; unreconcile first). The KRA payment JE hooks
   (`flag_kra_payment`, `refuse_kra_amend`, `allow_cancel_of_kra_payment`, `clear_kra_link`) handle both kinds.
 - Deploying needs `bench migrate` (custom field, child DocTypes, Settings fields, report) and
   `bench build --app cecypo_powerpack`.
