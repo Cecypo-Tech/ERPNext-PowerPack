@@ -139,7 +139,9 @@
 		refresh: function (frm) {
 			if (window.CecypoPowerPack && CecypoPowerPack.addHelp) {
 				CecypoPowerPack.Settings.isEnabled('enable_kenya_withholding', function (enabled) {
-					if (enabled) CecypoPowerPack.addHelp(frm, CecypoPowerPack.WALKTHROUGH_SLUGS.withholding);
+					if (!enabled) return;
+					CecypoPowerPack.addHelp(frm, CecypoPowerPack.WALKTHROUGH_SLUGS.withholding);
+					CecypoPowerPack.addHelp(frm, CecypoPowerPack.WALKTHROUGH_SLUGS.withholding_deposits);
 				});
 			}
 			// "Get Outstanding Invoices" writes allocated_amount with no field event; it ends in

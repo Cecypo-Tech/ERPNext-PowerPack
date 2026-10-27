@@ -9,11 +9,13 @@ window.CecypoPowerPack = window.CecypoPowerPack || {};
 // Walkthrough slugs on https://cecypo.tech/walkthroughs/<slug>
 CecypoPowerPack.WALKTHROUGH_SLUGS = {
 	withholding: 'kenya-withholding',
+	withholding_deposits: 'kenya-withholding-deposits',
 	sales_insights: 'powerpack-sales-insights',
 };
 
 CecypoPowerPack.WALKTHROUGH_TITLES = {
 	'kenya-withholding': 'Pay a supplier with Kenya withholding',
+	'kenya-withholding-deposits': 'Withholding on a supplier deposit',
 	'powerpack-sales-insights': 'See stock, cost and margin while you quote',
 	'powerpack-tour': 'PowerPack tour: faster selling, buying and pricing',
 	'powerpack-min-selling-price': 'Minimum Selling Price: a floor under every sale',
