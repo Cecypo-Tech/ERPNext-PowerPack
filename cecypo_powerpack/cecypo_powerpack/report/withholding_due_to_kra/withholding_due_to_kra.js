@@ -75,6 +75,8 @@ function update_selected_card(report) {
 function export_itax_csv(report) {
 	let rows = report.get_checked_items();
 	if (!rows.length) rows = report.data;
+	// Released rows never go to iTax; with Status All they would make the server refuse the whole export.
+	rows = rows.filter((r) => !r.released_by);
 	if (!rows.length) {
 		frappe.msgprint(__("No rows to export."));
 		return;
@@ -93,7 +95,7 @@ function export_itax_csv(report) {
 }
 
 function pay_kra(report) {
-	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry);
+	const rows = report.get_checked_items().filter((r) => !r.kra_journal_entry && !r.released_by);
 	if (!rows.length) {
 		frappe.msgprint(__("Tick the unpaid rows to pay."));
 		return;
@@ -168,7 +170,10 @@ function release_withholding(report) {
 	const row_names = rows.map((r) => r.row_name);
 	const total = rows.reduce((sum, r) => sum + flt(r.amount), 0);
 	const dialog = new frappe.ui.Dialog({
-		title: __("Release Withholding: {0} rows, {1}", [row_names.length, format_currency(total)]),
+		title: __("Release Withholding: {0} rows, {1}", [
+			row_names.length,
+			format_currency(total, (report.raw_data?.report_summary || []).at(-1)?.currency),
+		]),
 		fields: [
 			{
 				fieldname: "posting_date",
