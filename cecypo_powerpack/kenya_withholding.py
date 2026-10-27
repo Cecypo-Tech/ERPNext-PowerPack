@@ -57,6 +57,17 @@ def setup_custom_fields():
 			],
 			# Set by pay_kra. Copied on Amend (frappe copies no_copy fields then), which refuse_kra_amend refuses.
 			"Journal Entry": [
+				# Set by release_withholding: deposit withholding handed back to the supplier, not filed with KRA.
+				{
+					"fieldname": "cecypo_wht_release",
+					"label": "Withholding Release",
+					"fieldtype": "Check",
+					"insert_after": "cecypo_kra_payment",
+					"hidden": 1,
+					"read_only": 1,
+					"no_copy": 1,
+					"print_hide": 1,
+				},
 				{
 					"fieldname": "cecypo_kra_payment",
 					"label": "KRA Withholding Payment",
@@ -191,7 +202,7 @@ def link_deposit_rows(doc, method=None):
 	"""before_update_after_submit: ERPNext set a deposit against a Purchase Invoice (it reduces the PO reference
 	and appends one for the invoice). Move the covered share of the waiting deposit rows onto that invoice."""
 	before = doc.get_doc_before_save()
-	waiting = [r for r in doc.get("cecypo_withholding") or [] if r.purchase_order and not r.purchase_invoice and not r.kra_journal_entry]
+	waiting = [r for r in doc.get("cecypo_withholding") or [] if r.purchase_order and not r.purchase_invoice and not r.kra_journal_entry and not r.released_by]
 	if not before or not waiting:
 		return
 	was, now = _covered_by_deposit(before), _covered_by_deposit(doc)
@@ -423,6 +434,13 @@ def compute_for_payment_entry(doc):
 
 
 def prevent_cancel_if_paid_to_kra(doc, method=None):
+	released = [r.released_by for r in doc.get("cecypo_withholding") if r.released_by]
+	if released:
+		frappe.throw(
+			_("Withholding on this Payment Entry was released by Journal Entry {0}. Cancel that first.").format(
+				", ".join(dict.fromkeys(released))
+			)
+		)
 	paid = [r.kra_journal_entry for r in doc.get("cecypo_withholding") if r.kra_journal_entry]
 	if paid:
 		frappe.throw(
@@ -456,7 +474,7 @@ def merge_vat_rows(rows):
 	return list(merged.values())
 
 
-def _load_rows(row_names, lock=False):
+def _load_rows(row_names, lock=False, allow_waiting=False):
 	"""Withholding rows of submitted Payment Entries by name, with the supplier PIN and Purchase Invoice
 	dates. Throws on an empty, stale or non-submitted selection."""
 	row_names = frappe.parse_json(row_names) if isinstance(row_names, str) else row_names
@@ -474,7 +492,8 @@ def _load_rows(row_names, lock=False):
 		.left_join(PI).on(PI.name == W.purchase_invoice)
 		.select(
 			W.name, W.account, W.amount, W.base_amount, W.rate, W.is_vat, W.bill_no, W.bill_date,
-			W.purchase_invoice, W.purchase_order, W.kra_journal_entry, PE.name.as_("payment_entry"), PE.company, PE.docstatus,
+			W.purchase_invoice, W.purchase_order, W.kra_journal_entry, W.released_by, PE.paid_to,
+			PE.name.as_("payment_entry"), PE.company, PE.docstatus,
 			PE.posting_date, PE.party.as_("supplier"), S.tax_id, PI.posting_date.as_("invoice_posting_date"),
 		)
 		.where(W.name.isin(row_names) & (W.parenttype == "Payment Entry"))
@@ -489,7 +508,7 @@ def _load_rows(row_names, lock=False):
 		frappe.throw(_("Only withholding on submitted Payment Entries can be paid to KRA."))
 	# Every KRA path loads through here: a deposit row has no invoice number for iTax until it is linked.
 	waiting = list(dict.fromkeys(r.purchase_order for r in rows if r.purchase_order and not r.purchase_invoice))
-	if waiting:
+	if waiting and not allow_waiting:
 		frappe.throw(_("Withholding on deposit for {0} is waiting for its invoice. Set the deposit against the Purchase Invoice first.").format(
 			", ".join(waiting)
 		))
@@ -619,15 +638,73 @@ def pay_kra(row_names, bank_account: str, posting_date: str, prn: str, reference
 	return je.name
 
 
+@frappe.whitelist(methods=["POST"])
+def release_withholding(row_names, posting_date: str, reason: str) -> str:
+	"""One submitted Journal Entry handing deposit withholding that will never get an invoice back to the
+	supplier: debit the withholding accounts, credit the payable account the deposit was paid to."""
+	frappe.only_for(["Accounts Manager", "System Manager"])
+	reason = (reason or "").strip()
+	if not reason:
+		frappe.throw(_("Give a reason for releasing this withholding."))
+	rows = _load_rows(row_names, lock=True, allow_waiting=True)
+	released = list(dict.fromkeys(r.released_by for r in rows if r.released_by))
+	if released:
+		frappe.throw(_("Some selected rows are already released by Journal Entry {0}.").format(", ".join(released)))
+	not_waiting = [r for r in rows if not r.purchase_order or r.purchase_invoice or r.kra_journal_entry]
+	if not_waiting:
+		frappe.throw(_("Only withholding waiting for its invoice can be released: {0}.").format(
+			", ".join(dict.fromkeys(r.purchase_invoice or _("not a deposit") for r in not_waiting))
+		))
+	if len({r.supplier for r in rows}) > 1:
+		frappe.throw(_("Release one supplier at a time."))
+	companies = {r.company for r in rows}
+	if len(companies) > 1:
+		frappe.throw(_("Selected rows belong to more than one company: {0}.").format(", ".join(sorted(companies))))
+
+	debits, credits = {}, {}
+	for r in rows:
+		debits[r.account] = debits.get(r.account, 0) + flt(r.amount)
+		credits[r.paid_to] = credits.get(r.paid_to, 0) + flt(r.amount)
+	supplier = rows[0].supplier
+	accounts = [{"account": a, "debit_in_account_currency": v} for a, v in debits.items()]
+	accounts += [
+		{"account": a, "party_type": "Supplier", "party": supplier, "credit_in_account_currency": v}
+		for a, v in credits.items()
+	]
+	je = frappe.get_doc({
+		"doctype": "Journal Entry",
+		"voucher_type": "Journal Entry",
+		"company": rows[0].company,
+		"posting_date": posting_date,
+		"cecypo_wht_release": 1,
+		"user_remark": _("Withholding released, not filed with KRA: {0}. Payment Entries: {1}").format(
+			reason, ", ".join(dict.fromkeys(r.payment_entry for r in rows))
+		),
+		"accounts": accounts,
+	})
+	je.insert()
+	je.submit()
+	for r in rows:
+		frappe.db.set_value("Payment Entry Withholding", r.name, "released_by", je.name)
+	return je.name
+
+
 def flag_kra_payment(doc, method=None):
 	"""Journal Entry onload: tells the form (kenya_withholding_journal_entry.js) to skip Payment Entry in Cancel All."""
-	if doc.docstatus == 1 and doc.get("cecypo_kra_payment"):
+	if doc.docstatus == 1 and (doc.get("cecypo_kra_payment") or doc.get("cecypo_wht_release")):
 		doc.set_onload("is_kra_payment", 1)
 
 
 def refuse_kra_amend(doc, method=None):
 	"""Journal Entry before_insert: an amended KRA payment would leave its rows Unpaid, so payable twice."""
-	if doc.amended_from and frappe.db.get_value("Journal Entry", doc.amended_from, "cecypo_kra_payment"):
+	if not doc.amended_from:
+		return
+	if frappe.db.get_value("Journal Entry", doc.amended_from, "cecypo_wht_release"):
+		frappe.throw(_(
+			"Journal Entry {0} released withholding and cannot be amended. Its rows are waiting again: "
+			"release them from the Withholding Due to KRA report."
+		).format(doc.amended_from))
+	if frappe.db.get_value("Journal Entry", doc.amended_from, "cecypo_kra_payment"):
 		frappe.throw(_(
 			"Journal Entry {0} paid withholding to KRA and cannot be amended. Its rows are Unpaid again: "
 			"run Pay KRA from the Withholding Due to KRA report."
@@ -636,7 +713,7 @@ def refuse_kra_amend(doc, method=None):
 
 def allow_cancel_of_kra_payment(doc, method=None):
 	"""Journal Entry before_cancel: submitted Payment Entries' withholding rows link here; clear_kra_link drops them."""
-	if doc.get("cecypo_kra_payment"):
+	if doc.get("cecypo_kra_payment") or doc.get("cecypo_wht_release"):
 		doc.ignore_linked_doctypes = tuple(getattr(doc, "ignore_linked_doctypes", None) or ()) + ("Payment Entry",)
 
 
@@ -644,3 +721,5 @@ def clear_kra_link(doc, method=None):
 	"""Journal Entry on_cancel: its withholding rows go back to Unpaid."""
 	for name in frappe.get_all("Payment Entry Withholding", {"kra_journal_entry": doc.name}, pluck="name"):
 		frappe.db.set_value("Payment Entry Withholding", name, "kra_journal_entry", None)
+	for name in frappe.get_all("Payment Entry Withholding", {"released_by": doc.name}, pluck="name"):
+		frappe.db.set_value("Payment Entry Withholding", name, "released_by", None)

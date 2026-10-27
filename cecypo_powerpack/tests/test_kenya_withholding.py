@@ -19,7 +19,7 @@ CHILDREN = {
 	"Withholding VAT Exemption": ["supplier", "certificate_no", "valid_until"],
 	"Payment Entry Withholding": [
 		"purchase_invoice", "purchase_order", "allocated_amount", "bill_no", "bill_date", "base_amount", "rate",
-		"account", "amount", "is_vat", "due_date", "kra_journal_entry",
+		"account", "amount", "is_vat", "due_date", "kra_journal_entry", "released_by",
 	],
 }
 SETTINGS = [
@@ -1164,3 +1164,149 @@ class TestDepositKRA(_WithholdingCase):
 		self.assertEqual(frappe.response["filecontent"], f"P051234567X,{pi.bill_no},{d},100000.00,{d}\r\n".encode())
 		je = pay_kra(names, **self._pay_args())
 		self.assertEqual(frappe.db.get_value("Payment Entry Withholding", dep_vat.name, "kra_journal_entry"), je)
+
+
+class TestReleaseWithholding(_WithholdingCase):
+	"""Release Withholding: deposit withholding that will never get an invoice goes back to the supplier."""
+
+	_deposit = TestPaymentEntry._deposit
+	_plain_invoice = TestPaymentEntry._plain_invoice
+	_set_against = TestPaymentEntry._set_against
+	_sums = TestPaymentEntry._sums
+
+	def _release(self, pes, reason="PO closed, deposit refunded", **kw):
+		from cecypo_powerpack.kenya_withholding import release_withholding
+
+		names = [r.name for pe in pes for r in pe.cecypo_withholding]
+		return release_withholding(names, kw.pop("posting_date", frappe.utils.nowdate()), reason, **kw)
+
+	def _row(self, pe, field):
+		pe.reload()
+		return {r.name: r.get(field) for r in pe.cecypo_withholding}
+
+	def test_release_posts_balanced_je_and_marks_rows(self):
+		po, pe = self._deposit(100000)
+		je = frappe.get_doc("Journal Entry", self._release([pe]))
+		self.assertEqual((je.docstatus, je.cecypo_wht_release, je.voucher_type), (1, 1, "Journal Entry"))
+		self.assertIn("PO closed, deposit refunded", je.user_remark)
+		self.assertIn(pe.name, je.user_remark)
+		lines = {a.account: (a.debit, a.credit, a.party_type, a.party) for a in je.accounts}
+		self.assertEqual(lines[VAT_ACC][:2], (2000, 0))
+		self.assertEqual(lines[RENT_ACC][:2], (7500, 0))
+		self.assertEqual(lines[pe.paid_to], (0, 9500, "Supplier", WHT_SUPPLIER))
+		self.assertEqual(je.total_debit, je.total_credit)
+		self.assertEqual(set(self._row(pe, "released_by").values()), {je.name})
+
+	def test_refusals(self):
+		po, pe = self._deposit(100000)
+		with self.assertRaisesRegex(frappe.ValidationError, "Give a reason"):
+			self._release([pe], reason=" ")
+		pi = _make_pi()
+		plain = _make_pe(pi)
+		with self.assertRaisesRegex(frappe.ValidationError, pi.name):
+			self._release([plain])
+		je = self._release([pe])
+		with self.assertRaisesRegex(frappe.ValidationError, f"already released by Journal Entry {je}"):
+			self._release([pe])
+
+	def test_linked_row_names_its_invoice(self):
+		po, dep = self._deposit(100000)
+		pi = self._plain_invoice(po, 10)
+		self._set_against(dep, po, pi, 100000)
+		dep.reload()
+		with self.assertRaisesRegex(frappe.ValidationError, pi.name):
+			self._release([dep])
+
+	def test_one_supplier_and_company(self):
+		_supplier("_Test WHT Supplier 2")
+		po1, pe1 = self._deposit(100000)
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+		po2 = _make_po(supplier="_Test WHT Supplier 2", items=[{"item_code": RENT_ITEM, "qty": 10, "rate": 10000}])
+		pe2 = get_payment_entry("Purchase Order", po2.name, bank_account=BANK)
+		pe2.reference_no, pe2.reference_date = "WHT-TEST", frappe.utils.nowdate()
+		pe2.references[0].allocated_amount = 100000
+		pe2.insert(ignore_permissions=True)
+		pe2.submit()
+		with self.assertRaisesRegex(frappe.ValidationError, "one supplier at a time"):
+			self._release([pe1, pe2])
+
+	def test_role_refused(self):
+		po, pe = self._deposit(100000)
+		email = "wht-norole@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({"doctype": "User", "email": email, "first_name": "NoRole"}).insert(ignore_permissions=True)
+		frappe.set_user(email)
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				self._release([pe])
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_cancel_returns_rows_to_waiting_and_relinks(self):  # focus 1
+		po, pe = self._deposit(100000)
+		before = self._sums(pe)
+		je = frappe.get_doc("Journal Entry", self._release([pe]))
+		je.cancel()
+		self.assertFalse(any(self._row(pe, "released_by").values()))
+		pi = self._plain_invoice(po, 10)
+		self._set_against(pe, po, pi, 100000)
+		pe.reload()
+		self.assertTrue(all(r.purchase_invoice == pi.name for r in pe.cecypo_withholding))
+		self.assertEqual(self._sums(pe), before)
+
+	def test_reconcile_while_released_does_not_link(self):  # focus 2
+		po, pe = self._deposit(100000)
+		je = self._release([pe])
+		pi = self._plain_invoice(po, 10)
+		self._set_against(pe, po, pi, 100000)
+		pe.reload()
+		self.assertEqual(len(pe.cecypo_withholding), 2)
+		for r in pe.cecypo_withholding:
+			self.assertEqual((r.released_by, r.purchase_invoice), (je, None))
+
+	def test_deposit_cancel_refused_while_released(self):  # focus 3
+		po, pe = self._deposit(100000)
+		je = self._release([pe])
+		pe.reload()
+		with self.assertRaisesRegex(frappe.ValidationError, f"released by Journal Entry {je}"):
+			pe.cancel()
+
+	def test_amending_release_je_refused(self):  # focus 4
+		po, pe = self._deposit(100000)
+		je = frappe.get_doc("Journal Entry", self._release([pe]))
+		je.cancel()
+		amended = frappe.copy_doc(je)
+		amended.amended_from, amended.docstatus = je.name, 0
+		with self.assertRaisesRegex(frappe.ValidationError, "released withholding"):
+			amended.insert()
+
+	def test_release_flags_form_and_cancels_without_payment_entry_link_check(self):
+		po, pe = self._deposit(100000)
+		je = frappe.get_doc("Journal Entry", self._release([pe]))
+		je.run_method("onload")
+		self.assertEqual(je.get_onload("is_kra_payment"), 1)
+		je.cancel()
+		self.assertEqual(je.docstatus, 2)
+
+	def test_two_payables_give_balanced_credit_per_account(self):  # focus 5
+		po1, pe1 = self._deposit(100000)
+		if not frappe.db.exists("Account", "_Test WHT Payable 2 - _TC"):
+			frappe.get_doc({
+				"doctype": "Account", "account_name": "_Test WHT Payable 2", "company": COMPANY,
+				"parent_account": frappe.db.get_value("Account", pe1.paid_to, "parent_account"),
+				"account_type": "Payable",
+			}).insert(ignore_permissions=True)
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+		po2 = _make_po(items=[{"item_code": RENT_ITEM, "qty": 10, "rate": 10000}])
+		pe2 = get_payment_entry("Purchase Order", po2.name, bank_account=BANK)
+		pe2.paid_to = "_Test WHT Payable 2 - _TC"
+		pe2.reference_no, pe2.reference_date = "WHT-TEST", frappe.utils.nowdate()
+		pe2.references[0].allocated_amount = 40000
+		pe2.insert(ignore_permissions=True)
+		pe2.submit()
+		je = frappe.get_doc("Journal Entry", self._release([pe1, pe2]))
+		credits = {a.account: a.credit for a in je.accounts if a.credit}
+		self.assertEqual(credits, {pe1.paid_to: 9500, "_Test WHT Payable 2 - _TC": 3800})
+		self.assertEqual(je.total_debit, je.total_credit)

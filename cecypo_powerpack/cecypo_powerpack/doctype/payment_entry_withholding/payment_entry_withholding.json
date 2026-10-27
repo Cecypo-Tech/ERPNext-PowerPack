@@ -16,7 +16,8 @@
   "amount",
   "is_vat",
   "due_date",
-  "kra_journal_entry"
+  "kra_journal_entry",
+  "released_by"
  ],
  "fields": [
   {
@@ -101,6 +102,15 @@
    "label": "KRA Journal Entry",
    "options": "Journal Entry",
    "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "released_by",
+   "fieldtype": "Link",
+   "label": "Released By",
+   "options": "Journal Entry",
+   "read_only": 1,
+   "no_copy": 1,
    "search_index": 1
   }
  ],
