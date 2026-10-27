@@ -526,6 +526,38 @@ class TestPaymentEntry(_WithholdingCase):
 		for f, want in orig.items():
 			self.assertEqual(self._per_account(pe, f, pe.cecypo_withholding), want)
 
+	def test_cancelling_the_invoice_returns_deposit_rows_to_waiting(self):
+		po, pe = self._deposit(100000)
+		before = self._sums(pe)
+		pi = self._invoice_with_deposit(po, 3)
+		pe.reload()
+		self.assertEqual(len(pe.cecypo_withholding), 4)
+		pi.cancel()
+		pe.reload()
+		self.assertEqual(len(pe.cecypo_withholding), 2)
+		for r in pe.cecypo_withholding:
+			self.assertEqual(r.purchase_order, po.name)
+			self.assertFalse(r.purchase_invoice or r.bill_no or r.bill_date)
+			self.assertEqual(r.allocated_amount, 100000)
+		self.assertEqual(self._sums(pe), before)
+
+	def test_cancelling_the_invoice_clears_a_fully_linked_row(self):
+		po, pe = self._deposit(100000)
+		pi = self._invoice_with_deposit(po, 10)
+		pi.cancel()
+		pe.reload()
+		self.assertEqual(len(pe.cecypo_withholding), 2)
+		self.assertFalse(any(r.purchase_invoice or r.bill_no or r.bill_date for r in pe.cecypo_withholding))
+
+	def test_cancel_refused_when_deposit_withholding_paid_to_kra(self):
+		po, pe = self._deposit(100000)
+		pi = self._invoice_with_deposit(po, 10)
+		pe.reload()
+		frappe.db.set_value("Payment Entry Withholding", pe.cecypo_withholding[0].name, "kra_journal_entry", "ACC-JV-FAKE")
+		with self.assertRaisesRegex(frappe.ValidationError, "paid to KRA by ACC-JV-FAKE"):
+			pi.cancel()
+		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 1)
+
 	def test_withholding_more_than_allocated_refused(self):
 		# Allocated 1 shilling: 2% and 7.5% each round up to 1, which would make the paid amount -1.
 		pi = _make_pi()

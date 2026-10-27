@@ -250,6 +250,10 @@ doc_events = {
 		"before_update_after_submit": "cecypo_powerpack.kenya_withholding.link_deposit_rows",
 		"before_cancel": "cecypo_powerpack.kenya_withholding.prevent_cancel_if_paid_to_kra",
 	},
+	"Purchase Invoice": {
+		"before_cancel": "cecypo_powerpack.kenya_withholding.refuse_cancel_if_deposit_paid_to_kra",
+		"on_cancel": "cecypo_powerpack.kenya_withholding.unlink_deposit_rows",
+	},
 	"Journal Entry": {
 		"onload": "cecypo_powerpack.kenya_withholding.flag_kra_payment",
 		"before_insert": "cecypo_powerpack.kenya_withholding.refuse_kra_amend",

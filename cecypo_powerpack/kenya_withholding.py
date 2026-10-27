@@ -223,6 +223,47 @@ def link_deposit_rows(doc, method=None):
 			left -= take
 
 
+def refuse_cancel_if_deposit_paid_to_kra(doc, method=None):
+	"""Purchase Invoice before_cancel: stop before ERPNext unlinks the deposit if its withholding went to KRA."""
+	for r in frappe.get_all(
+		"Payment Entry Withholding",
+		{"purchase_invoice": doc.name, "purchase_order": ["is", "set"], "kra_journal_entry": ["is", "set"]},
+		["parent", "kra_journal_entry"],
+	):
+		frappe.throw(
+			_("Withholding on deposit {0} for this invoice was paid to KRA by {1}. Cancel that first.").format(
+				r.parent, r.kra_journal_entry
+			)
+		)
+
+
+def unlink_deposit_rows(doc, method=None):
+	"""Purchase Invoice on_cancel: ERPNext released the deposit without saving the Payment Entry, so its linked
+	withholding rows go back to waiting by db writes, merged into the waiting row of the same order and account."""
+	rows = frappe.get_all(
+		"Payment Entry Withholding",
+		{"purchase_invoice": doc.name, "purchase_order": ["is", "set"], "kra_journal_entry": ["is", "not set"]},
+		["name", "parent", "purchase_order", "account", "amount", "base_amount", "allocated_amount"],
+	)
+	for r in rows:
+		waiting = frappe.db.get_value(
+			"Payment Entry Withholding",
+			{"parent": r.parent, "purchase_order": r.purchase_order, "account": r.account,
+				"purchase_invoice": ["is", "not set"], "kra_journal_entry": ["is", "not set"]},
+			["name", "amount", "base_amount", "allocated_amount"], as_dict=True,
+		)
+		if waiting:
+			frappe.db.set_value("Payment Entry Withholding", waiting.name, {
+				"amount": waiting.amount + r.amount,
+				"base_amount": flt(waiting.base_amount + r.base_amount, 2),
+				"allocated_amount": flt(waiting.allocated_amount + r.allocated_amount, 2),
+			})
+			frappe.db.delete("Payment Entry Withholding", r.name)
+		else:
+			frappe.db.set_value("Payment Entry Withholding", r.name,
+				{"purchase_invoice": None, "bill_no": None, "bill_date": None})
+
+
 def apply_to_payment_entry(doc, method=None, preview=False):
 	"""before_validate on Payment Entry, so it also runs at submit with the rules then in force. ERPNext's
 	validate then runs its amount setters on our values. When the entry no longer qualifies (feature off, no
