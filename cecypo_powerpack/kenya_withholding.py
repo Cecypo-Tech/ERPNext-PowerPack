@@ -443,7 +443,7 @@ def _load_rows(row_names, lock=False):
 		.left_join(PI).on(PI.name == W.purchase_invoice)
 		.select(
 			W.name, W.account, W.amount, W.base_amount, W.rate, W.is_vat, W.bill_no, W.bill_date,
-			W.purchase_invoice, W.kra_journal_entry, PE.name.as_("payment_entry"), PE.company, PE.docstatus,
+			W.purchase_invoice, W.purchase_order, W.kra_journal_entry, PE.name.as_("payment_entry"), PE.company, PE.docstatus,
 			PE.posting_date, PE.party.as_("supplier"), S.tax_id, PI.posting_date.as_("invoice_posting_date"),
 		)
 		.where(W.name.isin(row_names) & (W.parenttype == "Payment Entry"))
@@ -456,6 +456,12 @@ def _load_rows(row_names, lock=False):
 		frappe.throw(_("Some selected withholding rows no longer exist. Refresh the report."))
 	if any(r.docstatus != 1 for r in rows):
 		frappe.throw(_("Only withholding on submitted Payment Entries can be paid to KRA."))
+	# Every KRA path loads through here: a deposit row has no invoice number for iTax until it is linked.
+	waiting = list(dict.fromkeys(r.purchase_order for r in rows if r.purchase_order and not r.purchase_invoice))
+	if waiting:
+		frappe.throw(_("Withholding on deposit for {0} is waiting for its invoice. Set the deposit against the Purchase Invoice first.").format(
+			", ".join(waiting)
+		))
 	return rows
 
 

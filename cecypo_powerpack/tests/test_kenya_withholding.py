@@ -57,7 +57,7 @@ class TestScaffold(IntegrationTestCase):
 	def test_withholding_grid_columns(self):
 		meta = frappe.get_meta("Payment Entry Withholding")
 		self.assertEqual([f.fieldname for f in meta.fields if f.in_list_view],
-			["purchase_invoice", "base_amount", "rate", "amount"])
+			["purchase_invoice", "purchase_order", "base_amount", "rate", "amount"])
 
 	def test_kra_journal_entry_indexed(self):
 		self.assertEqual(frappe.get_meta("Payment Entry Withholding").get_field("kra_journal_entry").search_index, 1)
@@ -1044,3 +1044,62 @@ class TestItaxCsv(_WithholdingCase):
 		self.assertEqual(frappe.response["filename"], f"WHT-VAT-{today.strftime('%d-%m-%Y')}.csv")
 		d = today.strftime("%d/%m/%Y")
 		self.assertEqual(frappe.response["filecontent"], f"P051234567X,{pi.bill_no},{d},272200.00,{d}\r\n".encode())
+
+
+class TestDepositKRA(_WithholdingCase):
+	"""Pay KRA, its preview and the iTax CSV on deposit rows, waiting for an invoice or linked to one."""
+
+	_deposit = TestPaymentEntry._deposit
+	_plain_invoice = TestPaymentEntry._plain_invoice
+	_set_against = TestPaymentEntry._set_against
+
+	def _pay_args(self):
+		today = frappe.utils.nowdate()
+		return {"bank_account": BANK, "posting_date": today, "prn": "PRN-1", "reference_date": today}
+
+	def test_waiting_rows_are_refused_everywhere(self):
+		from cecypo_powerpack.kenya_withholding import check_itax_export, export_itax_csv, pay_kra, pay_kra_preview
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "P051234567X")
+		po, pe = self._deposit(100000)
+		vat = [r.name for r in pe.cecypo_withholding if r.is_vat]
+		msg = f"Withholding on deposit for {po.name} is waiting for its invoice"
+		for call in (
+			lambda: pay_kra(vat, **self._pay_args()),
+			lambda: pay_kra_preview(vat),
+			lambda: check_itax_export(vat),
+			lambda: export_itax_csv(vat),
+		):
+			with self.assertRaisesRegex(frappe.ValidationError, msg):
+				call()
+
+	def test_report_shows_waiting_rows(self):
+		from cecypo_powerpack.cecypo_powerpack.report.withholding_due_to_kra.withholding_due_to_kra import execute
+
+		po, pe = self._deposit(100000)
+		columns, data = execute(frappe._dict(company=COMPANY))[:2]
+		fields = [c["fieldname"] for c in columns]
+		self.assertEqual(fields.index("purchase_order"), fields.index("purchase_invoice") + 1)
+		rows = [r for r in data if r["payment_entry"] == pe.name]
+		self.assertEqual(len(rows), 2)
+		for r in rows:
+			self.assertEqual((r["purchase_order"], r["bill_no"]), (po.name, "Awaiting invoice"))
+
+	def test_linked_deposit_pays_and_merges_with_the_balance(self):
+		from cecypo_powerpack.kenya_withholding import export_itax_csv, pay_kra
+
+		frappe.db.set_value("Supplier", WHT_SUPPLIER, "tax_id", "P051234567X")
+		po, dep = self._deposit(100000)
+		pi = self._plain_invoice(po, 10)
+		self._set_against(dep, po, pi, 50000)
+		dep.reload()
+		bal = _make_pe(pi)
+		dep_vat = next(r for r in dep.cecypo_withholding if r.is_vat and r.purchase_invoice == pi.name)
+		bal_vat = next(r for r in bal.cecypo_withholding if r.is_vat)
+		self.assertEqual((dep_vat.base_amount, bal_vat.base_amount), (50000, 50000))
+		names = [dep_vat.name, bal_vat.name]
+		export_itax_csv(names)
+		d = frappe.utils.getdate().strftime("%d/%m/%Y")
+		self.assertEqual(frappe.response["filecontent"], f"P051234567X,{pi.bill_no},{d},100000.00,{d}\r\n".encode())
+		je = pay_kra(names, **self._pay_args())
+		self.assertEqual(frappe.db.get_value("Payment Entry Withholding", dep_vat.name, "kra_journal_entry"), je)

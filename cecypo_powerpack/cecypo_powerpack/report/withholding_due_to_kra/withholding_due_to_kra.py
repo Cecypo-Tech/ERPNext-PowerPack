@@ -20,7 +20,7 @@ def execute(filters=None):
 		.join(PE).on(W.parent == PE.name)
 		.left_join(S).on(S.name == PE.party)
 		.select(
-			W.name.as_("row_name"), PE.party.as_("supplier"), S.tax_id, W.purchase_invoice, W.bill_no,
+			W.name.as_("row_name"), PE.party.as_("supplier"), S.tax_id, W.purchase_invoice, W.purchase_order, W.bill_no,
 			W.bill_date, PE.name.as_("payment_entry"), PE.posting_date, W.base_amount, W.rate, W.amount,
 			W.account, W.is_vat, W.due_date, W.kra_journal_entry,
 		)
@@ -43,6 +43,8 @@ def execute(filters=None):
 	today = getdate()
 	data = q.run(as_dict=True)
 	for r in data:
+		if r.purchase_order and not r.purchase_invoice:
+			r.bill_no = _("Awaiting invoice")
 		r.overdue = 1 if not r.kra_journal_entry and r.due_date and getdate(r.due_date) < today else 0
 	currency = frappe.get_cached_value("Company", filters.company, "default_currency")
 	return get_columns(), data, None, None, account_cards(data, currency)
@@ -72,6 +74,8 @@ def get_columns():
 		{"fieldname": "tax_id", "label": _("PIN"), "fieldtype": "Data", "width": 120},
 		{"fieldname": "purchase_invoice", "label": _("Purchase Invoice"), "fieldtype": "Link",
 			"options": "Purchase Invoice", "width": 150},
+		{"fieldname": "purchase_order", "label": _("Purchase Order"), "fieldtype": "Link",
+			"options": "Purchase Order", "width": 150},
 		{"fieldname": "bill_no", "label": _("Invoice No"), "fieldtype": "Data", "width": 110},
 		{"fieldname": "bill_date", "label": _("Invoice Date"), "fieldtype": "Date", "width": 100},
 		{"fieldname": "payment_entry", "label": _("Payment Entry"), "fieldtype": "Link",
