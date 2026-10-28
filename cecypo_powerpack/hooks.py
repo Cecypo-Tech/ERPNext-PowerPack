@@ -126,7 +126,14 @@ after_migrate = [
     "cecypo_powerpack.price_approval.after_migrate",
     "cecypo_powerpack.kenya_withholding.setup_custom_fields",
     "cecypo_powerpack.copy_as_message.seed_client_scripts",
+    "cecypo_powerpack.branch_naming.after_migrate",
 ]
+
+# Naming-series placeholders (.CO. .BR. .SET. .PAYDIR.), the hook ERPNext uses for .ABBR.
+naming_series_variables = {
+    v: "cecypo_powerpack.branch_naming.parse_variable"
+    for v in ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR")
+}
 
 # Fixtures
 # --------

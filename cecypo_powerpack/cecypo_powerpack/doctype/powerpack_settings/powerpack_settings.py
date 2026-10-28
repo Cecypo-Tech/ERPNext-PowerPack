@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from cecypo_powerpack.branch_naming import setup_custom_fields as setup_branch_naming_fields
 from cecypo_powerpack.price_approval import sync_price_approval_workflows, validate_price_approval_settings
 
 
@@ -50,3 +51,6 @@ class PowerPackSettings(Document):
 			frappe.cache().delete_value(f"powerpack_feature_{feature}")
 
 		sync_price_approval_workflows(self)
+
+		if self.enable_branch_naming_codes:
+			setup_branch_naming_fields()
