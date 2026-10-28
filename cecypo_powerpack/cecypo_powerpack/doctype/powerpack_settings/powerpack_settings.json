@@ -103,6 +103,10 @@
   "column_break_validation_1",
   "prevent_etr_invoice_cancellation",
   "etr_validation_description",
+  "document_naming_section",
+  "enable_branch_naming_codes",
+  "column_break_document_naming",
+  "branch_naming_description",
   "public_link_section",
   "public_link_page",
   "column_break_public_link_0",
@@ -691,6 +695,27 @@
    "options": "<p class=\"text-muted\">When enabled, Sales Invoices and POS Invoices with an ETR Invoice Number cannot be cancelled. This prevents accidental cancellation of tax-registered invoices.</p>"
   },
   {
+   "fieldname": "document_naming_section",
+   "fieldtype": "Section Break",
+   "label": "Document Naming"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_branch_naming_codes",
+   "fieldtype": "Check",
+   "label": "Enable Branch Naming Codes"
+  },
+  {
+   "fieldname": "column_break_document_naming",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch_naming_description",
+   "fieldtype": "HTML",
+   "label": "Description",
+   "options": "<p class=\"text-muted\">Adds naming-series placeholders: <b>.CO.</b> company code, <b>.BR.</b> branch code from the header warehouse (Stock Entry: source-target, e.g. HQ-MI), <b>.SET.</b> Stock Entry Type code, <b>.PAYDIR.</b> IN / OUT / TRF on Payment Entry. Set the codes in the <b>Naming Code</b> field on Company, Warehouse and Stock Entry Type (created when you enable this), then use them in Document Naming Settings, e.g. <code>.CO./.BR/.SI/.#####</code> gives OJ/PM/SI/00001, or <code>.CO.-PAY-.PAYDIR.-.#####</code>. Write the separator inside the placeholder (<code>.BR/.</code>, <code>.BR-.</code>) and it is left out when the code is blank. Each prefix keeps its own counter; only new documents are affected; a matching Document Naming Rule still wins.</p>"
+  },
+  {
    "fieldname": "public_link_section",
    "fieldtype": "Section Break",
    "label": "Public Document Links"
@@ -757,7 +782,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-18 19:30:00.000000",
+ "modified": "2026-10-28 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "PowerPack Settings",
