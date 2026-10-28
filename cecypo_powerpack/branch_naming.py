@@ -16,11 +16,17 @@ PAYMENT_DIRECTION = {"Receive": "IN", "Pay": "OUT", "Internal Transfer": "TRF"}
 
 
 def is_enabled():
-	return bool(frappe.db.get_single_value("PowerPack Settings", "enable_branch_naming_codes"))
+	# Read from Singles directly: get_single_value throws on a site not yet migrated to this field.
+	row = frappe.db.sql(
+		"select value from tabSingles where doctype = 'PowerPack Settings' and field = 'enable_branch_naming_codes'"
+	)
+	return bool(row and int(row[0][0] or 0))
 
 
 def _code(doctype, name):
-	return (frappe.db.get_value(doctype, name, FIELD) or "").strip() if name else ""
+	if not name or not frappe.get_meta(doctype).has_field(FIELD):
+		return ""
+	return (frappe.get_cached_value(doctype, name, FIELD) or "").strip()
 
 
 def _branch(doc):
@@ -33,8 +39,9 @@ def _branch(doc):
 
 def _value(doc, variable):
 	if variable == "CO":
-		company = doc.get("company")
-		return (_code("Company", company) or frappe.db.get_value("Company", company, "abbr") or "") if company else ""
+		# No document is the Naming Series screen's preview: show the default company, as .ABBR. does.
+		company = doc.get("company") or frappe.db.get_default("company")
+		return (_code("Company", company) or frappe.get_cached_value("Company", company, "abbr") or "") if company else ""
 	if variable == "BR":
 		return _branch(doc)
 	if variable == "SET":
@@ -45,9 +52,11 @@ def _value(doc, variable):
 
 
 def parse_variable(doc, variable):
-	"""naming_series_variables parser: "" when off, with no document (the Naming Series preview), or with no code."""
-	if not doc or not is_enabled():
-		return ""
+	"""naming_series_variables parser. Off, the part stays literal text, as if PowerPack were not
+	installed - a site's existing BR-.YYYY.- series must not change. On, "" when there is no code."""
+	if not is_enabled():
+		return variable
+	doc = doc or frappe._dict()
 	separator = variable[-1] if variable[-1] in SEPARATORS else ""
 	value = _value(doc, variable.removesuffix(separator) if separator else variable)
 	return value + separator if value else ""

@@ -83,15 +83,22 @@ class TestBranchNaming(IntegrationTestCase):
 			self.assertEqual(parse_variable(doc, "PAYDIR"), expected)
 		self.assertEqual(parse_variable(self._sale(payment_type="Receive"), "PAYDIR"), "")
 
-	def test_disabled_returns_empty(self):
+	def test_disabled_keeps_the_text(self):
+		# A site with the setting off keeps its existing series, e.g. BR-.YYYY.-.####.
 		frappe.db.set_single_value("PowerPack Settings", "enable_branch_naming_codes", 0)
 		doc = frappe._dict(doctype="Payment Entry", company=CO, set_warehouse=WH, payment_type="Pay")
 		for variable in PLACEHOLDERS:
-			self.assertEqual(parse_variable(doc, variable), "", variable)
+			self.assertEqual(parse_variable(doc, variable), variable, variable)
+		self.assertEqual(parse_naming_series("BR-.#", doc=doc, number_generator=lambda prefix, digits: "1"), "BR-1")
 
 	def test_no_doc(self):
-		for variable in PLACEHOLDERS:
+		# The Naming Series preview: no branch, type or direction; the default company's code.
+		for variable in ("BR", "BR/", "SET/", "PAYDIR"):
 			self.assertEqual(parse_variable(None, variable), "", variable)
+		default = frappe.db.get_default("company")
+		if default:
+			expected = frappe.db.get_value("Company", default, FIELD) or frappe.db.get_value("Company", default, "abbr")
+			self.assertEqual(parse_variable(None, "CO"), expected)
 
 	def test_series_end_to_end(self):
 		prefixes = []
