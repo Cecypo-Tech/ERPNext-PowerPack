@@ -35,11 +35,12 @@ def _branch(doc):
 		# Both ends of a transfer: HQ to Milimani is HQ-MI.
 		codes = dict.fromkeys(filter(None, (_code("Warehouse", doc.get("from_warehouse")), _code("Warehouse", doc.get("to_warehouse")))))
 		return "-".join(codes)
-	warehouse = doc.get("set_warehouse")
-	if not warehouse and doc.get("is_return") and doc.get("return_against") and doc.get("doctype"):
-		# A desk return clears the header warehouse; name it after the branch of the original.
+	warehouse = None
+	if doc.get("is_return") and doc.get("return_against") and doc.get("doctype"):
+		# A return is named after the original's branch: a desk return clears the header
+		# warehouse, and a Delivery Note return gets the company's sales-return warehouse.
 		warehouse = frappe.db.get_value(doc.get("doctype"), doc.get("return_against"), "set_warehouse")
-	return _code("Warehouse", warehouse)
+	return _code("Warehouse", warehouse or doc.get("set_warehouse"))
 
 
 def _value(doc, variable):

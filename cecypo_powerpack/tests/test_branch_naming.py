@@ -99,8 +99,11 @@ class TestBranchNaming(IntegrationTestCase):
 		frappe.db.set_value("Sales Invoice", original, "set_warehouse", WH2, update_modified=False)
 		self.addCleanup(frappe.db.set_value, "Sales Invoice", original, "set_warehouse", before, update_modified=False)
 		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original), "BR/"), "MI/")
-		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH), "BR/"), "HQ/")
+		# A Delivery Note return carries the company's sales-return warehouse; the original still wins.
+		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH), "BR/"), "MI/")
 		self.assertEqual(parse_variable(self._sale(return_against=original), "BR/"), "")
+		frappe.db.set_value("Sales Invoice", original, "set_warehouse", None, update_modified=False)
+		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH), "BR/"), "HQ/")
 
 	def test_disabled_keeps_the_text(self):
 		# A site with the setting off keeps its existing series, e.g. BR-.YYYY.-.####.
