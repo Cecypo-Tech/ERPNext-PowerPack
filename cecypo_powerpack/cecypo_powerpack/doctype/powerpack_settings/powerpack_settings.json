@@ -713,7 +713,7 @@
    "fieldname": "branch_naming_description",
    "fieldtype": "HTML",
    "label": "Description",
-   "options": "<p class=\"text-muted\">Adds naming-series placeholders: <b>.CO.</b> company code, <b>.BR.</b> branch code from the header warehouse (Stock Entry: source-target, e.g. HQ-MI), <b>.SET.</b> Stock Entry Type code, <b>.PAYDIR.</b> IN / OUT / TRF on Payment Entry, <b>.RET.</b> RET on a return (DR on a Sales Invoice debit note). Set the codes in the <b>Naming Code</b> field on Company, Warehouse and Stock Entry Type (created when you enable this), then use them in Document Naming Settings, e.g. <code>.CO./.BR/.SI/.#####</code> gives OJ/PM/SI/00001, <code>.CO./.BR/.SI/.RET/.#####</code> gives OJ/PM/SI/RET/00001 for a return, or <code>.CO.-PAY-.PAYDIR.-.#####</code>. A return with no header warehouse takes the branch of the document it returns. Write the separator inside the placeholder (<code>.BR/.</code>, <code>.BR-.</code>) and it is left out when the code is blank. Each prefix keeps its own counter; only new documents are affected; a matching Document Naming Rule still wins. Once enabled, a series part that is exactly CO, BR, SET, PAYDIR or RET (with or without a trailing / - _) is read as a placeholder.</p>"
+   "options": "<p class=\"text-muted\">Short company, branch and return codes in document names, e.g. AC/HQ/SI/00001. Click <b>Naming guide</b> for the placeholders and setup steps.</p>"
   },
   {
    "fieldname": "public_link_section",
@@ -782,7 +782,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-29 10:00:00.000000",
+ "modified": "2026-10-29 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Cecypo PowerPack",
  "name": "PowerPack Settings",

@@ -19,6 +19,7 @@ frappe.ui.form.on('PowerPack Settings', {
 		cecypo_refresh_min_price_grid(frm);
 		cecypo_add_permission_manager_button(frm);
 		cecypo_mark_dup_withholding_rules(frm);
+		cecypo_add_naming_guide(frm);
 	},
 
 	min_selling_price_rules_add: function(frm) { cecypo_refresh_min_price_grid(frm); },
@@ -179,3 +180,58 @@ frappe.ui.form.on('Withholding Rule', {
 	item: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 	supplier: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 });
+
+// Document Naming: a short line plus a button that opens the placeholder table and setup steps.
+function cecypo_add_naming_guide(frm) {
+	const field = frm.fields_dict.branch_naming_description;
+	if (!field) {
+		return;
+	}
+	field.$wrapper.html(`
+		<p class="text-muted">${__('Short company, branch and return codes in document names, e.g. AC/HQ/SI/00001.')}</p>
+		<button class="btn btn-xs btn-default cecypo-naming-guide">
+			${frappe.utils.icon('info', 'xs')} ${__('Naming guide')}
+		</button>`);
+	field.$wrapper.find('.cecypo-naming-guide').on('click', cecypo_show_naming_guide);
+}
+
+function cecypo_show_naming_guide() {
+	const link = (doctype, label) => `<a href="/app/${frappe.router.slug(doctype)}" target="_blank">${label || __(doctype)}</a>`;
+	const rows = (list) => list.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('');
+	const placeholders = [
+		['<code>.CO.</code>', __('Company code'), __('{0} → Naming Code (else Abbr)', [link('Company')]), 'AC'],
+		['<code>.BR/.</code>', __('Branch code of the header warehouse (Set Warehouse). Stock Entry: source-target. Return: the original document\'s branch'), __('{0} → Naming Code', [link('Warehouse')]), 'HQ/ · HQ-TN/'],
+		['<code>.SET/.</code>', __('Stock Entry Type code'), __('{0} → Naming Code', [link('Stock Entry Type')]), 'MT/'],
+		['<code>.PAYDIR.</code>', __('Payment Entry direction'), __('Payment Type'), 'IN · OUT · TRF'],
+		['<code>.RET/.</code>', __('RET on a return, DR on a Sales Invoice debit note'), __('Is Return / Is Debit Note'), 'RET/ · DR/'],
+	];
+	const examples = [
+		[__('Sales Invoice'), '<code>.CO./.BR/.SI/.RET/.#####</code>', 'AC/HQ/SI/00001', 'AC/HQ/SI/RET/00001'],
+		[__('Delivery Note'), '<code>.CO./.BR/.DN/.RET/.#####</code>', 'AC/HQ/DN/00001', 'AC/HQ/DN/RET/00001'],
+		[__('Purchase Invoice'), '<code>.CO./.BR/.PI/.RET/.#####</code>', 'AC/HQ/PI/00001', 'AC/HQ/PI/RET/00001'],
+		[__('Quotation'), '<code>.CO./.BR/.QT/.#####</code>', 'AC/HQ/QT/00001', __('No warehouse: {0}', ['AC/QT/00001'])],
+		[__('Stock Entry'), '<code>.CO./.BR/.STK/.#####</code>', 'AC/HQ-TN/STK/00001', __('HQ to TN transfer')],
+		[__('Payment Entry'), '<code>.CO.-PAY-.PAYDIR.-.#####</code>', 'AC-PAY-IN-00001', 'AC-PAY-OUT-00001'],
+	];
+	const table = (head, body) => `<table class="table table-bordered table-sm" style="font-size: var(--text-sm)">
+		<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows(body)}</tbody></table>`;
+
+	const d = new frappe.ui.Dialog({ title: __('Document Naming guide'), size: 'extra-large', fields: [{ fieldtype: 'HTML', fieldname: 'guide' }] });
+	d.fields_dict.guide.$wrapper.html(`
+		<h5>${__('Set up')}</h5>
+		<ol>
+			<li>${__('Tick <b>Enable Branch Naming Codes</b> and save. A <b>Naming Code</b> field is added to Company, Warehouse and Stock Entry Type.')}</li>
+			<li>${__('Fill the Naming Code on each {0}, {1} and {2}, e.g. AC, HQ, MT.', [link('Company'), link('Warehouse'), link('Stock Entry Type')])}</li>
+			<li>${__('Open {0}, pick the Transaction, put the series on the <b>first line</b> of the Series List (the first line is the default, also for POS) and click <b>Update Series List</b>.', [link('Document Naming Settings')])}</li>
+		</ol>
+		<h5>${__('Placeholders')}</h5>
+		${table([__('Placeholder'), __('Gives'), __('Taken from'), __('Example')], placeholders)}
+		<h5>${__('Example series')}</h5>
+		${table([__('Document'), __('Series'), __('Gives'), __('Return / other')], examples)}
+		<p class="text-muted small">
+			${__('The separator written inside a placeholder (<code>.BR/.</code>, <code>.BR-.</code>, <code>.BR_.</code>) is left out when the code is blank, so a sale with no warehouse is AC/SI/00001.')}
+			${__('Each prefix keeps its own counter. Only new documents are affected. A matching Document Naming Rule still wins over the series.')}
+			${__('Once enabled, a series part that is exactly CO, BR, SET, PAYDIR or RET is read as a placeholder.')}
+		</p>`);
+	d.show();
+}
