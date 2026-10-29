@@ -1,5 +1,6 @@
-"""Naming-series placeholders: company, branch and Stock Entry Type codes, and the Payment Entry
-direction. `.CO./.BR/.SI/.#####` names a Paint Matt sale `OJ/PM/SI/00001`.
+"""Naming-series placeholders: company, branch and Stock Entry Type codes, the Payment Entry
+direction, and RET / DR on returns and Sales Invoice debit notes. `.CO./.BR/.SI/.#####` names a
+Paint Matt sale `OJ/PM/SI/00001`; `.CO./.BR/.SI/.RET/.#####` names its return `OJ/PM/SI/RET/00001`.
 
 Registered through Frappe's naming_series_variables hook, the one ERPNext uses for `.ABBR.`.
 Each prefix keeps its own counter, and a matching Document Naming Rule still wins over the
@@ -34,7 +35,12 @@ def _branch(doc):
 		# Both ends of a transfer: HQ to Milimani is HQ-MI.
 		codes = dict.fromkeys(filter(None, (_code("Warehouse", doc.get("from_warehouse")), _code("Warehouse", doc.get("to_warehouse")))))
 		return "-".join(codes)
-	return _code("Warehouse", doc.get("set_warehouse"))
+	warehouse = None
+	if doc.get("is_return") and doc.get("return_against") and doc.get("doctype"):
+		# A return is named after the original's branch: a desk return clears the header
+		# warehouse, and a Delivery Note return gets the company's sales-return warehouse.
+		warehouse = frappe.db.get_value(doc.get("doctype"), doc.get("return_against"), "set_warehouse")
+	return _code("Warehouse", warehouse or doc.get("set_warehouse"))
 
 
 def _value(doc, variable):
@@ -48,6 +54,10 @@ def _value(doc, variable):
 		return _code("Stock Entry Type", doc.get("stock_entry_type")) if doc.get("doctype") == "Stock Entry" else ""
 	if variable == "PAYDIR":
 		return PAYMENT_DIRECTION.get(doc.get("payment_type"), "") if doc.get("doctype") == "Payment Entry" else ""
+	if variable == "RET":
+		if doc.get("is_return"):
+			return "RET"
+		return "DR" if doc.get("doctype") == "Sales Invoice" and doc.get("is_debit_note") else ""
 	return ""
 
 

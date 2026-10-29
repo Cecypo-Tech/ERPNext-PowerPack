@@ -129,10 +129,10 @@ after_migrate = [
     "cecypo_powerpack.branch_naming.after_migrate",
 ]
 
-# Naming-series placeholders (.CO. .BR. .SET. .PAYDIR.), the hook ERPNext uses for .ABBR.
+# Naming-series placeholders (.CO. .BR. .SET. .PAYDIR. .RET.), the hook ERPNext uses for .ABBR.
 naming_series_variables = {
     v: "cecypo_powerpack.branch_naming.parse_variable"
-    for v in ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR")
+    for v in ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR", "RET", "RET/", "RET-", "RET_")
 }
 
 # Fixtures
