@@ -12,7 +12,7 @@ WH = "_Test Warehouse - _TC"
 WH2 = "_Test Warehouse 1 - _TC"
 SET = "Material Transfer"
 FIELD = "cecypo_naming_code"
-PLACEHOLDERS = ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR")
+PLACEHOLDERS = ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR", "RET", "RET/", "RET-", "RET_")
 
 
 def _code(doctype, name, code):
@@ -83,6 +83,25 @@ class TestBranchNaming(IntegrationTestCase):
 			self.assertEqual(parse_variable(doc, "PAYDIR"), expected)
 		self.assertEqual(parse_variable(self._sale(payment_type="Receive"), "PAYDIR"), "")
 
+	def test_return_and_debit_note(self):
+		for doctype in ("Sales Invoice", "Delivery Note", "Purchase Receipt", "Purchase Invoice"):
+			self.assertEqual(parse_variable(frappe._dict(doctype=doctype, is_return=1), "RET/"), "RET/", doctype)
+			self.assertEqual(parse_variable(frappe._dict(doctype=doctype), "RET/"), "", doctype)
+		self.assertEqual(parse_variable(self._sale(is_debit_note=1), "RET/"), "DR/")
+		self.assertEqual(parse_variable(self._sale(is_debit_note=1), "RET"), "DR")
+		self.assertEqual(parse_variable(frappe._dict(doctype="Purchase Invoice", is_debit_note=1), "RET/"), "")
+
+	def test_return_takes_the_original_branch(self):
+		original = frappe.db.get_value("Sales Invoice", {}, "name")
+		if not original:
+			self.skipTest("no Sales Invoice on this site")
+		before = frappe.db.get_value("Sales Invoice", original, "set_warehouse")
+		frappe.db.set_value("Sales Invoice", original, "set_warehouse", WH2, update_modified=False)
+		self.addCleanup(frappe.db.set_value, "Sales Invoice", original, "set_warehouse", before, update_modified=False)
+		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original), "BR/"), "MI/")
+		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH), "BR/"), "HQ/")
+		self.assertEqual(parse_variable(self._sale(return_against=original), "BR/"), "")
+
 	def test_disabled_keeps_the_text(self):
 		# A site with the setting off keeps its existing series, e.g. BR-.YYYY.-.####.
 		frappe.db.set_single_value("PowerPack Settings", "enable_branch_naming_codes", 0)
@@ -93,7 +112,7 @@ class TestBranchNaming(IntegrationTestCase):
 
 	def test_no_doc(self):
 		# The Naming Series preview: no branch, type or direction; the default company's code.
-		for variable in ("BR", "BR/", "SET/", "PAYDIR"):
+		for variable in ("BR", "BR/", "SET/", "PAYDIR", "RET/"):
 			self.assertEqual(parse_variable(None, variable), "", variable)
 		default = frappe.db.get_default("company")
 		if default:
@@ -111,6 +130,11 @@ class TestBranchNaming(IntegrationTestCase):
 		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH), number_generator=counter), "TC1/HQ/SI/00001")
 		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=None), number_generator=counter), "TC1/SI/00001")
 		self.assertEqual(prefixes, ["TC1/HQ/SI/", "TC1/SI/"])
+
+		series = ".CO./.BR/.SI/.RET/.#####"
+		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH, is_return=1), number_generator=counter), "TC1/HQ/SI/RET/00001")
+		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH, is_debit_note=1), number_generator=counter), "TC1/HQ/SI/DR/00001")
+		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH), number_generator=counter), "TC1/HQ/SI/00001")
 
 	def test_enabling_creates_code_fields(self):
 		names = [f"{dt}-{FIELD}" for dt in ("Company", "Warehouse", "Stock Entry Type")]
