@@ -60,6 +60,27 @@ class TestBranchNaming(IntegrationTestCase):
 		self.assertEqual(parse_variable(self._sale(set_warehouse=WH), "BR/"), "")
 		self.assertEqual(parse_variable(self._sale(set_warehouse="No Such Warehouse"), "BR/"), "")
 
+	def test_branch_falls_back_to_item_warehouse(self):
+		# A POS profile with no warehouse leaves the header blank and sets each row's warehouse.
+		items = [frappe._dict(warehouse=None), frappe._dict(warehouse=WH2), frappe._dict(warehouse=WH)]
+		self.assertEqual(parse_variable(self._sale(set_warehouse=None, items=items), "BR/"), "MI/")
+		self.assertEqual(parse_variable(self._sale(set_warehouse=WH, items=items), "BR/"), "HQ/")
+		self.assertEqual(parse_variable(self._sale(set_warehouse=None, items=[]), "BR/"), "")
+
+	def test_return_takes_the_original_item_warehouse(self):
+		row = frappe.db.get_value("Sales Invoice Item", {"parenttype": "Sales Invoice"}, ["name", "parent", "warehouse"], as_dict=True)
+		if not row:
+			self.skipTest("no Sales Invoice on this site")
+		header = frappe.db.get_value("Sales Invoice", row.parent, "set_warehouse")
+		frappe.db.set_value("Sales Invoice", row.parent, "set_warehouse", None, update_modified=False)
+		self.addCleanup(frappe.db.set_value, "Sales Invoice", row.parent, "set_warehouse", header, update_modified=False)
+		# Other rows of the original must not outrank its first row.
+		first = frappe.db.get_value("Sales Invoice Item", {"parent": row.parent, "parenttype": "Sales Invoice"}, ["name", "warehouse"], order_by="idx asc", as_dict=True)
+		frappe.db.set_value("Sales Invoice Item", first.name, "warehouse", WH2, update_modified=False)
+		self.addCleanup(frappe.db.set_value, "Sales Invoice Item", first.name, "warehouse", first.warehouse, update_modified=False)
+		doc = self._sale(is_return=1, return_against=row.parent, items=[frappe._dict(warehouse=WH)])
+		self.assertEqual(parse_variable(doc, "BR/"), "MI/")
+
 	def test_stock_entry_branches(self):
 		def entry(src, tgt):
 			return frappe._dict(doctype="Stock Entry", company=CO, from_warehouse=src, to_warehouse=tgt)

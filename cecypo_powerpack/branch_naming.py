@@ -35,12 +35,20 @@ def _branch(doc):
 		# Both ends of a transfer: HQ to Milimani is HQ-MI.
 		codes = dict.fromkeys(filter(None, (_code("Warehouse", doc.get("from_warehouse")), _code("Warehouse", doc.get("to_warehouse")))))
 		return "-".join(codes)
-	warehouse = None
 	if doc.get("is_return") and doc.get("return_against") and doc.get("doctype"):
 		# A return is named after the original's branch: a desk return clears the header
 		# warehouse, and a Delivery Note return gets the company's sales-return warehouse.
-		warehouse = frappe.db.get_value(doc.get("doctype"), doc.get("return_against"), "set_warehouse")
-	return _code("Warehouse", warehouse or doc.get("set_warehouse"))
+		doctype, name = doc.get("doctype"), doc.get("return_against")
+		items = frappe.get_meta(doctype).get_field("items")
+		warehouse = frappe.db.get_value(doctype, name, "set_warehouse") or (
+			items and frappe.db.get_value(items.options, {"parent": name, "parenttype": doctype, "warehouse": ("is", "set")}, "warehouse", order_by="idx asc")
+		)
+		if warehouse:
+			return _code("Warehouse", warehouse)
+	# A POS profile with no warehouse leaves the header blank and sets each row's warehouse:
+	# the first row's names the document.
+	warehouse = doc.get("set_warehouse") or next((i.get("warehouse") for i in doc.get("items") or [] if i.get("warehouse")), None)
+	return _code("Warehouse", warehouse)
 
 
 def _value(doc, variable):
