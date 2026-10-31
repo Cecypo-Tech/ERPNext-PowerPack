@@ -203,10 +203,12 @@ function cecypo_show_naming_guide() {
 		['<code>.BR/.</code>', __('Branch code of the header warehouse (Set Warehouse). Stock Entry: source-target. Return: the original document\'s branch'), __('{0} → Naming Code', [link('Warehouse')]), 'HQ/ · HQ-TN/'],
 		['<code>.SET/.</code>', __('Stock Entry Type code'), __('{0} → Naming Code', [link('Stock Entry Type')]), 'MT/'],
 		['<code>.PAYDIR.</code>', __('Payment Entry direction'), __('Payment Type'), 'IN · OUT · TRF'],
+		['<code>.ST/.</code>', __('Sales Invoice sale type: POS for a cash sale, INV for a credit sale'), __('Sale Type (set by klik POS)'), 'POS/ · INV/'],
 		['<code>.RET/.</code>', __('RET on a return, DR on a Sales Invoice debit note'), __('Is Return / Is Debit Note'), 'RET/ · DR/'],
 	];
 	const examples = [
 		[__('Sales Invoice'), '<code>.CO./.BR/.SI/.RET/.#####</code>', 'AC/HQ/SI/00001', 'AC/HQ/SI/RET/00001'],
+		[__('Sales Invoice by sale type'), '<code>.BR/.ST/.RET/.#####</code>', 'HQ/POS/00001 · HQ/INV/00001', 'HQ/POS/RET/00001'],
 		[__('Delivery Note'), '<code>.CO./.BR/.DN/.RET/.#####</code>', 'AC/HQ/DN/00001', 'AC/HQ/DN/RET/00001'],
 		[__('Purchase Invoice'), '<code>.CO./.BR/.PI/.RET/.#####</code>', 'AC/HQ/PI/00001', 'AC/HQ/PI/RET/00001'],
 		[__('Quotation'), '<code>.CO./.BR/.QT/.#####</code>', 'AC/HQ/QT/00001', __('No warehouse: {0}', ['AC/QT/00001'])],
@@ -231,7 +233,7 @@ function cecypo_show_naming_guide() {
 		<p class="text-muted small">
 			${__('The separator written inside a placeholder (<code>.BR/.</code>, <code>.BR-.</code>, <code>.BR_.</code>) is left out when the code is blank, so a sale with no warehouse is AC/SI/00001.')}
 			${__('Each prefix keeps its own counter. Only new documents are affected. A matching Document Naming Rule still wins over the series.')}
-			${__('Once enabled, a series part that is exactly CO, BR, SET, PAYDIR or RET is read as a placeholder.')}
+			${__('Once enabled, a series part that is exactly CO, BR, SET, PAYDIR, ST or RET is read as a placeholder.')}
 		</p>`);
 	d.show();
 }

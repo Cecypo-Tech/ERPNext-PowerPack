@@ -1,6 +1,6 @@
 """Naming-series placeholders: company, branch and Stock Entry Type codes, the Payment Entry
-direction, and RET / DR on returns and Sales Invoice debit notes. `.CO./.BR/.SI/.#####` names a
-Paint Matt sale `OJ/PM/SI/00001`; `.CO./.BR/.SI/.RET/.#####` names its return `OJ/PM/SI/RET/00001`.
+direction, the Sales Invoice sale type (POS / INV), and RET / DR on returns and Sales Invoice debit
+notes. `.CO./.BR/.SI/.#####` names a Paint Matt sale `OJ/PM/SI/00001`; `.CO./.BR/.SI/.RET/.#####` names its return `OJ/PM/SI/RET/00001`.
 
 Registered through Frappe's naming_series_variables hook, the one ERPNext uses for `.ABBR.`.
 Each prefix keeps its own counter, and a matching Document Naming Rule still wins over the
@@ -14,6 +14,8 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 FIELD = "cecypo_naming_code"
 SEPARATORS = ("/", "-", "_")
 PAYMENT_DIRECTION = {"Receive": "IN", "Pay": "OUT", "Internal Transfer": "TRF"}
+# klik_pos fills Sales Invoice.custom_sale_type before insert (a return copies its original's).
+SALE_TYPE = {"Cash": "POS", "Credit": "INV"}
 
 
 def is_enabled():
@@ -62,6 +64,8 @@ def _value(doc, variable):
 		return _code("Stock Entry Type", doc.get("stock_entry_type")) if doc.get("doctype") == "Stock Entry" else ""
 	if variable == "PAYDIR":
 		return PAYMENT_DIRECTION.get(doc.get("payment_type"), "") if doc.get("doctype") == "Payment Entry" else ""
+	if variable == "ST":
+		return SALE_TYPE.get(doc.get("custom_sale_type"), "") if doc.get("doctype") == "Sales Invoice" else ""
 	if variable == "RET":
 		if doc.get("is_return"):
 			return "RET"

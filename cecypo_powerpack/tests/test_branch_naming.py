@@ -12,7 +12,7 @@ WH = "_Test Warehouse - _TC"
 WH2 = "_Test Warehouse 1 - _TC"
 SET = "Material Transfer"
 FIELD = "cecypo_naming_code"
-PLACEHOLDERS = ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR", "RET", "RET/", "RET-", "RET_")
+PLACEHOLDERS = ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR", "RET", "RET/", "RET-", "RET_", "ST", "ST/", "ST-", "ST_")
 
 
 def _code(doctype, name, code):
@@ -112,6 +112,20 @@ class TestBranchNaming(IntegrationTestCase):
 		self.assertEqual(parse_variable(self._sale(is_debit_note=1), "RET"), "DR")
 		self.assertEqual(parse_variable(frappe._dict(doctype="Purchase Invoice", is_debit_note=1), "RET/"), "")
 
+	def test_every_placeholder_is_registered(self):
+		from cecypo_powerpack import hooks
+
+		self.assertEqual(set(hooks.naming_series_variables), set(PLACEHOLDERS))
+
+	def test_sale_type(self):
+		# klik fills custom_sale_type before insert: Cash -> POS, Credit -> INV.
+		self.assertEqual(parse_variable(self._sale(custom_sale_type="Cash"), "ST/"), "POS/")
+		self.assertEqual(parse_variable(self._sale(custom_sale_type="Credit"), "ST/"), "INV/")
+		self.assertEqual(parse_variable(self._sale(custom_sale_type="Credit"), "ST"), "INV")
+		self.assertEqual(parse_variable(self._sale(), "ST/"), "")
+		self.assertEqual(parse_variable(self._sale(custom_sale_type="Barter"), "ST/"), "")
+		self.assertEqual(parse_variable(frappe._dict(doctype="Delivery Note", custom_sale_type="Cash"), "ST/"), "")
+
 	def test_return_takes_the_original_branch(self):
 		original = frappe.db.get_value("Sales Invoice", {}, "name")
 		if not original:
@@ -136,7 +150,7 @@ class TestBranchNaming(IntegrationTestCase):
 
 	def test_no_doc(self):
 		# The Naming Series preview: no branch, type or direction; the default company's code.
-		for variable in ("BR", "BR/", "SET/", "PAYDIR", "RET/"):
+		for variable in ("BR", "BR/", "SET/", "PAYDIR", "RET/", "ST/"):
 			self.assertEqual(parse_variable(None, variable), "", variable)
 		default = frappe.db.get_default("company")
 		if default:
