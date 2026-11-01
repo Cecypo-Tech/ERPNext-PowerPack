@@ -274,17 +274,20 @@ function cecypo_apply_suggested_naming(frm) {
 					method: 'cecypo_powerpack.branch_naming.apply_suggested_series',
 					args: { company },
 					freeze: true,
-				}).then(({ message: changed }) => {
+				}).then(({ message: { series, codes } }) => {
 					d.hide();
-					frappe.msgprint(changed.length
-						? __('Series updated for {0}.', [changed.map((dt) => __(dt)).join(', ')])
-						: __('Every doctype already uses the suggested series.'));
+					const done = [];
+					if (series.length) done.push(__('Series updated for {0}.', [series.map((dt) => __(dt)).join(', ')]));
+					if (codes.length) done.push(__('Naming Code set on {0} warehouses.', [codes.length]));
+					frappe.msgprint(done.join('<br>') || __('Every doctype already uses the suggested series.'));
 				});
 			},
 		});
 		d.fields_dict.plan.$wrapper.html(`<div style="font-size: var(--text-sm)">
 			<p>${__('Each doctype\'s series list is replaced by the new series. Existing documents keep their names. Next name is from the latest document.')}</p>
-			${cecypo_naming_table([__('Document'), __('Series now'), __('New series'), __('Next name')], rows)}</div>`);
+			${cecypo_naming_table([__('Document'), __('Series now'), __('New series'), __('Next name')], rows)}
+			${message.codes.length ? `<p style="margin-top: var(--margin-md)">${__('Warehouses with no Naming Code get one: GIT for a transit warehouse, else the name\'s initials. Codes already set are kept. Edit any on the Warehouse before the first documents.')}</p>
+			${cecypo_naming_table([__('Warehouse'), __('New code')], message.codes.map((c) => [esc(c.warehouse), `<code>${esc(c.code)}</code>`]))}` : ''}</div>`);
 		d.show();
 	});
 }
