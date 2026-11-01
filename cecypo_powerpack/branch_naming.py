@@ -9,6 +9,7 @@ so a sale with no warehouse is `OJ/SI/00001`, not `OJ//SI/00001`.
 """
 
 import frappe
+from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 FIELD = "cecypo_naming_code"
@@ -16,6 +17,18 @@ SEPARATORS = ("/", "-", "_")
 PAYMENT_DIRECTION = {"Receive": "IN", "Pay": "OUT", "Internal Transfer": "TRF"}
 # klik_pos fills Sales Invoice.custom_sale_type before insert (a return copies its original's).
 SALE_TYPE = {"Cash": "POS", "Credit": "INV"}
+# PowerPack Settings > Apply suggested naming. Each doctype's own letters keep the counters apart.
+SUGGESTED_SERIES = {
+	"Sales Invoice": ".CO/.BR/.SI/.RET/.#####",
+	"Sales Order": ".CO/.BR/.SO/.#####",
+	"Quotation": ".CO/.BR/.QT/.#####",
+	"Delivery Note": ".CO/.BR/.DN/.RET/.#####",
+	"Purchase Order": ".CO/.BR/.PO/.#####",
+	"Purchase Receipt": ".CO/.BR/.PR/.RET/.#####",
+	"Purchase Invoice": ".CO/.BR/.PI/.RET/.#####",
+	"Stock Entry": ".CO/.BR/.STK/.#####",
+	"Payment Entry": ".CO/.PAY/.PAYDIR./.#####",
+}
 
 
 def is_enabled():
@@ -107,3 +120,62 @@ def setup_custom_fields():
 def after_migrate():
 	if is_enabled():
 		setup_custom_fields()
+
+
+def _series_options(doctype):
+	return [o for o in frappe.get_meta(doctype).get_naming_series_options() if o.strip()]
+
+
+def _last_doc(doctype):
+	try:
+		return frappe.get_last_doc(doctype)
+	except frappe.DoesNotExistError:
+		return None
+
+
+@frappe.whitelist()
+def get_suggested_series():
+	"""The Apply dialog: each doctype's suggested series, its default now, and the next names it
+	gives on the latest document (so the preview shows this site's real codes)."""
+	from frappe.model.naming import NamingSeries
+
+	frappe.only_for("System Manager")
+	rows = []
+	for doctype, series in SUGGESTED_SERIES.items():
+		options = _series_options(doctype)
+		rows.append(
+			{
+				"doctype": doctype,
+				"series": series,
+				"current": options[0] if options else "",
+				"preview": NamingSeries(series).get_preview(doc=_last_doc(doctype))[0],
+			}
+		)
+	return {"enabled": is_enabled(), "rows": rows}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_suggested_series(company):
+	"""Put each suggested series first (the default, also for POS), keeping the existing lines.
+	`company` must be typed exactly as a Company is named: the series are global, so this is a
+	confirmation, not a filter. Returns the doctypes changed; a second run changes nothing."""
+	frappe.only_for("System Manager")
+	if not is_enabled():
+		frappe.throw(_("Enable Branch Naming Codes and save first, or the placeholders stay literal text."))
+	# MariaDB compares names case-insensitively; the confirmation must match the spelling exactly.
+	if not company or company not in frappe.get_all("Company", pluck="name"):
+		frappe.throw(_("Type the company name exactly as it is spelt to confirm."))
+
+	dns = frappe.get_doc("Document Naming Settings")
+	dns.user_must_always_select = 0
+	changed = []
+	for doctype, series in SUGGESTED_SERIES.items():
+		options = _series_options(doctype)
+		if options[:1] == [series]:
+			continue
+		dns.transaction_type = doctype
+		dns.naming_series_options = "\n".join([series, *(o for o in options if o != series)])
+		dns.check_duplicate()
+		dns.set_series_options_in_meta(doctype, dns.naming_series_options)
+		changed.append(doctype)
+	return changed

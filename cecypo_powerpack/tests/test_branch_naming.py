@@ -195,3 +195,62 @@ class TestBranchNaming(IntegrationTestCase):
 		settings.save()
 		for name in names:
 			self.assertTrue(frappe.db.exists("Custom Field", name), name)
+
+
+class TestApplySuggestedSeries(IntegrationTestCase):
+	"""PowerPack Settings > Apply suggested naming: writes each doctype's series as the default."""
+
+	DT = "Quotation"
+	SERIES = ".CO/.BR/.QT/.#####"
+
+	def setUp(self):
+		from unittest.mock import patch
+
+		self._enabled = frappe.db.get_single_value("PowerPack Settings", "enable_branch_naming_codes")
+		frappe.db.set_single_value("PowerPack Settings", "enable_branch_naming_codes", 1)
+		patcher = patch.dict("cecypo_powerpack.branch_naming.SUGGESTED_SERIES", {self.DT: self.SERIES}, clear=True)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		self._options = self._series_options()
+		self.addCleanup(self._restore)
+
+	def _series_options(self):
+		return [o for o in frappe.get_meta(self.DT).get_naming_series_options() if o.strip()]
+
+	def _restore(self):
+		dns = frappe.get_doc("Document Naming Settings")
+		dns.user_must_always_select = 0
+		dns.set_series_options_in_meta(self.DT, "\n".join(self._options))
+		frappe.db.set_single_value("PowerPack Settings", "enable_branch_naming_codes", self._enabled or 0)
+
+	def test_puts_the_series_first_and_keeps_the_old_ones(self):
+		from cecypo_powerpack.branch_naming import apply_suggested_series
+
+		self.assertEqual(apply_suggested_series(CO), [self.DT])
+		options = self._series_options()
+		self.assertEqual(options[0], self.SERIES)
+		self.assertEqual(options[1:], [o for o in self._options if o != self.SERIES])
+		self.assertEqual(frappe.get_meta(self.DT).get_field("naming_series").default, self.SERIES)
+		# A second run changes nothing.
+		self.assertEqual(apply_suggested_series(CO), [])
+
+	def test_refuses_a_misspelt_company(self):
+		from cecypo_powerpack.branch_naming import apply_suggested_series
+
+		for wrong in (CO.lower(), CO + " ", "", None):
+			self.assertRaises(frappe.ValidationError, apply_suggested_series, wrong)
+		self.assertEqual(self._series_options(), self._options)
+
+	def test_refuses_while_the_feature_is_off(self):
+		from cecypo_powerpack.branch_naming import apply_suggested_series
+
+		frappe.db.set_single_value("PowerPack Settings", "enable_branch_naming_codes", 0)
+		self.assertRaises(frappe.ValidationError, apply_suggested_series, CO)
+		self.assertEqual(self._series_options(), self._options)
+
+	def test_suggestions_preview_the_series(self):
+		from cecypo_powerpack.branch_naming import get_suggested_series
+
+		rows = get_suggested_series()["rows"]
+		self.assertEqual([(r["doctype"], r["series"]) for r in rows], [(self.DT, self.SERIES)])
+		self.assertTrue(rows[0]["preview"].endswith("QT/00001"), rows[0]["preview"])
