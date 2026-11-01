@@ -1,6 +1,6 @@
 """Naming-series placeholders: company, branch and Stock Entry Type codes, the Payment Entry
 direction, the Sales Invoice sale type (POS / INV), and RET / DR on returns and Sales Invoice debit
-notes. `.CO./.BR/.SI/.#####` names a Paint Matt sale `OJ/PM/SI/00001`; `.CO./.BR/.SI/.RET/.#####` names its return `OJ/PM/SI/RET/00001`.
+notes; `.CO.` is left out when the Company has no Naming Code. `.CO./.BR/.SI/.#####` names a Paint Matt sale `OJ/PM/SI/00001`; `.CO./.BR/.SI/.RET/.#####` names its return `OJ/PM/SI/RET/00001`.
 
 Registered through Frappe's naming_series_variables hook, the one ERPNext uses for `.ABBR.`.
 Each prefix keeps its own counter, and a matching Document Naming Rule still wins over the
@@ -56,8 +56,9 @@ def _branch(doc):
 def _value(doc, variable):
 	if variable == "CO":
 		# No document is the Naming Series screen's preview: show the default company, as .ABBR. does.
+		# Blank code, the usual single-company site: no company part at all (not the Abbr).
 		company = doc.get("company") or frappe.db.get_default("company")
-		return (_code("Company", company) or frappe.get_cached_value("Company", company, "abbr") or "") if company else ""
+		return _code("Company", company)
 	if variable == "BR":
 		return _branch(doc)
 	if variable == "SET":

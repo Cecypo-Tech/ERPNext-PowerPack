@@ -12,7 +12,7 @@ WH = "_Test Warehouse - _TC"
 WH2 = "_Test Warehouse 1 - _TC"
 SET = "Material Transfer"
 FIELD = "cecypo_naming_code"
-PLACEHOLDERS = ("CO", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR", "RET", "RET/", "RET-", "RET_", "ST", "ST/", "ST-", "ST_")
+PLACEHOLDERS = ("CO", "CO/", "CO-", "CO_", "BR", "BR/", "BR-", "BR_", "SET", "SET/", "SET-", "SET_", "PAYDIR", "RET", "RET/", "RET-", "RET_", "ST", "ST/", "ST-", "ST_")
 
 
 def _code(doctype, name, code):
@@ -44,9 +44,15 @@ class TestBranchNaming(IntegrationTestCase):
 	def test_company_code(self):
 		self.assertEqual(parse_variable(self._sale(), "CO"), "TC1")
 
-	def test_company_code_falls_back_to_abbr(self):
+	def test_blank_company_code_is_left_out(self):
+		# A single-company site leaves the code blank: no company part at all, not the Abbr.
 		_code("Company", CO, None)
-		self.assertEqual(parse_variable(self._sale(), "CO"), frappe.db.get_value("Company", CO, "abbr"))
+		self.assertEqual(parse_variable(self._sale(), "CO"), "")
+		self.assertEqual(parse_variable(self._sale(), "CO/"), "")
+
+	def test_company_code_with_separator(self):
+		self.assertEqual(parse_variable(self._sale(), "CO/"), "TC1/")
+		self.assertEqual(parse_variable(self._sale(), "CO-"), "TC1-")
 
 	def test_branch_code_with_separator(self):
 		doc = self._sale(set_warehouse=WH)
@@ -154,7 +160,7 @@ class TestBranchNaming(IntegrationTestCase):
 			self.assertEqual(parse_variable(None, variable), "", variable)
 		default = frappe.db.get_default("company")
 		if default:
-			expected = frappe.db.get_value("Company", default, FIELD) or frappe.db.get_value("Company", default, "abbr")
+			expected = frappe.db.get_value("Company", default, FIELD) or ""
 			self.assertEqual(parse_variable(None, "CO"), expected)
 
 	def test_series_end_to_end(self):
@@ -173,6 +179,11 @@ class TestBranchNaming(IntegrationTestCase):
 		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH, is_return=1), number_generator=counter), "TC1/HQ/SI/RET/00001")
 		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH, is_debit_note=1), number_generator=counter), "TC1/HQ/SI/DR/00001")
 		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH), number_generator=counter), "TC1/HQ/SI/00001")
+
+		series = ".CO/.BR/.SI/.#####"
+		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH), number_generator=counter), "TC1/HQ/SI/00001")
+		_code("Company", CO, None)
+		self.assertEqual(parse_naming_series(series, doc=self._sale(set_warehouse=WH), number_generator=counter), "HQ/SI/00001")
 
 	def test_enabling_creates_code_fields(self):
 		names = [f"{dt}-{FIELD}" for dt in ("Company", "Warehouse", "Stock Entry Type")]
