@@ -181,7 +181,7 @@ frappe.ui.form.on('Withholding Rule', {
 	supplier: function(frm) { cecypo_mark_dup_withholding_rules(frm); },
 });
 
-// Document Naming: a short line plus a button that opens the placeholder table and setup steps.
+// Document Naming: a short line plus the guide and the Apply suggested naming buttons.
 function cecypo_add_naming_guide(frm) {
 	const field = frm.fields_dict.branch_naming_description;
 	if (!field) {
@@ -191,49 +191,100 @@ function cecypo_add_naming_guide(frm) {
 		<p class="text-muted">${__('Short company, branch and return codes in document names, e.g. AC/HQ/SI/00001.')}</p>
 		<button class="btn btn-xs btn-default cecypo-naming-guide">
 			${frappe.utils.icon('info', 'xs')} ${__('Naming guide')}
-		</button>`);
+		</button>
+		<button class="btn btn-xs btn-default cecypo-naming-apply">${__('Apply suggested naming')}</button>`);
 	field.$wrapper.find('.cecypo-naming-guide').on('click', cecypo_show_naming_guide);
+	field.$wrapper.find('.cecypo-naming-apply').on('click', () => cecypo_apply_suggested_naming(frm));
+}
+
+// Compact bordered table: sized to its content, not stretched across the dialog.
+function cecypo_naming_table(head, body) {
+	const cell = 'padding: 2px 8px';
+	return `<table class="table table-bordered" style="width: auto; font-size: var(--text-xs); margin-bottom: var(--margin-sm)">
+		<thead><tr>${head.map((h) => `<th style="${cell}">${h}</th>`).join('')}</tr></thead>
+		<tbody>${body.map((r) => `<tr>${r.map((c) => `<td style="${cell}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
 function cecypo_show_naming_guide() {
 	const link = (doctype, label) => `<a href="/app/${frappe.router.slug(doctype)}" target="_blank">${label || __(doctype)}</a>`;
-	const rows = (list) => list.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('');
+	const nowrap = (text) => `<span style="white-space: nowrap">${text}</span>`;
 	const placeholders = [
-		['<code>.CO.</code>', __('Company code'), __('{0} → Naming Code (else Abbr)', [link('Company')]), 'AC'],
-		['<code>.BR/.</code>', __('Branch code of the header warehouse (Set Warehouse). Stock Entry: source-target. Return: the original document\'s branch'), __('{0} → Naming Code', [link('Warehouse')]), 'HQ/ · HQ-TN/'],
+		['<code>.CO/.</code>', __('Company code; left out when blank (a single-company site)'), __('{0} → Naming Code', [link('Company')]), 'AC/'],
+		['<code>.BR/.</code>', __('Branch: header warehouse, else the first item row\'s. Stock Entry: source-target. Return: the original\'s'), __('{0} → Naming Code', [link('Warehouse')]), nowrap('HQ/ · HQ-TN/')],
 		['<code>.SET/.</code>', __('Stock Entry Type code'), __('{0} → Naming Code', [link('Stock Entry Type')]), 'MT/'],
-		['<code>.PAYDIR.</code>', __('Payment Entry direction'), __('Payment Type'), 'IN · OUT · TRF'],
-		['<code>.ST/.</code>', __('Sales Invoice sale type: POS for a cash sale, INV for a credit sale'), __('Sale Type (set by klik POS)'), 'POS/ · INV/'],
-		['<code>.RET/.</code>', __('RET on a return, DR on a Sales Invoice debit note'), __('Is Return / Is Debit Note'), 'RET/ · DR/'],
+		['<code>.PAYDIR.</code>', __('Payment Entry direction'), __('Payment Type'), nowrap('IN · OUT · TRF')],
+		['<code>.ST/.</code>', __('Sale type: POS for cash, INV for credit'), __('Sale Type (klik POS)'), nowrap('POS/ · INV/')],
+		['<code>.RET/.</code>', __('RET on a return, DR on a Sales Invoice debit note'), __('Is Return / Is Debit Note'), nowrap('RET/ · DR/')],
 	];
 	const examples = [
-		[__('Sales Invoice'), '<code>.CO./.BR/.SI/.RET/.#####</code>', 'AC/HQ/SI/00001', 'AC/HQ/SI/RET/00001'],
-		[__('Sales Invoice by sale type'), '<code>.BR/.ST/.RET/.#####</code>', 'HQ/POS/00001 · HQ/INV/00001', 'HQ/POS/RET/00001'],
-		[__('Delivery Note'), '<code>.CO./.BR/.DN/.RET/.#####</code>', 'AC/HQ/DN/00001', 'AC/HQ/DN/RET/00001'],
-		[__('Purchase Invoice'), '<code>.CO./.BR/.PI/.RET/.#####</code>', 'AC/HQ/PI/00001', 'AC/HQ/PI/RET/00001'],
-		[__('Quotation'), '<code>.CO./.BR/.QT/.#####</code>', 'AC/HQ/QT/00001', __('No warehouse: {0}', ['AC/QT/00001'])],
-		[__('Stock Entry'), '<code>.CO./.BR/.STK/.#####</code>', 'AC/HQ-TN/STK/00001', __('HQ to TN transfer')],
-		[__('Payment Entry'), '<code>.CO.-PAY-.PAYDIR.-.#####</code>', 'AC-PAY-IN-00001', 'AC-PAY-OUT-00001'],
+		[__('Sales Invoice'), '<code>.CO/.BR/.SI/.RET/.#####</code>', nowrap('AC/HQ/SI/00001'), nowrap('AC/HQ/SI/RET/00001')],
+		[__('Sales Invoice by sale type'), '<code>.BR/.ST/.RET/.#####</code>', nowrap('HQ/POS/00001'), nowrap('HQ/INV/00001')],
+		[__('Quotation'), '<code>.CO/.BR/.QT/.#####</code>', nowrap('AC/HQ/QT/00001'), __('No warehouse: {0}', ['AC/QT/00001'])],
+		[__('Stock Entry'), '<code>.CO/.BR/.STK/.#####</code>', nowrap('AC/HQ-TN/STK/00001'), __('HQ to TN')],
+		[__('Payment Entry'), '<code>.CO/.PAY/.PAYDIR./.#####</code>', nowrap('AC/PAY/IN/00001'), nowrap('AC/PAY/OUT/00001')],
 	];
-	const table = (head, body) => `<table class="table table-bordered table-sm" style="font-size: var(--text-sm)">
-		<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows(body)}</tbody></table>`;
 
-	const d = new frappe.ui.Dialog({ title: __('Document Naming guide'), size: 'extra-large', fields: [{ fieldtype: 'HTML', fieldname: 'guide' }] });
-	d.fields_dict.guide.$wrapper.html(`
-		<h5>${__('Set up')}</h5>
-		<ol>
-			<li>${__('Tick <b>Enable Branch Naming Codes</b> and save. A <b>Naming Code</b> field is added to Company, Warehouse and Stock Entry Type.')}</li>
-			<li>${__('Fill the Naming Code on each {0}, {1} and {2}, e.g. AC, HQ, MT.', [link('Company'), link('Warehouse'), link('Stock Entry Type')])}</li>
-			<li>${__('Open {0}, pick the Transaction, put the series on the <b>first line</b> of the Series List (the first line is the default, also for POS) and click <b>Update Series List</b>.', [link('Document Naming Settings')])}</li>
+	const d = new frappe.ui.Dialog({ title: __('Document Naming guide'), size: 'large', fields: [{ fieldtype: 'HTML', fieldname: 'guide' }] });
+	d.fields_dict.guide.$wrapper.html(`<div style="font-size: var(--text-sm)">
+		<ol style="padding-left: 1.2em; margin-bottom: var(--margin-sm)">
+			<li>${__('Tick <b>Enable Branch Naming Codes</b> and save.')}</li>
+			<li>${__('Fill the Naming Code on each {0}, {1} and {2}, e.g. HQ, MT. Leave Company blank on a single-company site.', [link('Warehouse'), link('Stock Entry Type'), link('Company')])}</li>
+			<li>${__('Click <b>Apply suggested naming</b>, or put your own series on the first line in {0}.', [link('Document Naming Settings')])}</li>
 		</ol>
-		<h5>${__('Placeholders')}</h5>
-		${table([__('Placeholder'), __('Gives'), __('Taken from'), __('Example')], placeholders)}
-		<h5>${__('Example series')}</h5>
-		${table([__('Document'), __('Series'), __('Gives'), __('Return / other')], examples)}
-		<p class="text-muted small">
-			${__('The separator written inside a placeholder (<code>.BR/.</code>, <code>.BR-.</code>, <code>.BR_.</code>) is left out when the code is blank, so a sale with no warehouse is AC/SI/00001.')}
-			${__('Each prefix keeps its own counter. Only new documents are affected. A matching Document Naming Rule still wins over the series.')}
-			${__('Once enabled, a series part that is exactly CO, BR, SET, PAYDIR, ST or RET is read as a placeholder.')}
-		</p>`);
+		${cecypo_naming_table([__('Placeholder'), __('Gives'), __('Taken from'), __('Example')], placeholders)}
+		${cecypo_naming_table([__('Document'), __('Series'), __('Gives'), __('Return / other')], examples)}
+		<p class="text-muted" style="font-size: var(--text-xs); margin: 0">
+			${__('A separator inside a placeholder (<code>.BR/.</code>, <code>.BR-.</code>) is left out with a blank code. Each prefix keeps its own counter; only new documents are affected. A matching Document Naming Rule still wins.')}
+		</p></div>`);
 	d.show();
+}
+
+// Apply suggested naming: shows each doctype's planned series and next name, and needs the
+// company name typed exactly before the server writes them (the series are site-wide).
+function cecypo_apply_suggested_naming(frm) {
+	if (frm.is_dirty()) {
+		frappe.msgprint(__('Save PowerPack Settings first.'));
+		return;
+	}
+	frappe.call('cecypo_powerpack.branch_naming.get_suggested_series').then(({ message }) => {
+		if (!message.enabled) {
+			frappe.msgprint(__('Tick <b>Enable Branch Naming Codes</b> and save first.'));
+			return;
+		}
+		const esc = frappe.utils.escape_html;
+		const rows = message.rows.map((r) => [
+			esc(__(r.doctype)),
+			`<code>${esc(r.current)}</code>`,
+			r.current === r.series ? __('No change') : `<code>${esc(r.series)}</code>`,
+			`<span style="white-space: nowrap">${esc(r.preview)}</span>`,
+		]);
+		const d = new frappe.ui.Dialog({
+			title: __('Apply suggested naming'),
+			size: 'large',
+			fields: [
+				{ fieldtype: 'HTML', fieldname: 'plan' },
+				{
+					fieldtype: 'Data', fieldname: 'company', reqd: 1, label: __('Type the company name to confirm'),
+					description: __('Exactly as it is spelt. The series apply to every company on this site; existing documents keep their names.'),
+				},
+			],
+			primary_action_label: __('Apply'),
+			primary_action({ company }) {
+				frappe.call({
+					method: 'cecypo_powerpack.branch_naming.apply_suggested_series',
+					args: { company },
+					freeze: true,
+				}).then(({ message: changed }) => {
+					d.hide();
+					frappe.msgprint(changed.length
+						? __('Series updated for {0}.', [changed.map((dt) => __(dt)).join(', ')])
+						: __('Every doctype already uses the suggested series.'));
+				});
+			},
+		});
+		d.fields_dict.plan.$wrapper.html(`<div style="font-size: var(--text-sm)">
+			<p>${__('Each series goes on the first line (the default, also for POS); the current lines stay as options. Next name is from the latest document.')}</p>
+			${cecypo_naming_table([__('Document'), __('Series now'), __('New series'), __('Next name')], rows)}</div>`);
+		d.show();
+	});
 }
