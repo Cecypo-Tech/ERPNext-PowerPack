@@ -223,16 +223,23 @@ class TestApplySuggestedSeries(IntegrationTestCase):
 		dns.set_series_options_in_meta(self.DT, "\n".join(self._options))
 		frappe.db.set_single_value("PowerPack Settings", "enable_branch_naming_codes", self._enabled or 0)
 
-	def test_puts_the_series_first_and_keeps_the_old_ones(self):
+	def test_replaces_the_series_list(self):
 		from cecypo_powerpack.branch_naming import apply_suggested_series
 
 		self.assertEqual(apply_suggested_series(CO), [self.DT])
-		options = self._series_options()
-		self.assertEqual(options[0], self.SERIES)
-		self.assertEqual(options[1:], [o for o in self._options if o != self.SERIES])
+		self.assertEqual(self._series_options(), [self.SERIES])
 		self.assertEqual(frappe.get_meta(self.DT).get_field("naming_series").default, self.SERIES)
 		# A second run changes nothing.
 		self.assertEqual(apply_suggested_series(CO), [])
+
+	def test_a_list_that_only_starts_with_the_series_is_cleaned(self):
+		from cecypo_powerpack.branch_naming import apply_suggested_series
+
+		dns = frappe.get_doc("Document Naming Settings")
+		dns.user_must_always_select = 0
+		dns.set_series_options_in_meta(self.DT, "\n".join([self.SERIES, *self._options]))
+		self.assertEqual(apply_suggested_series(CO), [self.DT])
+		self.assertEqual(self._series_options(), [self.SERIES])
 
 	def test_refuses_a_misspelt_company(self):
 		from cecypo_powerpack.branch_naming import apply_suggested_series

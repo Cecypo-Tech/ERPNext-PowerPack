@@ -255,7 +255,7 @@ function cecypo_apply_suggested_naming(frm) {
 		const rows = message.rows.map((r) => [
 			esc(__(r.doctype)),
 			`<code>${esc(r.current)}</code>`,
-			r.current === r.series ? __('No change') : `<code>${esc(r.series)}</code>`,
+			r.current === r.series && r.only ? __('No change') : `<code>${esc(r.series)}</code>`,
 			`<span style="white-space: nowrap">${esc(r.preview)}</span>`,
 		]);
 		const d = new frappe.ui.Dialog({
@@ -283,7 +283,7 @@ function cecypo_apply_suggested_naming(frm) {
 			},
 		});
 		d.fields_dict.plan.$wrapper.html(`<div style="font-size: var(--text-sm)">
-			<p>${__('Each series goes on the first line (the default, also for POS); the current lines stay as options. Next name is from the latest document.')}</p>
+			<p>${__('Each doctype\'s series list is replaced by the new series. Existing documents keep their names. Next name is from the latest document.')}</p>
 			${cecypo_naming_table([__('Document'), __('Series now'), __('New series'), __('Next name')], rows)}</div>`);
 		d.show();
 	});
