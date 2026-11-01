@@ -148,6 +148,7 @@ def get_suggested_series():
 				"doctype": doctype,
 				"series": series,
 				"current": options[0] if options else "",
+				"only": options == [series],
 				"preview": NamingSeries(series).get_preview(doc=_last_doc(doctype))[0],
 			}
 		)
@@ -156,7 +157,9 @@ def get_suggested_series():
 
 @frappe.whitelist(methods=["POST"])
 def apply_suggested_series(company):
-	"""Put each suggested series first (the default, also for POS), keeping the existing lines.
+	"""Replace each doctype's series list with its suggested series (the default, also for POS).
+	Existing documents keep their names; a draft still holding an old series saves, since frappe
+	never validates naming_series against its options.
 	`company` must be typed exactly as a Company is named: the series are global, so this is a
 	confirmation, not a filter. Returns the doctypes changed; a second run changes nothing."""
 	frappe.only_for("System Manager")
@@ -170,11 +173,10 @@ def apply_suggested_series(company):
 	dns.user_must_always_select = 0
 	changed = []
 	for doctype, series in SUGGESTED_SERIES.items():
-		options = _series_options(doctype)
-		if options[:1] == [series]:
+		if _series_options(doctype) == [series]:
 			continue
 		dns.transaction_type = doctype
-		dns.naming_series_options = "\n".join([series, *(o for o in options if o != series)])
+		dns.naming_series_options = series
 		dns.check_duplicate()
 		dns.set_series_options_in_meta(doctype, dns.naming_series_options)
 		changed.append(doctype)
