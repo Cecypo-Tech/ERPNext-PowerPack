@@ -143,8 +143,13 @@ class TestBranchNaming(IntegrationTestCase):
 		# A Delivery Note return carries the company's sales-return warehouse; the original still wins.
 		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH), "BR/"), "MI/")
 		self.assertEqual(parse_variable(self._sale(return_against=original), "BR/"), "")
+		# No header warehouse on the original: its first item row's warehouse is the branch.
 		frappe.db.set_value("Sales Invoice", original, "set_warehouse", None, update_modified=False)
-		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH), "BR/"), "HQ/")
+		rows = frappe.get_all("Sales Invoice Item", filters={"parent": original}, fields=["name", "warehouse"])
+		for row in rows:
+			frappe.db.set_value("Sales Invoice Item", row.name, "warehouse", WH, update_modified=False)
+			self.addCleanup(frappe.db.set_value, "Sales Invoice Item", row.name, "warehouse", row.warehouse, update_modified=False)
+		self.assertEqual(parse_variable(self._sale(is_return=1, return_against=original, set_warehouse=WH2), "BR/"), "HQ/")
 
 	def test_disabled_keeps_the_text(self):
 		# A site with the setting off keeps its existing series, e.g. BR-.YYYY.-.####.
@@ -213,6 +218,10 @@ class TestApplySuggestedSeries(IntegrationTestCase):
 		self.addCleanup(patcher.stop)
 		self._options = self._series_options()
 		self.addCleanup(self._restore)
+		# Apply also codes every blank warehouse: put codes and types back after each test.
+		setup_custom_fields()
+		warehouses = frappe.get_all("Warehouse", fields=["name", "warehouse_type", FIELD])
+		self.addCleanup(lambda: [frappe.db.set_value("Warehouse", w.name, {"warehouse_type": w.warehouse_type, FIELD: w[FIELD]}, update_modified=False) for w in warehouses])
 
 	def _series_options(self):
 		return [o for o in frappe.get_meta(self.DT).get_naming_series_options() if o.strip()]
@@ -226,11 +235,11 @@ class TestApplySuggestedSeries(IntegrationTestCase):
 	def test_replaces_the_series_list(self):
 		from cecypo_powerpack.branch_naming import apply_suggested_series
 
-		self.assertEqual(apply_suggested_series(CO), [self.DT])
+		self.assertEqual(apply_suggested_series(CO)["series"], [self.DT])
 		self.assertEqual(self._series_options(), [self.SERIES])
 		self.assertEqual(frappe.get_meta(self.DT).get_field("naming_series").default, self.SERIES)
 		# A second run changes nothing.
-		self.assertEqual(apply_suggested_series(CO), [])
+		self.assertEqual(apply_suggested_series(CO)["series"], [])
 
 	def test_a_list_that_only_starts_with_the_series_is_cleaned(self):
 		from cecypo_powerpack.branch_naming import apply_suggested_series
@@ -238,7 +247,7 @@ class TestApplySuggestedSeries(IntegrationTestCase):
 		dns = frappe.get_doc("Document Naming Settings")
 		dns.user_must_always_select = 0
 		dns.set_series_options_in_meta(self.DT, "\n".join([self.SERIES, *self._options]))
-		self.assertEqual(apply_suggested_series(CO), [self.DT])
+		self.assertEqual(apply_suggested_series(CO)["series"], [self.DT])
 		self.assertEqual(self._series_options(), [self.SERIES])
 
 	def test_refuses_a_misspelt_company(self):
@@ -261,3 +270,33 @@ class TestApplySuggestedSeries(IntegrationTestCase):
 		rows = get_suggested_series()["rows"]
 		self.assertEqual([(r["doctype"], r["series"]) for r in rows], [(self.DT, self.SERIES)])
 		self.assertTrue(rows[0]["preview"].endswith("QT/00001"), rows[0]["preview"])
+
+	def test_fills_blank_warehouse_codes_only(self):
+		from cecypo_powerpack.branch_naming import apply_suggested_series, get_suggested_series
+
+		frappe.db.set_value("Warehouse", WH, {"warehouse_type": "Transit", FIELD: ""}, update_modified=False)
+		_code("Warehouse", WH2, "KEEP")
+		planned = {c["warehouse"]: c["code"] for c in get_suggested_series()["codes"]}
+		# Older transit warehouses on the site may hold GIT already: then GIT2, GIT3...
+		self.assertTrue(planned[WH].startswith("GIT"), planned[WH])
+		self.assertNotIn(WH2, planned)
+		self.assertFalse(any(frappe.db.get_value("Warehouse", w, "is_group") for w in planned))
+		self.assertEqual(len(set(planned.values())), len(planned))
+
+		self.assertEqual(apply_suggested_series(CO)["codes"], [{"warehouse": w, "code": c} for w, c in planned.items()])
+		self.assertEqual(frappe.db.get_value("Warehouse", WH, FIELD), planned[WH])
+		self.assertEqual(frappe.db.get_value("Warehouse", WH2, FIELD), "KEEP")
+		self.assertEqual(get_suggested_series()["codes"], [])
+
+
+class TestSuggestCode(IntegrationTestCase):
+	def test_codes(self):
+		from cecypo_powerpack.branch_naming import suggest_code
+
+		self.assertEqual(suggest_code("Goods In Transit", "Transit", set()), "GIT")
+		self.assertEqual(suggest_code("Main", "", set()), "M")
+		self.assertEqual(suggest_code("Main Store", None, set()), "MS")
+		self.assertEqual(suggest_code("KCB  store-2", "", set()), "KS2")
+		self.assertEqual(suggest_code("Machakos", "", {"M"}), "M2")
+		self.assertEqual(suggest_code("Mombasa", "", {"M", "M2"}), "M3")
+		self.assertEqual(suggest_code("Yard", "Transit", {"GIT"}), "GIT2")

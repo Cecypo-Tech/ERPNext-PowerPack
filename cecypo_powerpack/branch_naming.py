@@ -133,6 +133,38 @@ def _last_doc(doctype):
 		return None
 
 
+def suggest_code(warehouse_name, warehouse_type, taken):
+	"""GIT for a transit warehouse, else the name's initials (Main Store is MS); a code already in
+	`taken` gets a number (M, M2), so no two branches share a counter."""
+	words = "".join(c if c.isalnum() else " " for c in warehouse_name or "").split()
+	base = "GIT" if warehouse_type == "Transit" else "".join(w[0] for w in words).upper() or "W"
+	code, n = base, 1
+	while code in taken:
+		n += 1
+		code = f"{base}{n}"
+	return code
+
+
+def _suggested_codes():
+	"""A code for each enabled, non-group warehouse that has none. Set codes are never changed."""
+	if not frappe.get_meta("Warehouse").has_field(FIELD):
+		return []
+	warehouses = frappe.get_all(
+		"Warehouse", filters={"is_group": 0, "disabled": 0}, fields=["name", "warehouse_name", "warehouse_type", FIELD], order_by="creation asc"
+	)
+	taken = {(w[FIELD] or "").strip() for w in warehouses} | {
+		(c or "").strip() for c in frappe.get_all("Warehouse", filters={"disabled": 1}, pluck=FIELD)
+	}
+	codes = []
+	for w in warehouses:
+		if (w[FIELD] or "").strip():
+			continue
+		code = suggest_code(w.warehouse_name, w.warehouse_type, taken)
+		taken.add(code)
+		codes.append({"warehouse": w.name, "code": code})
+	return codes
+
+
 @frappe.whitelist()
 def get_suggested_series():
 	"""The Apply dialog: each doctype's suggested series, its default now, and the next names it
@@ -152,7 +184,7 @@ def get_suggested_series():
 				"preview": NamingSeries(series).get_preview(doc=_last_doc(doctype))[0],
 			}
 		)
-	return {"enabled": is_enabled(), "rows": rows}
+	return {"enabled": is_enabled(), "rows": rows, "codes": _suggested_codes()}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -161,7 +193,8 @@ def apply_suggested_series(company):
 	Existing documents keep their names; a draft still holding an old series saves, since frappe
 	never validates naming_series against its options.
 	`company` must be typed exactly as a Company is named: the series are global, so this is a
-	confirmation, not a filter. Returns the doctypes changed; a second run changes nothing."""
+	confirmation, not a filter. Also fills each blank warehouse Naming Code (`_suggested_codes`).
+	Returns the doctypes and codes changed; a second run changes nothing."""
 	frappe.only_for("System Manager")
 	if not is_enabled():
 		frappe.throw(_("Enable Branch Naming Codes and save first, or the placeholders stay literal text."))
@@ -180,4 +213,7 @@ def apply_suggested_series(company):
 		dns.check_duplicate()
 		dns.set_series_options_in_meta(doctype, dns.naming_series_options)
 		changed.append(doctype)
-	return changed
+	codes = _suggested_codes()
+	for c in codes:
+		frappe.db.set_value("Warehouse", c["warehouse"], FIELD, c["code"])
+	return {"series": changed, "codes": codes}
