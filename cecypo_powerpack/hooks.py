@@ -121,12 +121,14 @@ after_install = [
     "cecypo_powerpack.price_approval.setup_custom_fields",
     "cecypo_powerpack.copy_as_message.seed_client_scripts",
     "cecypo_powerpack.kenya_withholding.setup_custom_fields",
+    "cecypo_powerpack.pos_list_floor.setup_custom_fields",
 ]
 after_migrate = [
     "cecypo_powerpack.price_approval.after_migrate",
     "cecypo_powerpack.kenya_withholding.setup_custom_fields",
     "cecypo_powerpack.copy_as_message.seed_client_scripts",
     "cecypo_powerpack.branch_naming.after_migrate",
+    "cecypo_powerpack.pos_list_floor.setup_custom_fields",
 ]
 
 # Naming-series placeholders (.CO. .BR. .SET. .PAYDIR. .ST. .RET.), the hook ERPNext uses for .ABBR.
@@ -220,6 +222,9 @@ extend_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"User": {
+		"validate": "cecypo_powerpack.pos_supervisor_pin.validate_pin_format",
+	},
 	"Quotation": {
 		"before_validate": "cecypo_powerpack.price_approval.guard_pending_edit",
 		"validate": "cecypo_powerpack.min_selling_price.validate_min_selling_price",

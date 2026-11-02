@@ -104,6 +104,10 @@ def custom_field_definitions():
 		},
 	]
 	fields = {doctype: [dict(field) for field in common] for doctype in APPROVAL_DOCTYPES}
+	# Audit of till overrides = filtering the Sales Invoice list on these two.
+	breach, approved_by = fields["Sales Invoice"][0], fields["Sales Invoice"][1]
+	breach.update({"hidden": 0, "depends_on": f"eval:doc.{BREACH_FIELD}", "in_standard_filter": 1})
+	approved_by["in_standard_filter"] = 1
 	# Data, not Link: klik_pos deletes the held order right after checkout and a
 	# Link would turn that delete into a LinkExistsError.
 	fields["Sales Invoice"].append(
