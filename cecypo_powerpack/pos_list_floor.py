@@ -6,7 +6,7 @@
 On a till whose POS Profile ticks "Enforce minimum selling price to selected pricelist",
 a line may not sell below the Item Price of the list it was priced from, unless a
 supervisor authorised it with a PIN at the till (pos_supervisor_pin). A till sale on an
-unticked till is not judged by PowerPack at all; desk documents keep the cost floor.
+unticked till and desk documents keep the cost floor, unchanged.
 """
 
 import json
@@ -36,6 +36,7 @@ def custom_field_definitions():
 				"fieldname": ENFORCE_FIELD,
 				"label": "Enforce minimum selling price to selected pricelist",
 				"fieldtype": "Check",
+				"default": "0",  # off on every existing till after an update
 				"insert_after": "allow_rate_change",
 				"description": "Lines may not sell below the price list they were priced from unless a supervisor authorises it with their PIN.",
 			}
@@ -190,9 +191,13 @@ def below_floor_rows(doc):
 		if promos_exempt:
 			minimum = _promo_price(doc, row, price_list, minimum)
 		precision = row.precision("base_net_rate") or 2
-		rate = flt(flt(row.base_net_rate) * _inclusive_factor(doc, row), precision)
+		factor = _inclusive_factor(doc, row)
+		rate = flt(flt(row.base_net_rate) * factor, precision)
 		minimum = flt(minimum, precision)
-		if rate < minimum:
+		# Judge in net terms, the list price taken to net the way ERPNext rounds the line's net
+		# rate: grossing the rounded net rate back up lands a cent under list on ~7% of prices.
+		# ponytail: qty > 1 can still differ by a cent through ERPNext's amount-then-rate rounding.
+		if flt(row.base_net_rate, precision) < flt(minimum / factor, precision):
 			rows.append(
 				{
 					"idx": row.idx,
@@ -233,6 +238,9 @@ def validate(doc):
 		doc.set(pa.APPROVED_BY_FIELD, authorisation["supervisor"])
 		doc.set(pa.APPROVED_ON_FIELD, now_datetime())
 		doc.set(pa.APPROVED_ROWS_FIELD, json.dumps(pa.snapshot_rows(doc, items=rows)))
+		token_key = authorisation.get("token_key")
+		if token_key:  # one sale per PIN: the token is spent once this sale is saved
+			frappe.db.after_commit.add(lambda: frappe.cache.delete_value(token_key))
 		return
 
 	frappe.throw(

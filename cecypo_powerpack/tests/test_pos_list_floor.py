@@ -11,6 +11,12 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestPosListFloorFields(FrappeTestCase):
+	def test_till_switch_off_by_default(self):
+		from cecypo_powerpack.pos_list_floor import custom_field_definitions
+
+		field = custom_field_definitions()["POS Profile"][0]
+		self.assertEqual(field.get("default"), "0")
+
 	def test_fields_exist_after_setup(self):
 		from cecypo_powerpack.pos_list_floor import ENFORCE_FIELD, LINE_LIST_FIELD, PIN_FIELD, setup_custom_fields
 
@@ -223,6 +229,15 @@ class TestPosListFloorRows(FrappeTestCase):
 		self.assertEqual(self.minimums(make_invoice(450, vat=16)), [])
 		self.assertEqual(self.minimums(make_invoice(449.99, vat=16)), [450])
 
+	def test_inclusive_tax_at_list_passes_where_cents_round_down(self):
+		# 99 incl. 16% -> net 85.34 -> x1.16 = 98.99: grossing the net rate back up blocked a
+		# sale made exactly at list on ~7% of whole-shilling prices.
+		name = frappe.db.get_value("Item Price", {"item_code": ITEM, "price_list": RETAIL, "uom": "Nos"})
+		frappe.db.set_value("Item Price", name, "price_list_rate", 99)
+		self.addCleanup(frappe.db.set_value, "Item Price", name, "price_list_rate", 450)
+		self.assertEqual(self.minimums(make_invoice(99, vat=16)), [])
+		self.assertEqual(self.minimums(make_invoice(98.98, vat=16)), [99])
+
 	def test_order_discount_counts(self):
 		self.assertEqual(self.minimums(make_invoice(450, discount_pct=10)), [450])
 
@@ -303,8 +318,12 @@ class TestPosListFloorValidate(FrappeTestCase):
 		# List 450 is the rule here; the cost floor (150) is not combined with it.
 		self.assertEqual(self.validate(make_invoice(450)).get("powerpack_price_breach"), 0)
 
-	def test_unticked_till_never_judged(self):
-		self.validate(make_invoice(1, till=OPEN_TILL))
+	def test_unticked_till_keeps_cost_floor(self):
+		# Only a ticked till swaps the cost floor for the list; held-order approval relies on it.
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self.validate(make_invoice(1, till=OPEN_TILL))
+		self.assertIn("Net selling rate should be at least", str(caught.exception))
+		self.validate(make_invoice(420, till=OPEN_TILL))  # above cost floor, below list: fine
 
 	def test_desk_invoice_keeps_cost_floor(self):
 		with self.assertRaises(frappe.ValidationError) as caught:

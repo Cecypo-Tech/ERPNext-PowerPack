@@ -107,6 +107,22 @@ class TestPosSupervisorPin(FrappeTestCase):
 		frappe.set_user(CASHIER)
 		self.assertFalse(authorise(make_invoice(420, owner=CASHIER), CASHIER, "4321")["ok"])
 
+	def test_token_used_up_once_the_sale_commits(self):
+		from cecypo_powerpack import pos_list_floor
+		from cecypo_powerpack.pos_supervisor_pin import apply_authorisation, authorise
+
+		token = authorise(make_invoice(420, owner=CASHIER), SUP1, PIN1)["token"]
+		sale = make_invoice(420, owner=CASHIER)
+		frappe.db.after_commit.reset()  # only this sale's callbacks, as in a real request
+		apply_authorisation(sale, token)
+		pos_list_floor.validate(sale)
+		self.assertEqual(sale.get("powerpack_price_approved_by"), SUP1)
+		# What frappe.db.commit() runs once the sale is saved; called directly because earlier
+		# tests in this run leave transaction control disabled, making commit() a no-op.
+		frappe.db.after_commit.run()
+		with self.assertRaises(frappe.ValidationError):
+			apply_authorisation(make_invoice(420, owner=CASHIER), token)
+
 	def test_token_from_another_cashier_refused(self):
 		from cecypo_powerpack.pos_supervisor_pin import apply_authorisation, authorise
 

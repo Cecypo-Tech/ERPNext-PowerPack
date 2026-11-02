@@ -122,7 +122,9 @@ def authorise(doc, supervisor, pin):
 
 def apply_authorisation(doc, token):
 	"""Hand the validator a supervisor's authorisation for this checkout (see pos_list_floor.validate)."""
-	entry = frappe.cache.get_value(f"powerpack_pos_auth:{token}") if token else None
+	key = f"powerpack_pos_auth:{token}"
+	entry = frappe.cache.get_value(key) if token else None
 	if not entry or entry.get("cashier") != frappe.session.user:
 		frappe.throw(_("The supervisor's authorisation expired. Authorise again."))
-	doc.flags.powerpack_pos_approval = {"supervisor": entry["supervisor"], "rows": entry["rows"]}
+	# Spent when the sale commits, not here: a retried checkout re-sends the same token.
+	doc.flags.powerpack_pos_approval = {"supervisor": entry["supervisor"], "rows": entry["rows"], "token_key": key}

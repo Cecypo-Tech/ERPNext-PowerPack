@@ -448,12 +448,16 @@ class TestMinSellingPriceValidation(FrappeTestCase):
 		})
 		return pos
 
-	def test_pos_invoice_on_unticked_till_not_judged(self):
-		# A till sale is judged by its till (pos_list_floor): an unticked till is not
-		# judged at all, so a POS Invoice far below the cost floor still saves. The Bin
-		# fallback this used to cover is exercised by the non-stock Sales Invoice tests.
+	def test_pos_invoice_uses_bin_valuation_when_row_has_no_incoming_rate(self):
+		# POS Invoice rows never carry incoming_rate at validate time, and the item
+		# master valuation is blank, so the only cost source is the Bin.
 		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
-		pos = self._make_pos_invoice(1)
+		with self.assertRaisesRegex(frappe.ValidationError, "at least"):
+			self._make_pos_invoice(105).save()
+
+	def test_pos_invoice_bin_fallback_allows_at_or_above_floor(self):
+		self._configure(rules=[{"item_group": "_MSP Child", "basis": "Valuation Rate", "floor_percent": 10}])
+		pos = self._make_pos_invoice(110)
 		pos.save()  # must not raise
 		self.assertTrue(pos.name)
 
