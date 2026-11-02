@@ -104,6 +104,10 @@ def custom_field_definitions():
 		},
 	]
 	fields = {doctype: [dict(field) for field in common] for doctype in APPROVAL_DOCTYPES}
+	# Audit of till overrides = filtering the Sales Invoice list on these two.
+	breach, approved_by = fields["Sales Invoice"][0], fields["Sales Invoice"][1]
+	breach.update({"hidden": 0, "depends_on": f"eval:doc.{BREACH_FIELD}", "in_standard_filter": 1})
+	approved_by["in_standard_filter"] = 1
 	# Data, not Link: klik_pos deletes the held order right after checkout and a
 	# Link would turn that delete into a LinkExistsError.
 	fields["Sales Invoice"].append(
@@ -308,7 +312,8 @@ def load_rows(raw):
 	return rows if isinstance(rows, list) else []
 
 
-def snapshot_rows(doc):
+def snapshot_rows(doc, items=None):
+	"""items: the rows to snapshot; default the rows the cost floor judges."""
 	from cecypo_powerpack.min_selling_price import judged_items
 
 	return [
@@ -318,17 +323,17 @@ def snapshot_rows(doc):
 			"qty": flt(item.qty),
 			"base_net_rate": flt(item.base_net_rate),
 		}
-		for item in judged_items(doc)
+		for item in (judged_items(doc) if items is None else items)
 	]
 
 
-def uncovered_rows(doc, approved_rows):
+def uncovered_rows(doc, approved_rows, items=None):
 	"""idx of judged rows no approved row covers: same item and UOM, rate at or
 	above the approved rate, quantity at or below the approved quantity."""
 	from cecypo_powerpack.min_selling_price import judged_items
 
 	missing = []
-	for item in judged_items(doc):
+	for item in judged_items(doc) if items is None else items:
 		covered = any(
 			row.get("item_code") == item.item_code
 			and (row.get("uom") or None) == (item.get("uom") or None)

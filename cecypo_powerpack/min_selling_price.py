@@ -158,6 +158,17 @@ def validate_min_selling_price(doc, method=None):
 	if doc.get("is_return") or doc.get("is_internal_customer"):
 		return
 
+	from cecypo_powerpack import pos_list_floor
+
+	# A ticked till judges its sales on the price list instead of the cost floor; an unticked
+	# till keeps the cost floor (and the held-order approval built on it) unchanged. A held
+	# order on a ticked till is judged when it is checked out, not when held.
+	if pos_list_floor.is_till_sale(doc) and pos_list_floor.till_enforces(doc):
+		pos_list_floor.validate(doc)
+		return
+	if doc.doctype == "Sales Order" and doc.get("custom_pos_profile") and pos_list_floor.till_enforces(doc):
+		return
+
 	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
 	rules = _build_rules(settings)
 	default_basis = settings.get("min_selling_price_default_basis") or "Valuation Rate"
