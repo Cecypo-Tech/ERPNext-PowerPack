@@ -312,7 +312,8 @@ def load_rows(raw):
 	return rows if isinstance(rows, list) else []
 
 
-def snapshot_rows(doc):
+def snapshot_rows(doc, items=None):
+	"""items: the rows to snapshot; default the rows the cost floor judges."""
 	from cecypo_powerpack.min_selling_price import judged_items
 
 	return [
@@ -322,17 +323,17 @@ def snapshot_rows(doc):
 			"qty": flt(item.qty),
 			"base_net_rate": flt(item.base_net_rate),
 		}
-		for item in judged_items(doc)
+		for item in (judged_items(doc) if items is None else items)
 	]
 
 
-def uncovered_rows(doc, approved_rows):
+def uncovered_rows(doc, approved_rows, items=None):
 	"""idx of judged rows no approved row covers: same item and UOM, rate at or
 	above the approved rate, quantity at or below the approved quantity."""
 	from cecypo_powerpack.min_selling_price import judged_items
 
 	missing = []
-	for item in judged_items(doc):
+	for item in judged_items(doc) if items is None else items:
 		covered = any(
 			row.get("item_code") == item.item_code
 			and (row.get("uom") or None) == (item.get("uom") or None)

@@ -206,3 +206,41 @@ def below_floor_rows(doc):
 				}
 			)
 	return rows
+
+
+def validate(doc):
+	"""Ticked till: every below-list line needs a supervisor's authorisation covering it."""
+	from frappe import _
+	from frappe.utils import now_datetime
+
+	from cecypo_powerpack import price_approval as pa
+
+	breaches = below_floor_rows(doc)
+	if not breaches:
+		pa.set_breach_flag(doc, 0)
+		return
+	by_idx = {row.idx: row for row in doc.items}
+	rows = [by_idx[b["idx"]] for b in breaches]
+
+	approved = pa.load_rows(doc.get(pa.APPROVED_ROWS_FIELD))
+	if approved and not pa.uncovered_rows(doc, approved, items=rows):
+		pa.set_breach_flag(doc, 1)
+		return
+
+	authorisation = doc.flags.get("powerpack_pos_approval")
+	if authorisation and not pa.uncovered_rows(doc, authorisation["rows"], items=rows):
+		pa.set_breach_flag(doc, 1)
+		doc.set(pa.APPROVED_BY_FIELD, authorisation["supervisor"])
+		doc.set(pa.APPROVED_ON_FIELD, now_datetime())
+		doc.set(pa.APPROVED_ROWS_FIELD, json.dumps(pa.snapshot_rows(doc, items=rows)))
+		return
+
+	frappe.throw(
+		"<br>".join(
+			_("Row {0} ({1}): price should be at least {2}").format(
+				b["idx"], b["item_name"], frappe.bold(frappe.format_value(b["minimum"], {"fieldtype": "Currency"}, currency=doc.get("currency")))
+			)
+			for b in breaches
+		),
+		title=_(pa.TITLE),
+	)

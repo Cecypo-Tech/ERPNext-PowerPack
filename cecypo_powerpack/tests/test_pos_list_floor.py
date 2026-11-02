@@ -93,7 +93,8 @@ def ensure_plf_fixtures():
 				"payments": [{"mode_of_payment": "Cash", "default": 1}],
 			}
 		).insert(ignore_permissions=True)
-	frappe.db.set_value("POS Profile", TILL, ENFORCE_FIELD, 1)
+	# allow_partial_payment: klik_pos (when installed) refuses an unpaid invoice on a till.
+	frappe.db.set_value("POS Profile", TILL, {ENFORCE_FIELD: 1, "allow_partial_payment": 1})
 	if not frappe.db.exists("User", CASHIER):
 		frappe.get_doc(
 			{"doctype": "User", "email": CASHIER, "first_name": "PLF Cashier", "send_welcome_email": 0}
@@ -242,3 +243,145 @@ class TestPosListFloorRows(FrappeTestCase):
 		frappe.clear_cache(doctype="PowerPack Settings")
 		self.assertEqual(self.minimums(make_invoice(405)), [])
 		self.assertEqual(self.minimums(make_invoice(400)), [405])
+
+
+OPEN_TILL = "_PLF Open Till"
+
+
+class TestPosListFloorValidate(FrappeTestCase):
+	"""The validator: ticked tills judged on the list, unticked tills not at all, desk unchanged."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		ensure_plf_fixtures()
+		if not frappe.db.exists("POS Profile", OPEN_TILL):
+			frappe.copy_doc(frappe.get_doc("POS Profile", TILL)).update({"name": OPEN_TILL}).insert(
+				ignore_permissions=True, set_name=OPEN_TILL
+			)
+		from cecypo_powerpack.pos_list_floor import ENFORCE_FIELD
+
+		frappe.db.set_value("POS Profile", OPEN_TILL, ENFORCE_FIELD, 0)
+		# A cost floor (150 on cost 100) that would block every price used below.
+		frappe.db.set_value("Item", ITEM, "last_purchase_rate", 100)
+		frappe.db.commit()
+
+	def setUp(self):
+		frappe.db.set_single_value("Selling Settings", "validate_selling_price", 0)
+		settings = frappe.get_single("PowerPack Settings")
+		self.saved = {f: settings.get(f) for f in (
+			"enable_min_selling_price", "min_selling_price_default_basis", "min_selling_price_default_percent",
+			"min_selling_price_skip_if_pricing_rule", "min_selling_price_override_role",
+		)}
+		frappe.db.set_single_value("PowerPack Settings", {
+			"enable_min_selling_price": 1,
+			"min_selling_price_default_basis": "Last Purchase Rate",
+			"min_selling_price_default_percent": 50,
+			"min_selling_price_skip_if_pricing_rule": 0,
+			# Administrator holds every role; an override role would turn blocks into warnings.
+			"min_selling_price_override_role": None,
+		})
+		frappe.clear_cache(doctype="PowerPack Settings")
+		frappe.flags.powerpack_test_min_selling_price = True
+
+	def tearDown(self):
+		frappe.flags.powerpack_test_min_selling_price = False
+		frappe.db.set_single_value("PowerPack Settings", self.saved)
+		frappe.clear_cache(doctype="PowerPack Settings")
+		super().tearDown()
+
+	def validate(self, doc):
+		from cecypo_powerpack.min_selling_price import validate_min_selling_price
+
+		validate_min_selling_price(doc)
+		return doc
+
+	def test_ticked_till_blocks_with_minimum(self):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self.validate(make_invoice(420))
+		message = str(caught.exception)
+		self.assertIn("Row 1 (_PLF Item): price should be at least", message)
+		self.assertIn("450", message)
+		for leak in ("cost", "valuation", "purchase", "margin"):
+			self.assertNotIn(leak, message.lower())
+
+	def test_ticked_till_at_list_passes_despite_cost_floor(self):
+		# List 450 is the rule here; the cost floor (150) is not combined with it.
+		self.assertEqual(self.validate(make_invoice(450)).get("powerpack_price_breach"), 0)
+
+	def test_unticked_till_never_judged(self):
+		self.validate(make_invoice(1, till=OPEN_TILL))
+
+	def test_desk_invoice_keeps_cost_floor(self):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self.validate(make_invoice(1, till=None))
+		self.assertIn("Net selling rate should be at least", str(caught.exception))
+
+	def test_master_switch_off(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_min_selling_price", 0)
+		frappe.clear_cache(doctype="PowerPack Settings")
+		self.validate(make_invoice(1))
+
+	def test_return_and_internal_customer_skip(self):
+		doc = make_invoice(420)
+		doc.is_return = 1
+		self.validate(doc)
+		doc = make_invoice(420)
+		doc.is_internal_customer = 1
+		self.validate(doc)
+
+	def test_held_order_on_ticked_till_not_judged(self):
+		if not frappe.get_meta("Sales Order").has_field("custom_pos_profile"):
+			self.skipTest("klik_pos held-order fields not installed")
+		so = frappe.new_doc("Sales Order")
+		so.update({"company": "_Test Company", "customer": "_Test Customer", "currency": "INR", "conversion_rate": 1,
+			"selling_price_list": RETAIL, "plc_conversion_rate": 1, "custom_pos_profile": TILL,
+			"transaction_date": frappe.utils.nowdate(), "delivery_date": frappe.utils.nowdate()})
+		so.append("items", {"item_code": ITEM, "qty": 1, "uom": "Nos", "stock_uom": "Nos", "conversion_factor": 1, "rate": 1, "price_list_rate": 1})
+		so.calculate_taxes_and_totals()
+		self.validate(so)
+
+	def _approval(self, doc):
+		from cecypo_powerpack.price_approval import snapshot_rows
+
+		return {"supervisor": "Administrator", "rows": snapshot_rows(doc, items=list(doc.items))}
+
+	def test_authorisation_stamps_and_submit_passes(self):
+		from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+
+		doc = create_sales_invoice(item_code=ITEM, rate=420, price_list_rate=450, do_not_save=1)
+		doc.pos_profile = TILL
+		doc.selling_price_list = RETAIL
+		doc.ignore_pricing_rule = 1
+		doc.calculate_taxes_and_totals()
+		doc.flags.powerpack_pos_approval = self._approval(doc)
+		doc.insert(ignore_permissions=True)
+		self.assertEqual(doc.powerpack_price_breach, 1)
+		self.assertEqual(doc.powerpack_price_approved_by, "Administrator")
+		self.assertTrue(doc.powerpack_price_approved_on)
+		self.assertTrue(doc.powerpack_price_approved_rows)
+
+		again = frappe.get_doc("Sales Invoice", doc.name)  # no flags: what the queue worker gets
+		again.submit()
+		self.assertEqual(again.docstatus, 1)
+
+	def test_lowered_after_authorisation_blocks(self):
+		import json
+
+		from cecypo_powerpack.price_approval import APPROVED_ROWS_FIELD, snapshot_rows
+
+		doc = make_invoice(420)
+		doc.set(APPROVED_ROWS_FIELD, json.dumps(snapshot_rows(doc, items=list(doc.items))))
+		self.validate(doc)  # still covered
+		doc.items[0].rate = 410
+		doc.calculate_taxes_and_totals()
+		with self.assertRaises(frappe.ValidationError):
+			self.validate(doc)
+
+	def test_authorisation_not_covering_blocks(self):
+		doc = make_invoice(420)
+		doc.flags.powerpack_pos_approval = self._approval(doc)
+		doc.items[0].rate = 410
+		doc.calculate_taxes_and_totals()
+		with self.assertRaises(frappe.ValidationError):
+			self.validate(doc)
