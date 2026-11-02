@@ -244,3 +244,14 @@ def validate(doc):
 		),
 		title=_(pa.TITLE),
 	)
+
+
+def till_floor_report(doc):
+	"""For the till's checkout preview: does this till enforce the floor, and which lines are below it."""
+	from cecypo_powerpack.utils import is_feature_enabled
+
+	if not (is_feature_enabled("enable_min_selling_price") and is_till_sale(doc) and till_enforces(doc)):
+		return {"enforced": False, "rows": []}
+	if doc.get("is_return") or doc.get("is_internal_customer"):
+		return {"enforced": True, "rows": []}
+	return {"enforced": True, "rows": below_floor_rows(doc)}

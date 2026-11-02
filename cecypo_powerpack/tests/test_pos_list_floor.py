@@ -45,6 +45,7 @@ RETAIL = "_PLF Retail"
 DISTRIBUTOR = "_PLF Distributor"
 EMPTY = "_PLF No Prices"
 TILL = "_PLF Till"
+OPEN_TILL = "_PLF Open Till"
 CASHIER = "_plf_cashier@example.com"
 VAT = "_Test Account VAT - _TC"
 
@@ -95,6 +96,9 @@ def ensure_plf_fixtures():
 		).insert(ignore_permissions=True)
 	# allow_partial_payment: klik_pos (when installed) refuses an unpaid invoice on a till.
 	frappe.db.set_value("POS Profile", TILL, {ENFORCE_FIELD: 1, "allow_partial_payment": 1})
+	if not frappe.db.exists("POS Profile", OPEN_TILL):
+		frappe.copy_doc(frappe.get_doc("POS Profile", TILL)).insert(ignore_permissions=True, set_name=OPEN_TILL)
+	frappe.db.set_value("POS Profile", OPEN_TILL, ENFORCE_FIELD, 0)
 	if not frappe.db.exists("User", CASHIER):
 		frappe.get_doc(
 			{"doctype": "User", "email": CASHIER, "first_name": "PLF Cashier", "send_welcome_email": 0}
@@ -245,9 +249,6 @@ class TestPosListFloorRows(FrappeTestCase):
 		self.assertEqual(self.minimums(make_invoice(400)), [405])
 
 
-OPEN_TILL = "_PLF Open Till"
-
-
 class TestPosListFloorValidate(FrappeTestCase):
 	"""The validator: ticked tills judged on the list, unticked tills not at all, desk unchanged."""
 
@@ -255,13 +256,6 @@ class TestPosListFloorValidate(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		ensure_plf_fixtures()
-		if not frappe.db.exists("POS Profile", OPEN_TILL):
-			frappe.copy_doc(frappe.get_doc("POS Profile", TILL)).update({"name": OPEN_TILL}).insert(
-				ignore_permissions=True, set_name=OPEN_TILL
-			)
-		from cecypo_powerpack.pos_list_floor import ENFORCE_FIELD
-
-		frappe.db.set_value("POS Profile", OPEN_TILL, ENFORCE_FIELD, 0)
 		# A cost floor (150 on cost 100) that would block every price used below.
 		frappe.db.set_value("Item", ITEM, "last_purchase_rate", 100)
 		frappe.db.commit()
@@ -385,3 +379,41 @@ class TestPosListFloorValidate(FrappeTestCase):
 		doc.calculate_taxes_and_totals()
 		with self.assertRaises(frappe.ValidationError):
 			self.validate(doc)
+
+
+class TestTillFloorReport(FrappeTestCase):
+	"""What the till's checkout preview shows: enforced or not, and the below-list rows."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		ensure_plf_fixtures()
+
+	def setUp(self):
+		self.saved = frappe.db.get_single_value("PowerPack Settings", "enable_min_selling_price")
+		frappe.db.set_single_value("PowerPack Settings", "enable_min_selling_price", 1)
+		frappe.clear_cache(doctype="PowerPack Settings")
+
+	def tearDown(self):
+		frappe.db.set_single_value("PowerPack Settings", "enable_min_selling_price", self.saved)
+		frappe.clear_cache(doctype="PowerPack Settings")
+		super().tearDown()
+
+	def test_ticked_till_reports_rows(self):
+		from cecypo_powerpack.pos_list_floor import till_floor_report
+
+		report = till_floor_report(make_invoice(420))
+		self.assertTrue(report["enforced"])
+		self.assertEqual([r["minimum"] for r in report["rows"]], [450])
+
+	def test_master_switch_off_reports_nothing(self):
+		from cecypo_powerpack.pos_list_floor import till_floor_report
+
+		frappe.db.set_single_value("PowerPack Settings", "enable_min_selling_price", 0)
+		frappe.clear_cache(doctype="PowerPack Settings")
+		self.assertEqual(till_floor_report(make_invoice(420)), {"enforced": False, "rows": []})
+
+	def test_unticked_till_reports_nothing(self):
+		from cecypo_powerpack.pos_list_floor import till_floor_report
+
+		self.assertEqual(till_floor_report(make_invoice(420, till=OPEN_TILL)), {"enforced": False, "rows": []})
