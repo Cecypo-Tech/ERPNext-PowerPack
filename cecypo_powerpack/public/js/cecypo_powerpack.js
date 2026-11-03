@@ -637,6 +637,8 @@ CecypoPowerPack.CustomerInfo = {
             secondary_action: function() { CecypoPowerPack.CustomerInfo.copy(snap); }
         });
         d.add_custom_action(__('Copy as Image'), function() { CecypoPowerPack.CustomerInfo.copy_image(snap); });
+        // Keep the three statement actions together on the right, Close on its own.
+        d.custom_actions.find('button').last().addClass('mr-2').insertBefore(d.get_secondary_btn());
         d.add_custom_action(__('Close'), function() { d.hide(); });
         d.show();
     },
