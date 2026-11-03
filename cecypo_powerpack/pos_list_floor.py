@@ -208,10 +208,13 @@ def below_floor_rows(doc):
 		factor = _inclusive_factor(doc, row)
 		rate = flt(flt(row.base_net_rate) * factor, precision)
 		minimum = flt(minimum, precision)
-		# Judge in net terms, the list price taken to net the way ERPNext rounds the line's net
-		# rate: grossing the rounded net rate back up lands a cent under list on ~7% of prices.
-		# ponytail: qty > 1 can still differ by a cent through ERPNext's amount-then-rate rounding.
-		if flt(row.base_net_rate, precision) < flt(minimum / factor, precision):
+		# Judge the line's net amount against the list taken to net: grossing a rounded net rate
+		# back up lands a cent under list on ~7% of prices, and with qty > 1 ERPNext rounds the
+		# amount before the rate (2 x 100 incl. 16% -> 172.41 -> 86.20 -> 99.99).
+		qty = flt(row.qty)
+		net_amount = flt(row.get("base_net_amount")) or flt(row.base_net_rate) * qty
+		amount_precision = row.precision("base_net_amount") or 2
+		if flt(net_amount, amount_precision) < flt(minimum / factor * qty, amount_precision):
 			rows.append(
 				{
 					"idx": row.idx,
