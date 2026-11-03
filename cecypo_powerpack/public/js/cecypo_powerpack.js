@@ -726,7 +726,22 @@ CecypoPowerPack.CustomerInfo = {
         written
             .then(function() { frappe.show_alert({ message: __('Copied to clipboard'), indicator: 'green' }, 4); })
             // A failure in `text` was reported already; only a refused clipboard is new.
-            .catch(function() { text.then(function() { frappe.show_alert({ message: __('Could not copy to clipboard'), indicator: 'red' }, 4); }, function() {}); });
+            .catch(function() { text.then(CI.manual_copy, function() {}); });
+    },
+
+    // The browser refused the clipboard (plain-http site, older browser, tab lost focus):
+    // show the text, selected, so the user can copy it by hand.
+    manual_copy: function(text) {
+        const d = frappe.msgprint({
+            title: __('Copy the statement'),
+            message: '<p class="text-muted">' + __('The browser did not allow copying. Press Ctrl+C (Cmd+C on a Mac) to copy the selected text.') + '</p>' +
+                '<textarea class="form-control party-statement-manual" readonly rows="14" style="font-family:var(--font-family-monospace, monospace);font-size:12px">' +
+                frappe.utils.escape_html(text) + '</textarea>'
+        });
+        // The dialog moves focus to itself once it has opened; select after that.
+        const select = function() { d.$wrapper.find('textarea.party-statement-manual').trigger('focus').trigger('select'); };
+        d.$wrapper.one('shown.bs.modal', function() { setTimeout(select, 50); });
+        setTimeout(select, 700);
     },
 
     copy_image: function(snap) {
@@ -745,11 +760,7 @@ CecypoPowerPack.CustomerInfo = {
             .catch(function() {
                 // The browser refused the image (older browser, or the tab lost focus): download it.
                 return png.then(function(blob) {
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = String(snap.customer_name || snap.customer).replace(/[\\/:*?"<>|]+/g, '-') + ' statement.png';
-                    a.click();
-                    setTimeout(function() { URL.revokeObjectURL(a.href); }, 10000);
+                    cecypo_powerpack.copy_as_image.download(blob, String(snap.customer_name || snap.customer).replace(/[\\:*?"<>|]+/g, '-') + ' statement');
                     frappe.show_alert({ message: __('Could not copy the image, so it was downloaded instead'), indicator: 'orange' }, 6);
                 }, function() {});
             })
