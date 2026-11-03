@@ -291,6 +291,19 @@ def get_customer_snapshot(customer: str, company: str = None) -> dict:
     return build_customer_snapshot(customer, company)
 
 
+
+# The site's Client Script that formats the customer statement (Copy, Email, Copy as Image
+# in the Customer Info dialog). Cecypo Frappe Reports seeds it and its Transaction History
+# uses the same one; PowerPack only reads it, so it works without that app installed.
+PARTY_STATEMENT_SCRIPT = "Party Statement - Copy and Email"
+
+
+@frappe.whitelist()
+def get_party_statement_script() -> str | None:
+    """Source of the site's statement script, or None when it is missing or disabled."""
+    frappe.has_permission("Sales Invoice", "read", throw=True)
+    return frappe.db.get_value("Client Script", {"name": PARTY_STATEMENT_SCRIPT, "enabled": 1}, "script")
+
 # Mirrors has_cost_permission() in bulk_selection.js, which decides whether the dialog
 # shows a cost column. Enforced here too so the value never reaches a user the dialog
 # would hide it from; the browser check alone let anyone read it off the endpoint.

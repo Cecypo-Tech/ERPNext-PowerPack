@@ -636,72 +636,138 @@ CecypoPowerPack.CustomerInfo = {
             secondary_action_label: __('Copy to Clipboard'),
             secondary_action: function() { CecypoPowerPack.CustomerInfo.copy(snap); }
         });
+        d.add_custom_action(__('Copy as Image'), function() { CecypoPowerPack.CustomerInfo.copy_image(snap); });
         d.add_custom_action(__('Close'), function() { d.hide(); });
         d.show();
     },
 
-    build_text: function(snap) {
-        const pad = function(s, n) { s = String(s == null ? '' : s); return s + ' '.repeat(Math.max(0, n - s.length)); };
-        const money = function(v) { return format_currency(v || 0, snap.currency); };
-        const sep = '-'.repeat(72);
-        const lines = ['Dear ' + (snap.customer_name || snap.customer) + ',', ''];
-        if ((snap.invoices || []).length) {
-            lines.push('Your account currently shows the following outstanding invoices:');
-            lines.push(pad('Invoice', 22) + pad('Due Date', 14) + pad('Days Overdue', 14) + 'Outstanding');
-            lines.push(sep);
-            snap.invoices.forEach(function(r) {
-                lines.push(pad(r.name, 22) + pad(frappe.datetime.str_to_user(r.due_date), 14) + pad(r.days_overdue || 0, 14) + money(r.outstanding_amount));
-            });
-            lines.push(sep);
-            lines.push('Total Outstanding: ' + money(snap.outstanding_total));
-        } else {
-            lines.push('Your account has no outstanding invoices.');
-        }
-        if ((snap.advances || []).length) {
-            lines.push('');
-            lines.push('Unallocated payments on your account:');
-            snap.advances.forEach(function(a) {
-                lines.push(pad(a.name, 22) + pad(frappe.datetime.str_to_user(a.posting_date), 14) + money(a.unallocated_amount));
-            });
-            lines.push('Net position: ' + money(snap.net_position));
-        }
-        lines.push('');
-        lines.push(snap.overdue_count ? 'Kindly arrange for payment at your earliest convenience.' : 'Thank you for your business.');
-        return lines.join('\n');
+    // Copy, Email and Copy as Image format through the site's statement script
+    // ('Party Statement - Copy and Email', seeded by Cecypo Frappe Reports), the same one
+    // Transaction History uses, so a site changes its columns in one place.
+    SCRIPT: 'Party Statement - Copy and Email',
+
+    // The shape the statement script takes, shared with Transaction History.
+    statement_snap: function(snap) {
+        return {
+            party_type: 'Customer',
+            party: snap.customer,
+            party_name: snap.customer_name || snap.customer,
+            company: snap.company || '',
+            as_of_date: frappe.datetime.get_today(),
+            currency: snap.currency,
+            invoices: (snap.invoices || []).map(function(r) {
+                return { name: r.name, posting_date: r.posting_date, due_date: r.due_date, days_overdue: r.days_overdue || 0,
+                    grand_total: r.grand_total, paid: r.paid, outstanding_amount: r.outstanding_amount };
+            }),
+            outstanding_total: snap.outstanding_total,
+            overdue_count: snap.overdue_count,
+            overdue_total: snap.overdue_total,
+            advances: (snap.advances || []).map(function(a) {
+                return { name: a.name, posting_date: a.posting_date, paid_amount: a.paid_amount, unallocated_amount: a.unallocated_amount };
+            }),
+            advances_total: snap.advances_total,
+            net_position: snap.net_position,
+            payment_terms: snap.payment_terms,
+            credit_limit: snap.credit_limit
+        };
     },
 
+    // Resolves to cecypo.party_statement. Fetched on every use so an edit applies without a
+    // reload. Every failure is reported here and rejects with `silent`.
+    statement: function() {
+        const CI = CecypoPowerPack.CustomerInfo;
+        const silent = function() { return Object.assign(new Error('party statement unavailable'), { silent: true }); };
+        return frappe.xcall('cecypo_powerpack.api.get_party_statement_script')
+            .catch(function() { throw silent(); }) // frappe has already shown the server's error
+            .then(function(source) {
+                if (!source) {
+                    frappe.show_alert({ message: __("Statement script is missing or disabled: Client Script '{0}'", [CI.SCRIPT]), indicator: 'orange' }, 7);
+                    throw silent();
+                }
+                return CI.run(function() {
+                    if (window.cecypo) delete window.cecypo.party_statement; // never fall back to a stale copy
+                    new Function(source)();
+                    const ps = window.cecypo && window.cecypo.party_statement;
+                    if (!ps || typeof ps.text !== 'function' || typeof ps.image !== 'function') {
+                        throw new Error(__('The script did not register cecypo.party_statement with text() and image().'));
+                    }
+                    return ps;
+                });
+            });
+    },
+
+    // Runs site-script code; a throw or rejection becomes a red message naming the script.
+    run: function(fn) {
+        const report = function(e) {
+            frappe.msgprint({
+                title: __('Statement script error'),
+                indicator: 'red',
+                message: __("Client Script '{0}' failed: {1}", [CecypoPowerPack.CustomerInfo.SCRIPT, frappe.utils.escape_html(String((e && e.message) || e))])
+            });
+            throw Object.assign(new Error('party statement failed'), { silent: true });
+        };
+        try { return Promise.resolve(fn()).catch(report); }
+        catch (e) { return Promise.reject(e).catch(report); }
+    },
+
+    // The clipboard write must start inside the click (Safari), so it is handed the
+    // pending text rather than waiting for the script to arrive.
     copy: function(snap) {
-        const text = CecypoPowerPack.CustomerInfo.build_text(snap);
-        const done = function() { frappe.show_alert({ message: __('Copied to clipboard'), indicator: 'green' }, 4); };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(done).catch(function() { CecypoPowerPack.CustomerInfo._fallbackCopy(text, done); });
-        } else {
-            CecypoPowerPack.CustomerInfo._fallbackCopy(text, done);
+        const CI = CecypoPowerPack.CustomerInfo;
+        const text = CI.statement().then(function(ps) { return CI.run(function() { return ps.text(CI.statement_snap(snap)); }); });
+        let written;
+        try {
+            written = typeof ClipboardItem === 'undefined'
+                ? text.then(function(t) { return navigator.clipboard.writeText(t); })
+                : navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then(function(t) { return new Blob([t], { type: 'text/plain' }); }) })]);
+        } catch (e) {
+            written = Promise.reject(e);
         }
+        written
+            .then(function() { frappe.show_alert({ message: __('Copied to clipboard'), indicator: 'green' }, 4); })
+            // A failure in `text` was reported already; only a refused clipboard is new.
+            .catch(function() { text.then(function() { frappe.show_alert({ message: __('Could not copy to clipboard'), indicator: 'red' }, 4); }, function() {}); });
     },
 
-    _fallbackCopy: function(text, done) {
-        const el = document.createElement('textarea');
-        el.value = text;
-        el.style.position = 'fixed';
-        el.style.opacity = '0';
-        document.body.appendChild(el);
-        el.focus();
-        el.select();
-        try { document.execCommand('copy'); done(); }
-        catch (e) { frappe.show_alert({ message: __('Could not copy to clipboard'), indicator: 'red' }, 4); }
-        document.body.removeChild(el);
+    copy_image: function(snap) {
+        const CI = CecypoPowerPack.CustomerInfo;
+        if (CI._image_busy) return;
+        CI._image_busy = true;
+        const png = CI.statement().then(function(ps) { return CI.run(function() { return ps.image(CI.statement_snap(snap)); }); });
+        let written;
+        try {
+            written = navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+        } catch (e) {
+            written = Promise.reject(e);
+        }
+        written
+            .then(function() { frappe.show_alert({ message: __('Image copied'), indicator: 'green' }, 4); })
+            .catch(function() {
+                // The browser refused the image (older browser, or the tab lost focus): download it.
+                return png.then(function(blob) {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = String(snap.customer_name || snap.customer).replace(/[\\/:*?"<>|]+/g, '-') + ' statement.png';
+                    a.click();
+                    setTimeout(function() { URL.revokeObjectURL(a.href); }, 10000);
+                    frappe.show_alert({ message: __('Could not copy the image, so it was downloaded instead'), indicator: 'orange' }, 6);
+                }, function() {});
+            })
+            .finally(function() { CI._image_busy = false; });
     },
 
     email: function(snap) {
         const recipient = snap.primary_contact && snap.primary_contact.email ? snap.primary_contact.email : '';
         const subject = __('Account statement \u2014 {0}: {1} outstanding', [snap.customer_name || snap.customer, format_currency(snap.outstanding_total || 0, snap.currency)]);
-        new frappe.views.CommunicationComposer({
-            doc: { doctype: 'Customer', name: snap.customer },
-            subject: subject,
-            recipients: recipient,
-            message: '<pre style="font-family:inherit;white-space:pre-wrap">' + frappe.utils.escape_html(CecypoPowerPack.CustomerInfo.build_text(snap)) + '</pre>'
-        });
+        const CI = CecypoPowerPack.CustomerInfo;
+        CI.statement().then(function(ps) { return CI.run(function() { return ps.text(CI.statement_snap(snap)); }); }).then(function(text) {
+            new frappe.views.CommunicationComposer({
+                doc: { doctype: 'Customer', name: snap.customer },
+                subject: subject,
+                recipients: recipient,
+                message: '<pre style="font-family:inherit;white-space:pre-wrap">' + frappe.utils.escape_html(text) + '</pre>'
+            });
+        }).catch(function() {});
     }
 };
 
