@@ -243,6 +243,37 @@ class TestWorkflowSync(SettingsSnapshot, FrappeTestCase):
 		approve = next(t for t in wf.transitions if t.action == pa.ACTION_APPROVE)
 		self.assertEqual(approve.allowed, other)
 
+	def test_sync_ships_both_notifications_switched_off(self):
+		from cecypo_powerpack import price_approval as pa
+
+		for kind in ("Requested", "Granted"):
+			frappe.delete_doc_if_exists("Notification", pa.notification_name(kind, "Sales Order"), force=True)
+		self._configure(msp_approval_sales_order=1)
+		requested = frappe.get_doc("Notification", pa.notification_name("Requested", "Sales Order"))
+		granted = frappe.get_doc("Notification", pa.notification_name("Granted", "Sales Order"))
+		self.assertEqual((requested.enabled, granted.enabled), (0, 0))
+		self.assertEqual([r.receiver_by_role for r in requested.recipients], [ROLE])
+		self.assertEqual([r.receiver_by_document_field for r in granted.recipients], ["owner"])
+		self.assertIn(pa.STATE_PENDING, requested.condition)
+		self.assertIn(pa.STATE_APPROVED, granted.condition)
+		self.assertFalse(frappe.db.exists("Notification", pa.notification_name("Requested", "Quotation")))
+
+	def test_resync_keeps_a_switched_on_notification_on_and_follows_the_role(self):
+		from cecypo_powerpack import price_approval as pa
+
+		other = "_MSP Other Role"
+		if not frappe.db.exists("Role", other):
+			frappe.get_doc({"doctype": "Role", "role_name": other}).insert()
+		self._configure(msp_approval_sales_order=1)
+		name = pa.notification_name("Requested", "Sales Order")
+		frappe.db.set_value("Notification", name, "enabled", 1)
+		s = frappe.get_single("PowerPack Settings")
+		s.min_selling_price_override_role = other
+		s.save()
+		requested = frappe.get_doc("Notification", name)
+		self.assertEqual(requested.enabled, 1)
+		self.assertEqual([r.receiver_by_role for r in requested.recipients], [other])
+
 	def test_manual_edit_and_delete_are_refused(self):
 		from cecypo_powerpack import price_approval as pa
 

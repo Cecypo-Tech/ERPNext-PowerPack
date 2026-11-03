@@ -251,12 +251,68 @@ def sync_price_approval_workflows(settings):
 						},
 					)
 				workflow.save(ignore_permissions=True)
+				_ensure_notifications(doctype, role)
 			elif exists and frappe.db.get_value("Workflow", name, "is_active"):
 				# Deactivate, never delete: Workflow Action history stays readable.
 				frappe.db.set_value("Workflow", name, "is_active", 0)
 				frappe.clear_cache(doctype=doctype)
 	finally:
 		frappe.flags.powerpack_workflow_sync = False
+
+
+_LINK = '<a href="{{ frappe.utils.get_url_to_form(doc.doctype, doc.name) }}">{{ doc.name }}</a>'
+_NOTIFICATIONS = {
+	# kind: (state it fires on, subject, message)
+	"Requested": (
+		STATE_PENDING,
+		"Price approval needed: {{ doc.name }} for {{ doc.customer_name }} ({{ doc.get_formatted('grand_total') }})",
+		"<p>{{ doc.owner }} asked for approval of " + _LINK + " for {{ doc.customer_name }}, "
+		"{{ doc.get_formatted('grand_total') }}, with lines below the minimum selling price.</p>"
+		"<p>Open it and use <b>Approve</b> or <b>Reject</b>.</p>",
+	),
+	"Granted": (
+		STATE_APPROVED,
+		"Approved: {{ doc.name }} for {{ doc.customer_name }} is ready to complete",
+		"<p>" + _LINK + " for {{ doc.customer_name }} ({{ doc.get_formatted('grand_total') }}) was approved. "
+		"Submit it, or for an order held at the till, resume it from Invoice History, Held tab.</p>",
+	),
+}
+
+
+def notification_name(kind, doctype):
+	return f"PowerPack Price Approval {kind} - {doctype}"
+
+
+def _ensure_notifications(doctype, role):
+	"""Approver and requester alerts for a routed doctype. Created switched off - a site opts
+	in - and never switched afterwards; only the approver role follows the settings."""
+	for kind, (state, subject, message) in _NOTIFICATIONS.items():
+		name = notification_name(kind, doctype)
+		if frappe.db.exists("Notification", name):
+			doc = frappe.get_doc("Notification", name)
+		else:
+			doc = frappe.new_doc("Notification")
+			doc.update(
+				{
+					"name": name,
+					"__newname": name,
+					"enabled": 0,
+					"channel": "Email",
+					"send_system_notification": 1,
+					"document_type": doctype,
+					"event": "Value Change",
+					"value_changed": STATE_FIELD,
+					"condition_type": "Python",
+					"condition": f'doc.{STATE_FIELD} == "{state}"',
+					"subject": subject,
+					"message_type": "HTML",
+					"message": message,
+				}
+			)
+		recipient = (role, None) if kind == "Requested" else (None, "owner")
+		if doc.is_new() or [(r.receiver_by_role, r.receiver_by_document_field) for r in doc.recipients] != [recipient]:
+			doc.set("recipients", [{"receiver_by_role": recipient[0], "receiver_by_document_field": recipient[1]}])
+			doc.save(ignore_permissions=True)
 
 
 def guard_managed_workflow(doc, method=None):
