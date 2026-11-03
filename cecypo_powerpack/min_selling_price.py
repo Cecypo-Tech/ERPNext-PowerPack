@@ -141,6 +141,11 @@ def row_floor(doctype, company, item_code, conversion_factor=1, warehouse=None, 
 
 def judged_items(doc):
 	"""The rows the floor applies to under the current settings (for approval snapshots)."""
+	from cecypo_powerpack import pos_list_floor
+
+	# A held order on a list-floor till is judged on the list, line by line: every sold line.
+	if doc.doctype == "Sales Order" and doc.get("custom_pos_profile") and pos_list_floor.till_enforces(doc):
+		return [i for i in doc.get("items") or [] if i.get("item_code") and not cint(i.get("is_free_item")) and flt(i.get("qty")) > 0]
 	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
 	rules = _build_rules(settings)
 	default_basis = settings.get("min_selling_price_default_basis") or "Valuation Rate"
@@ -162,11 +167,14 @@ def validate_min_selling_price(doc, method=None):
 
 	# A ticked till judges its sales on the price list instead of the cost floor; an unticked
 	# till keeps the cost floor (and the held-order approval built on it) unchanged. A held
-	# order on a ticked till is judged when it is checked out, not when held.
+	# order on a ticked till is judged when it is checked out, not when held - unless the
+	# cashier held it to ask a manager, when it is judged on the list now.
 	if pos_list_floor.is_till_sale(doc) and pos_list_floor.till_enforces(doc):
 		pos_list_floor.validate(doc)
 		return
 	if doc.doctype == "Sales Order" and doc.get("custom_pos_profile") and pos_list_floor.till_enforces(doc):
+		if doc.flags.get("powerpack_request_list_approval"):
+			pos_list_floor.judge_held_order(doc)
 		return
 
 	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
