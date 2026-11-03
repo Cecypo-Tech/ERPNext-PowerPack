@@ -119,7 +119,7 @@ def ensure_plf_fixtures():
 	frappe.db.commit()
 
 
-def make_invoice(rate, header=RETAIL, line_list=None, uom="Nos", conversion_factor=1, vat=None, discount_pct=0, owner=None, till=TILL):
+def make_invoice(rate, header=RETAIL, line_list=None, uom="Nos", conversion_factor=1, vat=None, discount_pct=0, owner=None, till=TILL, qty=1):
 	"""An unsaved till Sales Invoice with totals computed, priced exactly as given."""
 	from cecypo_powerpack.pos_list_floor import LINE_LIST_FIELD
 
@@ -144,7 +144,7 @@ def make_invoice(rate, header=RETAIL, line_list=None, uom="Nos", conversion_fact
 		{
 			"item_code": ITEM,
 			"item_name": ITEM,
-			"qty": 1,
+			"qty": qty,
 			"uom": uom,
 			"stock_uom": "Nos",
 			"conversion_factor": conversion_factor,
@@ -244,6 +244,15 @@ class TestPosListFloorRows(FrappeTestCase):
 		self.addCleanup(frappe.db.set_value, "Item Price", name, "price_list_rate", 450)
 		self.assertEqual(self.minimums(make_invoice(99, vat=16)), [])
 		self.assertEqual(self.minimums(make_invoice(98.98, vat=16)), [99])
+
+	def test_inclusive_tax_at_list_passes_for_several_units(self):
+		# 2 x 100 incl. 16%: ERPNext rounds the amount (172.41) then the rate (86.20), which grosses
+		# up to 99.99 - a sale made exactly at list was blocked at a live till.
+		name = frappe.db.get_value("Item Price", {"item_code": ITEM, "price_list": RETAIL, "uom": "Nos"})
+		frappe.db.set_value("Item Price", name, "price_list_rate", 100)
+		self.addCleanup(frappe.db.set_value, "Item Price", name, "price_list_rate", 450)
+		self.assertEqual(self.minimums(make_invoice(100, vat=16, qty=2)), [])
+		self.assertEqual(self.minimums(make_invoice(99.98, vat=16, qty=2)), [100])
 
 	def test_discount_allowance_lowers_the_floor(self):
 		from cecypo_powerpack.pos_list_floor import ALLOWANCE_FIELD, setup_custom_fields
