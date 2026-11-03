@@ -241,6 +241,8 @@ def validate(doc):
 	by_idx = {row.idx: row for row in doc.items}
 	rows = [by_idx[b["idx"]] for b in breaches]
 
+	if not doc.get(pa.APPROVED_ROWS_FIELD):
+		pa.carry_over_source_approval(doc)  # a manager's approval of the held order it came from
 	approved = pa.load_rows(doc.get(pa.APPROVED_ROWS_FIELD))
 	if approved and not pa.uncovered_rows(doc, approved, items=rows):
 		pa.set_breach_flag(doc, 1)
@@ -268,6 +270,21 @@ def validate(doc):
 	)
 
 
+def judge_held_order(doc):
+	"""A held order the cashier sent to a manager: flag it when a line is below the list, so
+	the price-approval workflow takes it (the till asks with Request Price Approval)."""
+	from frappe import _
+
+	from cecypo_powerpack import price_approval as pa
+
+	if not pa.routing_applies(doc, frappe.get_cached_doc(SETTINGS_DOCTYPE)):
+		frappe.throw(
+			_("Asking a manager needs Sales Order price approval switched on in PowerPack Settings. Ask a supervisor to authorise at the till instead."),
+			title=_(pa.TITLE),
+		)
+	pa.set_breach_flag(doc, 1 if below_floor_rows(doc) else 0)
+
+
 def till_floor_report(doc):
 	"""For the till's checkout preview: does this till enforce the floor, and which lines are below it."""
 	from cecypo_powerpack.utils import is_feature_enabled
@@ -276,4 +293,14 @@ def till_floor_report(doc):
 		return {"enforced": False, "rows": []}
 	if doc.get("is_return") or doc.get("is_internal_customer"):
 		return {"enforced": True, "rows": []}
-	return {"enforced": True, "rows": below_floor_rows(doc)}
+	rows = below_floor_rows(doc)
+	# A held order a manager approved: the lines its approval still covers are not blocked.
+	from cecypo_powerpack import price_approval as pa
+
+	approval = pa.find_covering_approval(doc) if rows else None
+	approved = pa.load_rows(approval.get(pa.APPROVED_ROWS_FIELD)) if approval else []
+	if approved:
+		by_idx = {row.idx: row for row in doc.items}
+		uncovered = set(pa.uncovered_rows(doc, approved, items=[by_idx[r["idx"]] for r in rows]))
+		rows = [r for r in rows if r["idx"] in uncovered]
+	return {"enforced": True, "rows": rows}

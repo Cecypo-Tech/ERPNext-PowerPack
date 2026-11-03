@@ -1,3 +1,4 @@
+import json
 # Copyright (c) 2026, Cecypo.Tech and contributors
 # For license information, please see license.txt
 
@@ -296,7 +297,7 @@ class TestPosListFloorValidate(FrappeTestCase):
 		settings = frappe.get_single("PowerPack Settings")
 		self.saved = {f: settings.get(f) for f in (
 			"enable_min_selling_price", "min_selling_price_default_basis", "min_selling_price_default_percent",
-			"min_selling_price_skip_if_pricing_rule", "min_selling_price_override_role",
+			"min_selling_price_skip_if_pricing_rule", "min_selling_price_override_role", "msp_approval_sales_order",
 		)}
 		frappe.db.set_single_value("PowerPack Settings", {
 			"enable_min_selling_price": 1,
@@ -369,6 +370,82 @@ class TestPosListFloorValidate(FrappeTestCase):
 		so.append("items", {"item_code": ITEM, "qty": 1, "uom": "Nos", "stock_uom": "Nos", "conversion_factor": 1, "rate": 1, "price_list_rate": 1})
 		so.calculate_taxes_and_totals()
 		self.validate(so)
+
+	def _held_order(self, rate):
+		so = frappe.new_doc("Sales Order")
+		so.update({"company": "_Test Company", "customer": "_Test Customer", "currency": "INR", "conversion_rate": 1,
+			"selling_price_list": RETAIL, "plc_conversion_rate": 1, "custom_pos_profile": TILL,
+			"transaction_date": frappe.utils.nowdate(), "delivery_date": frappe.utils.nowdate()})
+		so.append("items", {"item_code": ITEM, "qty": 1, "uom": "Nos", "stock_uom": "Nos", "conversion_factor": 1, "rate": rate, "price_list_rate": rate})
+		so.calculate_taxes_and_totals()
+		return so
+
+	def _skip_without_held_order_fields(self):
+		from cecypo_powerpack.price_approval import BREACH_FIELD
+
+		meta = frappe.get_meta("Sales Order")
+		if not (meta.has_field("custom_pos_profile") and meta.has_field(BREACH_FIELD)):
+			self.skipTest("klik_pos held-order or price-approval fields not installed")
+
+	def test_held_order_asking_the_manager_is_judged_on_the_list(self):
+		from cecypo_powerpack.price_approval import BREACH_FIELD
+
+		self._skip_without_held_order_fields()
+		frappe.db.set_single_value("PowerPack Settings", "msp_approval_sales_order", 1)
+		frappe.clear_cache(doctype="PowerPack Settings")
+		below = self._held_order(420)
+		below.flags.powerpack_request_list_approval = True
+		self.assertEqual(self.validate(below).get(BREACH_FIELD), 1)
+		at_list = self._held_order(450)  # above the 150 cost floor too: only the list judges it
+		at_list.flags.powerpack_request_list_approval = True
+		self.assertEqual(self.validate(at_list).get(BREACH_FIELD), 0)
+
+	def test_asking_the_manager_needs_sales_order_approval_on(self):
+		self._skip_without_held_order_fields()
+		frappe.db.set_single_value("PowerPack Settings", "msp_approval_sales_order", 0)
+		frappe.clear_cache(doctype="PowerPack Settings")
+		so = self._held_order(420)
+		so.flags.powerpack_request_list_approval = True
+		with self.assertRaisesRegex(frappe.ValidationError, "Sales Order price approval"):
+			self.validate(so)
+
+	def test_approval_records_every_line_of_a_ticked_till_held_order(self):
+		from cecypo_powerpack.price_approval import snapshot_rows
+
+		self._skip_without_held_order_fields()
+		frappe.db.set_single_value("PowerPack Settings", "min_selling_price_default_percent", 0)
+		frappe.clear_cache(doctype="PowerPack Settings")  # no cost floor: only the list judges
+		self.assertEqual([r["item_code"] for r in snapshot_rows(self._held_order(420))], [ITEM])
+
+	def test_preview_drops_lines_the_held_orders_approval_covers(self):
+		from cecypo_powerpack.pos_list_floor import till_floor_report
+		from cecypo_powerpack.price_approval import APPROVED_ROWS_FIELD, SOURCE_ORDER_FIELD, STATE_APPROVED, STATE_FIELD, snapshot_rows
+
+		self._skip_without_held_order_fields()
+		so = self._held_order(420)
+		so.insert(ignore_permissions=True)
+		so.db_set({STATE_FIELD: STATE_APPROVED, APPROVED_ROWS_FIELD: json.dumps(snapshot_rows(so))})
+		covered = make_invoice(420)
+		covered.set(SOURCE_ORDER_FIELD, so.name)
+		self.assertEqual(till_floor_report(covered)["rows"], [])
+		lowered = make_invoice(410)
+		lowered.set(SOURCE_ORDER_FIELD, so.name)
+		self.assertEqual([r["idx"] for r in till_floor_report(lowered)["rows"]], [1])
+
+	def test_approved_held_order_covers_its_checkout(self):
+		from cecypo_powerpack.price_approval import APPROVED_ROWS_FIELD, SOURCE_ORDER_FIELD, STATE_APPROVED, STATE_FIELD, snapshot_rows
+
+		self._skip_without_held_order_fields()
+		so = self._held_order(420)
+		so.insert(ignore_permissions=True)
+		so.db_set({STATE_FIELD: STATE_APPROVED, APPROVED_ROWS_FIELD: json.dumps(snapshot_rows(so))})
+		invoice = make_invoice(420)
+		invoice.set(SOURCE_ORDER_FIELD, so.name)
+		self.validate(invoice)  # covered: no PIN needed
+		lowered = make_invoice(410)
+		lowered.set(SOURCE_ORDER_FIELD, so.name)
+		with self.assertRaises(frappe.ValidationError):
+			self.validate(lowered)
 
 	def _approval(self, doc):
 		from cecypo_powerpack.price_approval import snapshot_rows
