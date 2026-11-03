@@ -17,6 +17,12 @@ class TestPosListFloorFields(FrappeTestCase):
 		field = custom_field_definitions()["POS Profile"][0]
 		self.assertEqual(field.get("default"), "0")
 
+	def test_discount_allowance_off_by_default(self):
+		from cecypo_powerpack.pos_list_floor import ALLOWANCE_FIELD, custom_field_definitions
+
+		(field,) = [f for f in custom_field_definitions()["POS Profile"] if f["fieldname"] == ALLOWANCE_FIELD]
+		self.assertEqual(field.get("default"), "0")
+
 	def test_fields_exist_after_setup(self):
 		from cecypo_powerpack.pos_list_floor import ENFORCE_FIELD, LINE_LIST_FIELD, PIN_FIELD, setup_custom_fields
 
@@ -237,6 +243,16 @@ class TestPosListFloorRows(FrappeTestCase):
 		self.addCleanup(frappe.db.set_value, "Item Price", name, "price_list_rate", 450)
 		self.assertEqual(self.minimums(make_invoice(99, vat=16)), [])
 		self.assertEqual(self.minimums(make_invoice(98.98, vat=16)), [99])
+
+	def test_discount_allowance_lowers_the_floor(self):
+		from cecypo_powerpack.pos_list_floor import ALLOWANCE_FIELD, setup_custom_fields
+
+		setup_custom_fields()
+		frappe.db.set_value("POS Profile", TILL, ALLOWANCE_FIELD, 10)
+		self.addCleanup(frappe.db.set_value, "POS Profile", TILL, ALLOWANCE_FIELD, 0)
+		self.assertEqual(self.minimums(make_invoice(410)), [])  # list 450 less 10% = 405
+		self.assertEqual(self.minimums(make_invoice(405)), [])
+		self.assertEqual(self.minimums(make_invoice(400)), [405])
 
 	def test_order_discount_counts(self):
 		self.assertEqual(self.minimums(make_invoice(450, discount_pct=10)), [450])
