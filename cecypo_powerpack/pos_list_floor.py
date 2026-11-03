@@ -16,6 +16,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils import cint, flt
 
 ENFORCE_FIELD = "powerpack_enforce_list_floor"
+ALLOWANCE_FIELD = "powerpack_list_floor_discount_allowance"
 LINE_LIST_FIELD = "powerpack_line_price_list"
 PIN_FIELD = "powerpack_pos_supervisor_pin"
 
@@ -39,7 +40,16 @@ def custom_field_definitions():
 				"default": "0",  # off on every existing till after an update
 				"insert_after": "allow_rate_change",
 				"description": "Lines may not sell below the price list they were priced from unless a supervisor authorises it with their PIN.",
-			}
+			},
+			{
+				"fieldname": ALLOWANCE_FIELD,
+				"label": "Allowed discount below price list (%)",
+				"fieldtype": "Percent",
+				"default": "0",  # none: the list price itself is the floor
+				"insert_after": ENFORCE_FIELD,
+				"depends_on": f"eval:doc.{ENFORCE_FIELD}",
+				"description": "Cashiers may sell up to this much below the price list without a supervisor. 10 makes the floor 90% of the list price.",
+			},
 		],
 		"Sales Invoice Item": [dict(line_field)],
 		"POS Invoice Item": [dict(line_field)],
@@ -178,6 +188,8 @@ def below_floor_rows(doc):
 	settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
 	promos_exempt = cint(settings.get("min_selling_price_skip_if_pricing_rule"))
 	owner = doc.get("owner") or frappe.session.user
+	profile = doc.get("pos_profile") or doc.get("custom_pos_profile")
+	allowance = min(max(flt(frappe.get_cached_value("POS Profile", profile, ALLOWANCE_FIELD)) if profile else 0, 0), 100)
 	rows = []
 	for row in doc.get("items") or []:
 		if not row.get("item_code") or cint(row.get("is_free_item")) or flt(row.get("qty")) <= 0:
@@ -188,8 +200,10 @@ def below_floor_rows(doc):
 		minimum = _list_price(doc, row, price_list)
 		if minimum <= 0:
 			continue
+		list_price = minimum
 		if promos_exempt:
-			minimum = _promo_price(doc, row, price_list, minimum)
+			minimum = _promo_price(doc, row, price_list, list_price)
+		minimum = min(minimum, list_price * (1 - allowance / 100))
 		precision = row.precision("base_net_rate") or 2
 		factor = _inclusive_factor(doc, row)
 		rate = flt(flt(row.base_net_rate) * factor, precision)
