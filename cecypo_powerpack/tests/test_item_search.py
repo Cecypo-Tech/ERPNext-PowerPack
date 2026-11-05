@@ -102,6 +102,39 @@ class TestCustomItemQuery(UnitTestCase):
 		self.assertIn(self.blue, names)
 		self.assertNotIn(self.plain, names)
 
+	# ── Company filter (ERPNext #57352 sends the document's company) ──────
+	def _company_names(self, company):
+		from cecypo_powerpack.api import custom_item_query
+
+		filters = {"is_stock_item": 0, "company": company}
+		rows = custom_item_query("Item", MARKER, "name", 0, 50, filters, as_dict=True)
+		return {r["name"] for r in rows}
+
+	def test_company_filter_is_not_an_item_column(self):
+		"""Stock Reconciliation, Quotation, Stock Entry… send {"company": doc.company}.
+		Item has no company column: the search must still answer, not fail."""
+		company = frappe.db.get_value("Company", {}, "name")
+		self.assertTrue(self.created <= self._company_names(company))
+
+	def test_items_restricted_to_another_company_are_left_out(self):
+		try:
+			from erpnext.stock.doctype.company_restriction.company_restriction import (  # noqa: F401
+				get_restriction_criterion,
+			)
+		except ImportError:
+			self.skipTest("this ERPNext has no company restrictions")
+		companies = frappe.get_all("Company", pluck="name", limit=2)
+		if len(companies) < 2:
+			self.skipTest("needs two companies")
+		item = frappe.get_doc("Item", self.grey)
+		item.restrict_to_companies = 1
+		item.set("allowed_companies", [{"company": companies[1]}])
+		item.save()
+		names = self._company_names(companies[0])
+		self.assertNotIn(self.grey, names)
+		self.assertIn(self.blue, names)
+		self.assertIn(self.grey, self._company_names(companies[1]))
+
 
 class TestCustomSearchLinkSignature(UnitTestCase):
 	def test_signature_matches_upstream(self):

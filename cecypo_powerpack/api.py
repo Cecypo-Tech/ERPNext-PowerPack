@@ -1254,6 +1254,12 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 	if isinstance(filters, str):
 		filters = _json.loads(filters)
 
+	# ERPNext (#57352) sends the document's company with every item search. Item has no
+	# company column, so it is not a filter: it limits the search to the items allowed for
+	# that company, as ERPNext's own item_query does.
+	company = filters.pop("company", None) if isinstance(filters, dict) else None
+	company_cond, company_values = _company_restriction_cond(company)
+
 	# Party Specific Item restrictions — identical to ERPNext original
 	if filters and isinstance(filters, dict):
 		if filters.get("customer") or filters.get("supplier"):
@@ -1331,6 +1337,7 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 		"start": start,
 		"page_len": page_len,
 		"_txt": txt.replace("%", ""),
+		**company_values,
 	}
 
 	token_clauses = []
@@ -1371,7 +1378,7 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 			and tabItem.has_variants=0
 			and (tabItem.end_of_life > %(today)s or ifnull(tabItem.end_of_life, '0000-00-00')='0000-00-00')
 			and ({scond})
-			{fcond} {mcond}
+			{fcond} {mcond} {company_cond}
 		order by
 			if(locate(%(_txt)s, name), locate(%(_txt)s, name), 99999),
 			if(locate(%(_txt)s, item_name), locate(%(_txt)s, item_name), 99999),
@@ -1382,10 +1389,29 @@ def custom_item_query(doctype, txt, searchfield, start, page_len, filters, as_di
 		scond=search_cond,
 		fcond=get_filters_cond(doctype, filters, conditions).replace("%", "%%"),
 		mcond=get_match_cond(doctype).replace("%", "%%"),
+		company_cond=company_cond,
 	)
 
 	# nosemgrep: frappe-sql-format-injection -- identifiers validated above; all values bound as params
 	return frappe.db.sql(query_sql, values, as_dict=as_dict)
+
+
+def _company_restriction_cond(company):
+	"""ERPNext's "Allowed Companies" restriction on Item as (SQL condition, its bound values),
+	rendered the way ERPNext's own item_query does. Empty on an ERPNext without it."""
+	if not company:
+		return "", {}
+	try:
+		from erpnext.stock.doctype.company_restriction.company_restriction import get_restriction_criterion
+	except ImportError:
+		return "", {}
+	from frappe.query_builder.terms import NamedParameterWrapper
+
+	params = NamedParameterWrapper()
+	cond = get_restriction_criterion("Item", [company]).get_sql(
+		with_namespace=True, quote_char="`", param_wrapper=params, subquery=True
+	)
+	return "and " + cond, params.get_parameters()
 
 
 @frappe.whitelist()
