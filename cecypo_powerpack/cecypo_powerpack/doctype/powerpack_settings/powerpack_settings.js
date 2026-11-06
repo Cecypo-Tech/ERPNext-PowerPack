@@ -38,7 +38,9 @@ frappe.ui.form.on('PowerPack Settings', {
 });
 
 function cecypo_check_min_price_conflict(frm) {
-	if (!frm.doc.enable_min_selling_price) {
+	// Users without read on Selling Settings (e.g. Accounts Manager) would get a
+	// "No permission" error from the lookup below, so skip the warning for them.
+	if (!frm.doc.enable_min_selling_price || !frappe.model.can_read('Selling Settings')) {
 		frm.dashboard.clear_comment();
 		return;
 	}
